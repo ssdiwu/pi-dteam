@@ -54,7 +54,8 @@ type WorkerOption =
   | { type: "workers"; value: Worker[] }
   | { type: "rounds"; value: number }
   | { type: "voting"; value: boolean }
-  | { type: "maxDepth"; value: number };
+  | { type: "maxDepth"; value: number }
+  | { type: "debug"; value: boolean };
 ```
 
 ## 配置矩阵
@@ -70,6 +71,7 @@ type WorkerOption =
 | rounds | ❌ 忽略 | ❌ 忽略 | ⚪ 可选 | 讨论轮数 |
 | voting | ❌ 忽略 | ❌ 忽略 | ⚪ 可选 | 是否投票 |
 | maxDepth | ❌ 忽略 | ⚪ 可选 | ❌ 忽略 | 嵌套深度 |
+| debug | ⚪ 可选 | ⚪ 可选 | ⚪ 可选 | 调试模式 |
 
 ## 模式详情
 
