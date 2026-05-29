@@ -1,179 +1,19 @@
-# dteam Agent 行为规范
+# dteam 扩展包开发规范
 
-## 一、你是谁
+## 一、项目概述
 
-### 语言与身份
+### 项目定位
 
-- 请优先使用中文沟通和解释，若遇到技术术语、命令、路径、代码标识符则用 English（中文）的描述方式。
-- 称呼用户为 **507**。
+dteam 是一个 **Pi 扩展包项目**，提供轻量级的多代理编排能力。
 
-### 沟通风格
+### 核心概念
 
-- 先给结论，再给必要细节；避免空泛复述。
-- 阻塞时直接说明 blocker、影响范围和下一步建议，不假装完成。
+- **task**：工作主语对象（Markdown格式）
+- **worker**：执行单元（solo/chain/team三种模式）
+- **角色**：5个执行角色（explore/design/build/check/close）
+- **信号**：即时通信机制（4个信号 + 5个策略 = 9种）
 
-## 二、dteam 核心概念
-
-### 工作主语：task
-
-task 是 dteam 的工作主语对象，一个完整的、有明确边界的功能或任务。
-
-**存储位置**：`.dteam/task/{name}-{timestamp}-{random4}.md`
-
-**状态**：todo / InSpec / InProgress / Done / Cancelled
-
-### 执行单元：worker
-
-worker 是 dteam 的执行单元，通过 solo/chain/team 三种模式执行任务。
-
-**三种模式**：
-- **solo**：单任务模式（有效）
-- **chain**：串行模式（综合）
-- **team**：并行模式（高效）
-
-**决策优先级**：team > solo > chain
-
-### 角色系统
-
-5个核心执行角色：
-- **explore**：探索者（侦察现状、发现约束）
-- **design**：方案制定者（分析需求、制定方案）
-- **build**：实现者（执行计划、编写代码）**唯一写线程**
-- **check**：验收者（验证产出、检查质量）
-- **close**：收口者（整理归档、记录经验）
-
-### 信号机制
-
-4个信号 + 5个策略 = 9种信号类型
-
-**信号**：
-- `progress`：报告进度
-- `blocked`：遇到阻塞
-- `found`：发现信息
-- `help`：请求帮助
-
-**策略**：
-- `retry`：重试
-- `adjust`：调整参数
-- `switch`：切换工具
-- `replan`：重新规划
-- `learn`：记录经验
-
-## 三、开发全流程
-
-```
-用户需求
-    │
-    ▼
-/explore → /design → /build → /check → /close
-（探索）   （设计）   （实现）   （验收）   （收口）
-```
-
-### /explore — 探索者
-
-**职责**：
-- 搜集内部信息（项目内的代码、文档、架构）
-- 搜集外部信息（联网搜索、同类项目、同类问题）
-
-**产出**：task.md 的"探索发现"section
-
-### /design — 方案制定者
-
-**职责**：
-- 需求评估（didea）：评估任务复杂度
-- 方向探索（dpth）：补充scope/gaps/reality
-- 需求细化（dref）：制定实现方案
-- 架构选择：选择合适的架构模式
-
-**产出**：
-- task.md 的"讨论决策"section
-- task.md 的"验收条件"section
-
-### /build — 实现者
-
-**职责**：
-- 执行代码修改
-- 更新文档
-- 编写测试
-
-**产出**：
-- 代码变更
-- 文档更新
-- 测试用例
-- task.md 的"执行记录"section
-
-**注意**：
-- **唯一拥有业务代码写权限的角色**
-- 只做 plan 中定义的事，不擅自扩大 scope
-- 遇到决策阻塞必须上报
-- 注意代码和文档的一致性
-
-### /check — 验收者
-
-**职责**：
-- 检查代码问题（bug、安全、性能等）
-- 检查代码和文档一致性
-- 逐条检查验收条件
-
-**产出**：task.md 的"验收条件"section 更新
-
-**注意**：
-- 不修改业务代码
-- 基于代码事实判定，不基于感觉
-- 每条 acceptance 必须有 PASS/FAIL 判定
-- 发现 BLOCKER 必须明确标注
-
-### /close — 收口者
-
-**职责**：
-- 检查代码和文档的gap
-- 记录经验教训
-- 归档任务
-
-**产出**：
-- task.md 的"收口记录"section
-- task 归档到 .dteam/archive/
-
-**注意**：
-- 不修改业务代码
-- 在 acceptance 未全部 PASS 时不能收口
-- 不跳过踩坑/经验记录
-- 不跳过 acceptance 证据检查
-
-## 四、工具接口
-
-### task 工具
-
-| 工具 | 功能 | 参数 |
-|------|------|------|
-| `task.create` | 创建新任务 | `{ name, type, why, goal }` |
-| `task.read` | 读取指定section | `{ id, section }` |
-| `task.update` | 更新指定section | `{ id, section, content }` |
-| `task.complete` | 标记checklist项为完成 | `{ id, item }` |
-| `task.archive` | 归档完成的任务 | `{ id }` |
-
-### reference 工具
-
-| 工具 | 功能 | 参数 |
-|------|------|------|
-| `reference.architecture` | 查询架构类型 | `{ query }` |
-| `reference.thinking` | 查询思考方式 | `{ query }` |
-
-## 五、参考文件
-
-### 架构类型参考库
-
-位置：`reference/architecture-types.toml`
-
-内容：分层架构、六边形架构、Clean Architecture、洋葱架构、微服务架构、事件驱动架构、微内核/插件架构、管道-过滤器、CQRS、事件溯源、Serverless、客户端-服务器、点对点、黑板架构、MVC/MVVM/MVP、空间基架构
-
-### 思考方式库
-
-位置：`reference/thinking-styles.toml`
-
-内容：实用优先、架构纯净、创新探索、极简主义、健壮优先、惯用风格、性能优先、安全优先、用户体验、可扩展性
-
-## 六、文档结构
+### 文档结构
 
 ```
 .doc/
@@ -187,10 +27,182 @@ worker 是 dteam 的执行单元，通过 solo/chain/team 三种模式执行任�
 └── 规范/             # 术语与文风规范、文件布局规范
 ```
 
-## 七、快速开始
+## 二、开发流程
 
-1. 探索：`/explore 任务描述`
-2. 设计：`/design 任务描述`
-3. 实现：`/build 任务描述`
-4. 验收：`/check 任务描述`
-5. 收口：`/close 任务描述`
+### 1. 先读后写
+
+- 先看文件、搜索现状、确认上下文，再做判断或改动
+- 能从代码库、定义文件读出的信息，不重复向用户索取
+
+### 2. 文档优先
+
+- 修改代码前，先更新对应的文档
+- 确保代码和文档的一致性
+
+### 3. 测试验证
+
+- 修改代码后，运行测试验证
+- 确保不破坏现有功能
+
+## 三、代码规范
+
+### 1. 文件命名
+
+- TypeScript 文件：小驼峰（`taskManager.ts`）
+- 定义文件：大驼峰（`TaskManager.ts`）
+- 测试文件：`*.test.ts` 或 `*.spec.ts`
+
+### 2. 代码风格
+
+- 使用 TypeScript 严格模式
+- 使用 ESLint 和 Prettier
+- 遵循项目现有的代码风格
+
+### 3. 注释规范
+
+- 使用 JSDoc 注释
+- 复杂逻辑处添加解释性注释
+- 不要添加无意义的注释
+
+## 四、文档规范
+
+### 1. 文档结构
+
+- 每个文档必须有 frontmatter
+- 使用 Markdown 格式
+- 使用中文撰写
+- 技术术语使用英文
+
+### 2. Frontmatter 格式
+
+```yaml
+---
+title: "文档标题"
+kind: definition
+domain: P0-原子层
+status: stable
+tags: [标签1, 标签2]
+created: 2026-05-29
+updated: 2026-05-29
+---
+```
+
+### 3. 依赖关系
+
+- P0-原子层：不依赖其他
+- P1-基础层：依赖P0
+- P2-组合层：依赖P1
+- P3-编排层：依赖P2
+- P4-用户接口层：依赖P3
+
+## 五、测试规范
+
+### 1. 测试文件位置
+
+```
+tests/
+├── unit/           # 单元测试
+├── integration/    # 集成测试
+└── e2e/            # 端到端测试
+```
+
+### 2. 测试命名
+
+- 测试文件：`*.test.ts` 或 `*.spec.ts`
+- 测试用例：描述性的名称，说明测试场景
+
+### 3. 测试覆盖
+
+- 正常路径
+- 边界情况
+- 错误情况
+
+## 六、Git 规范
+
+### 1. 提交信息
+
+遵循 Conventional Commits 格式：
+
+```
+type(scope): 描述
+
+[可选正文]
+```
+
+类型：feat, fix, refactor, docs, test, chore, perf, ci, style, build
+
+### 2. 分支策略
+
+- main：主分支
+- develop：开发分支
+- feature/*：功能分支
+- fix/*：修复分支
+
+### 3. 提交前检查
+
+- 运行测试：`npm test`
+- 运行 lint：`npm run lint`
+- 检查 TypeScript：`npm run type-check`
+
+## 七、扩展包规范
+
+### 1. 目录结构
+
+```
+dteam/
+├── prompts/            # worker启动器
+├── reference/          # 结构化数据
+├── src/                # 源代码
+├── tests/              # 测试
+├── .doc/               # 文档
+├── .pi/                # Pi配置
+├── AGENTS.md           # 本文件
+└── package.json        # 项目配置
+```
+
+### 2. package.json
+
+```json
+{
+  "name": "pi-dteam",
+  "version": "0.1.0",
+  "description": "dteam - 轻量级多代理编排系统",
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"],
+    "prompts": ["./prompts"]
+  }
+}
+```
+
+### 3. 注册扩展
+
+- extensions：扩展代码
+- skills：技能定义
+- prompts：prompt模板
+
+## 八、常见问题
+
+### 1. 如何新增 prompt？
+
+1. 在 `prompts/` 目录下创建 `.md` 文件
+2. 添加 frontmatter（description、argument-hint）
+3. 在 `.doc/P4-用户接口层/prompts.md` 中添加定义
+
+### 2. 如何新增工具？
+
+1. 在 `src/tools/` 目录下创建工具实现
+2. 在 `.doc/P1-基础层/工具接口.md` 中添加定义
+3. 更新 AGENTS.md 中的工具列表
+
+### 3. 如何新增角色？
+
+1. 在 `agents/` 目录下创建角色定义
+2. 在 `.doc/P1-基础层/` 目录下创建角色文档
+3. 更新 `.doc/P1-基础层/角色.md` 中的角色列表
+
+### 4. 如何新增信号类型？
+
+1. 在 `src/core/signalBus.ts` 中添加信号类型
+2. 在 `.doc/P0-原子层/信号类型.md` 中添加定义
+3. 更新相关文档中的信号类型引用
