@@ -58,6 +58,8 @@ import {
 	workerSendSignal,
 } from "../tools/worker.js";
 
+import { registerRenderers } from "./renderers.js";
+
 import {
 	authRegister,
 	authLogin,
@@ -69,6 +71,8 @@ import {
 // ── 扩展入口 ──────────────────────────────────────────────────
 
 export default async function (pi: ExtensionAPI) {
+	// 注册渲染器
+	registerRenderers(pi);
 	// ═══════════════════════════════════════════════════════════
 	// task 工具
 	// ═══════════════════════════════════════════════════════════
