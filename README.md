@@ -45,6 +45,11 @@ task.complete        # 标记 checklist 项为完成
 task.archive         # 归档完成的任务
 reference.architecture  # 查询架构类型参考
 reference.thinking      # 查询思考方式参考
+auth.register        # 用户注册
+auth.login           # 用户登录
+auth.verify          # 验证token
+auth.refresh         # 刷新token
+auth.logout          # 用户登出
 ```
 
 ## 开发全流程
@@ -66,7 +71,11 @@ dteam/
 ├── src/                # 源代码
 │   ├── extension/      # 扩展实现
 │   ├── tools/          # 工具实现
-│   └── core/           # 核心模块
+│   ├── core/           # 核心模块
+│   ├── P0/             # 原子层：配置定义
+│   ├── P1/             # 基础层：服务实现
+│   ├── P2/             # 组合层：模块实现
+│   └── P3/             # 编排层：编排器
 ├── agents/             # agent定义（5个）
 ├── prompts/            # prompt模板（5个）
 ├── reference/          # 参考数据
