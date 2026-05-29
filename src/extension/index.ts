@@ -55,6 +55,11 @@ import {
 	workerCreate,
 	workerStart,
 	workerSendSignal,
+	workerCancel,
+	workerStatus,
+	workerSaveMemory,
+	workerLoadMemory,
+	workerGetMemory,
 } from "../tools/worker.js";
 
 import { registerRenderers } from "./renderers.js";
@@ -289,6 +294,91 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(workerSendSignal),
+	});
+
+	pi.registerTool({
+		name: "worker.cancel",
+		label: "Worker Cancel",
+		description: "取消后台执行的 worker。",
+		promptSnippet: "- worker.cancel: 取消后台执行的 worker",
+		promptGuidelines: ["使用 worker.cancel 取消后台执行的 worker，需要提供 workerId 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				workerId: { type: "string", description: "Worker ID" },
+			},
+			required: ["workerId"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(workerCancel),
+	});
+
+	pi.registerTool({
+		name: "worker.status",
+		label: "Worker Status",
+		description: "获取 worker 状态。",
+		promptSnippet: "- worker.status: 获取 worker 状态",
+		promptGuidelines: ["使用 worker.status 获取 worker 状态，需要提供 workerId 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				workerId: { type: "string", description: "Worker ID" },
+			},
+			required: ["workerId"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(workerStatus),
+	});
+
+	pi.registerTool({
+		name: "worker.saveMemory",
+		label: "Worker Save Memory",
+		description: "保存共享内存到文件。",
+		promptSnippet: "- worker.saveMemory: 保存共享内存到文件",
+		promptGuidelines: ["使用 worker.saveMemory 保存共享内存到文件，需要提供 filepath 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				filepath: { type: "string", description: "文件路径" },
+			},
+			required: ["filepath"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(workerSaveMemory),
+	});
+
+	pi.registerTool({
+		name: "worker.loadMemory",
+		label: "Worker Load Memory",
+		description: "从文件加载共享内存。",
+		promptSnippet: "- worker.loadMemory: 从文件加载共享内存",
+		promptGuidelines: ["使用 worker.loadMemory 从文件加载共享内存，需要提供 filepath 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				filepath: { type: "string", description: "文件路径" },
+			},
+			required: ["filepath"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(workerLoadMemory),
+	});
+
+	pi.registerTool({
+		name: "worker.getMemory",
+		label: "Worker Get Memory",
+		description: "获取共享内存内容。",
+		promptSnippet: "- worker.getMemory: 获取共享内存内容",
+		promptGuidelines: ["使用 worker.getMemory 获取共享内存内容，可选提供 namespace 和 key 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				namespace: { type: "string", description: "命名空间（可选）" },
+				key: { type: "string", description: "键名（可选）" },
+			},
+			additionalProperties: false,
+		} as const,
+		execute: wrap(workerGetMemory),
 	});
 
 	// ═══════════════════════════════════════════════════════════

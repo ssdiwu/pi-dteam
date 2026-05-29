@@ -4,8 +4,8 @@
 
 import { WorkerConfig, getRequiredOption, getOption } from "../P0/config.js";
 import { WorkerStatus } from "../P0/status.js";
+import { MemoryAdapter } from "../P0/memory.js";
 import { SignalBus } from "../P1/signalBus.js";
-import { SharedMemory } from "../P1/sharedMemory.js";
 import { runSolo, SoloResult } from "./solo.js";
 import { runTeam, TeamResult } from "./team.js";
 
@@ -22,7 +22,7 @@ export interface ChainResult {
 export async function runChain(
   config: WorkerConfig,
   bus: SignalBus,
-  memory: SharedMemory,
+  memory: MemoryAdapter,
   executor: (role: string, task: string, style: string) => Promise<string>,
 ): Promise<ChainResult> {
   const steps = getRequiredOption<WorkerConfig[]>(config.options, "steps");
