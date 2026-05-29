@@ -1,0 +1,114 @@
+# 架构类型参考库
+# 用户项目选型参考，支持嵌套组合使用
+
+[types.layered]
+name = "分层架构（Layered/N-Tier）"
+description = "按职责分层，上层依赖下层，禁止反向"
+when_to_use = "大多数项目、企业应用、CRUD、需要清晰职责分离"
+complexity = "low"
+examples = ["MVC 框架", "Spring Boot", "Laravel", "传统 Web 应用"]
+
+[types.hexagonal]
+name = "六边形架构（Hexagonal/Ports & Adapters）"
+description = "业务逻辑通过 Port/Adapter 与外部解耦"
+when_to_use = "需要可替换外部依赖（数据库、API、消息队列）"
+complexity = "medium"
+examples = ["DDD 驱动的项目", "需要多数据库支持", "需要 Mock 测试"]
+
+[types.clean]
+name = "Clean Architecture"
+description = "依赖规则：源码依赖只指向内层，外层不可影响内层"
+when_to_use = "复杂业务逻辑、长期维护、需要高可测试性"
+complexity = "medium"
+examples = ["企业级应用", "金融系统", "需要长期演进的产品"]
+
+[types.onion]
+name = "洋葱架构（Onion）"
+description = "同 Clean Architecture，强调领域模型在中心"
+when_to_use = "DDD 驱动、领域逻辑复杂"
+complexity = "medium"
+examples = ["领域驱动设计项目", "复杂业务规则系统"]
+
+[types.microservices]
+name = "微服务架构（Microservices）"
+description = "独立部署的小服务，通过 API 或消息队列通信"
+when_to_use = "大型团队、高并行开发、需要独立部署和扩展"
+complexity = "high"
+examples = ["Netflix", "Amazon", "大型 SaaS 平台"]
+
+[types.event_driven]
+name = "事件驱动架构（Event-Driven）"
+description = "组件通过事件解耦通信，生产者-消费者模式"
+when_to_use = "异步处理、实时系统、IoT、需要松耦合"
+complexity = "medium"
+examples = ["消息队列系统", "实时数据管道", "通知系统"]
+
+[types.microkernel]
+name = "微内核/插件架构（Microkernel/Plugin）"
+description = "核心系统 + 扩展点，通过插件扩展功能"
+when_to_use = "需要高度可扩展性、IDE/CMS/平台型产品"
+complexity = "medium"
+examples = ["Eclipse IDE", "WordPress", "VS Code", "pi-dteam 本身"]
+
+[types.pipe_filter]
+name = "管道-过滤器（Pipe & Filter）"
+description = "数据流经一系列处理步骤，每步做特定转换"
+when_to_use = "数据处理、ETL、CI/CD、编译器"
+complexity = "low"
+examples = ["Unix 管道", "CI/CD 流水线", "数据转换管道"]
+
+[types.cqrs]
+name = "CQRS（Command Query Responsibility Segregation）"
+description = "读写分离，命令和查询使用不同模型"
+when_to_use = "高读写比、复杂查询、需要独立优化读写性能"
+complexity = "high"
+examples = ["电商后台", "内容管理系统", "报表系统"]
+
+[types.event_sourcing]
+name = "事件溯源（Event Sourcing）"
+description = "存储事件序列而非当前状态，可回溯任意时间点"
+when_to_use = "审计要求高、金融交易、需要完整历史回溯"
+complexity = "high"
+examples = ["银行系统", "订单系统", "协作编辑"]
+
+[types.serverless]
+name = "Serverless 架构"
+description = "函数即服务，按需执行，无需管理服务器"
+when_to_use = "事件触发型、低运维需求、弹性伸缩"
+complexity = "low"
+examples = ["AWS Lambda", "Vercel Functions", "API 网关"]
+
+[types.client_server]
+name = "客户端-服务器（Client-Server）"
+description = "请求-响应模式，客户端发起请求，服务器处理并返回"
+when_to_use = "Web 应用、移动应用、大多数网络服务"
+complexity = "low"
+examples = ["Web 应用", "REST API", "GraphQL"]
+
+[types.peer_to_peer]
+name = "点对点（Peer-to-Peer）"
+description = "无中心节点，节点直接通信和协作"
+when_to_use = "文件共享、区块链、去中心化应用"
+complexity = "medium"
+examples = ["BitTorrent", "区块链", "去中心化存储"]
+
+[types.blackboard]
+name = "黑板架构（Blackboard）"
+description = "共享知识库 + 多专家协作求解"
+when_to_use = "AI 系统、语音识别、复杂推理、多算法协作"
+complexity = "high"
+examples = ["语音识别系统", "自动驾驶决策", "多模型协作"]
+
+[types.mvc]
+name = "MVC/MVVM/MVP"
+description = "模型-视图分离，通过控制器/视图模型/展示器连接"
+when_to_use = "前端应用、GUI 程序、需要 UI 与逻辑分离"
+complexity = "low"
+examples = ["React/Vue/Angular", "iOS/Android", "桌面应用"]
+
+[types.space_based]
+name = "空间基架构（Space-Based）"
+description = "内存数据网格，去中心化数据库，高并发处理"
+when_to_use = "高并发、可变负载、需要极致可扩展性"
+complexity = "high"
+examples = ["社交平台", "拍卖系统", "实时竞价"]

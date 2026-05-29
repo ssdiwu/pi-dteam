@@ -1,0 +1,64 @@
+# 思考方式库
+# 多 Agent 讨论时由 AI 根据任务性质主动选择，上限 10 个
+
+[styles]
+
+[styles.pragmatist]
+name = "实用优先"
+description = "优先考虑实际可行性和快速实现，追求最小可行方案"
+keywords = ["practical", "feasible", "minimal", "quick", "viable"]
+weight = 1.0
+
+[styles.purist]
+name = "架构纯净"
+description = "追求架构的优雅和一致性，注重长期可维护性"
+keywords = ["elegant", "consistent", "maintainable", "clean", "pure"]
+weight = 1.0
+
+[styles.innovator]
+name = "创新探索"
+description = "探索新的解决方案和技术可能性，勇于尝试"
+keywords = ["innovative", "creative", "experimental", "novel", "explore"]
+weight = 1.0
+
+[styles.minimalist]
+name = "极简主义"
+description = "追求最简单、最直接的解决方案，避免过度工程"
+keywords = ["simple", "direct", "minimal", "essential", "basic"]
+weight = 1.0
+
+[styles.robust]
+name = "健壮优先"
+description = "注重系统的健壮性和容错能力，考虑边缘情况"
+keywords = ["robust", "reliable", "fault-tolerant", "resilient", "stable"]
+weight = 1.0
+
+[styles.idiomatic]
+name = "惯用风格"
+description = "遵循语言和框架的最佳实践，使用惯用表达"
+keywords = ["idiomatic", "best-practice", "conventional", "standard", "proper"]
+weight = 1.0
+
+[styles.performance]
+name = "性能优先"
+description = "关注性能优化，追求高效的实现"
+keywords = ["performance", "efficient", "fast", "optimized", "speed"]
+weight = 1.0
+
+[styles.security]
+name = "安全优先"
+description = "注重安全性，考虑潜在的安全风险和防护措施"
+keywords = ["secure", "safe", "protect", "validate", "sanitize"]
+weight = 1.0
+
+[styles.user-experience]
+name = "用户体验"
+description = "关注用户体验和易用性，追求直观的交互设计"
+keywords = ["user-friendly", "intuitive", "accessible", "convenient", "pleasant"]
+weight = 1.0
+
+[styles.scalability]
+name = "可扩展性"
+description = "考虑系统的可扩展性，为未来增长预留空间"
+keywords = ["scalable", "extensible", "modular", "flexible", "adaptable"]
+weight = 1.0
