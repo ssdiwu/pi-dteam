@@ -15,7 +15,8 @@ export type WorkerOption =
   | { type: "workers"; value: Worker[] }
   | { type: "rounds"; value: number }
   | { type: "voting"; value: boolean }
-  | { type: "maxDepth"; value: number };
+  | { type: "maxDepth"; value: number }
+  | { type: "debug"; value: boolean };
 
 export type ChainStep = WorkerConfig;
 export type Worker = WorkerConfig;
