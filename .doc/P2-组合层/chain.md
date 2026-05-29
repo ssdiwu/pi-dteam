@@ -3,117 +3,88 @@ title: "chain 编排模式"
 kind: definition
 domain: P2-组合层
 status: stable
-tags: [chain, 编排模式, 组合层]
+tags: [chain, 编排, 串行]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # chain 编排模式
 
-> **定位**：dteam 的组合层。定义 chain 编排模式。依赖 worker（P2）、角色（P1）。
+> **定位**：dteam 的组合层。定义 chain 模式的执行逻辑。依赖 worker（P2）。
 
 ## 一句话
 
-chain 是 dteam 的**综合模式**——适用于有依赖关系的串行任务。
-
-## 核心特征
-
-| 特征 | 值 |
-|------|-----|
-| 定位 | 综合（串行+并行混合） |
-| 适用场景 | 有冲突的串行任务 |
-| 嵌套 | 可嵌套 solo 和 team |
+chain 是 dteam 的**串行模式**——按顺序执行多个任务，一步接一步。
 
 ## 适用场景
 
-**典型场景**：
-- 任务之间有依赖关系（如：先探索后实现）
-- 需要按步骤推进（如：先设计后编码）
-- 有冲突的串行任务（如：多个方案需要讨论后选择）
-- 先探索后实现（如：先了解代码库再修改）
+- 任务之间有依赖关系
+- 需要逐步验证
+- 有冲突的串行任务
 
-**具体示例**：
-- 完整的功能开发流程：探索 → 设计 → 实现 → 验收
-- 复杂的重构任务：分析现状 → 制定方案 → 逐步重构 → 验证
-- 多步骤的bug修复：定位问题 → 分析原因 → 修复 → 测试
-
-## 接口定义
+## 配置示例
 
 ```typescript
-interface ChainConfig {
-  mode: "chain";
-  steps: ChainStep[];
-}
-
-interface ChainStep {
-  agent: RoleName;
-  task: string;
-  // 或嵌套其他模式
-  type?: "solo" | "team";
-  config?: SoloConfig | TeamConfig;
-}
-```
-
-## 使用示例
-
-### 基础示例
-
-```json
-{
-  "mode": "chain",
-  "steps": [
-    { "agent": "explore", "task": "探索代码库" },
-    { "agent": "design", "task": "设计方案" },
-    { "agent": "build", "task": "实现功能" },
-    { "agent": "check", "task": "验证结果" }
+const config: WorkerConfig = {
+  type: "chain",
+  task: "实现用户认证",
+  style: "pragmatist",
+  options: [
+    { type: "steps", value: [
+      { type: "solo", task: "探索项目结构", style: "pragmatist", options: [{ type: "role", value: "explore" }] },
+      { type: "solo", task: "设计方案", style: "pragmatist", options: [{ type: "role", value: "design" }] },
+      { type: "solo", task: "实现代码", style: "pragmatist", options: [{ type: "role", value: "build" }] }
+    ]},
+    { type: "maxDepth", value: 2 }
   ]
-}
-```
-
-### 嵌套示例
-
-```json
-{
-  "mode": "chain",
-  "steps": [
-    { "agent": "explore", "task": "探索整体架构" },
-    {
-      "mode": "team",
-      "tasks": [
-        { "type": "solo", "agent": "build", "task": "并行任务 A" },
-        { "type": "solo", "agent": "build", "task": "并行任务 B" }
-      ]
-    },
-    { "agent": "check", "task": "最终检查" }
-  ]
-}
+};
 ```
 
 ## 执行流程
 
 ```
-step1 → step2 → step3 → ... → 完成
-  ↓
-失败 → 立即返回，后续步骤跳过
+创建 chain worker
+    │
+    ▼
+加载步骤列表
+    │
+    ▼
+按顺序执行步骤
+    │
+    ├─ 步骤1 → 成功 → 步骤2
+    │           │
+    │           └─ 失败 → 发送 blocked 信号
+    │
+    ├─ 步骤2 → 成功 → 步骤3
+    │           │
+    │           └─ 失败 → 发送 blocked 信号
+    │
+    └─ 步骤N → 成功 → 完成
+                │
+                └─ 失败 → 发送 blocked 信号
 ```
 
-## 失败策略
+## 配置字段
 
-- 前一步失败（isError）则**立即返回**，后续步骤跳过
-- 支持双向沟通：chain 可以接收 solo 的信号，也可以向 solo 发送反馈
-- 重试策略：模型/API 错误 → 依次尝试 fallback 模型列表；Agent 逻辑错误 → 同模型重试 1 次
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| type | ✅ | 固定为 "chain" |
+| task | ✅ | 任务描述 |
+| style | ✅ | 思考方式 |
+| steps | ✅ | 步骤列表（SoloConfig 或 TeamConfig） |
+| maxDepth | ⚪ | 嵌套深度（默认4） |
 
-## 决策逻辑
+## 嵌套能力
 
-```
-任务有依赖关系？
-├─ 是 → chain
-└─ 否 → 考虑 team 或 solo
-```
+chain 的 steps 可以包含：
+- solo：单任务
+- team：并行任务
+
+**不能**包含：
+- chain：避免过度嵌套
 
 ## 不变量
 
-1. chain steps 不能为空
-2. 前一步失败则后续步骤跳过
-3. 支持双向沟通
-4. 最大嵌套深度四层
+1. chain 必须有 steps
+2. steps 不能为空
+3. 嵌套深度不超过四层

@@ -23,7 +23,7 @@ task 是 dteam 的**工作主语**——一个完整的、有明确边界的功�
 | 生命周期 | 永久态：创建 → 执行 → 归档 |
 | 持久化 | `.dteam/task/{name}-{timestamp}-{random4}.md` |
 | 格式 | Markdown（统一格式） |
-| 状态 | 6个：todo / InSpec / InProgress / InDeploy / Done / Cancelled |
+| 状态 | 5个：todo / InSpec / InProgress / Done / Cancelled |
 
 ## 文件命名
 
@@ -78,89 +78,9 @@ task 是 dteam 的**工作主语**——一个完整的、有明确边界的功�
 | ID | string | ✅ | 全局唯一标识，格式 `{timestamp}-{random4}` |
 | 类型 | enum | ✅ | functional / ui / bugfix / refactor / infra |
 | 创建时间 | ISO8601 | ✅ | 创建时间 |
-| 状态 | enum | ✅ | todo / InSpec / InProgress / InDeploy / Done / Cancelled |
-
-## TaskType（5种）
-
-| 值 | 含义 | 典型场景 |
-|----|------|---------|
-| `functional` | 功能开发 | 新增能力、特性实现 |
-| `ui` | 界面/交互 | 前端UI改动、交互优化 |
-| `bugfix` | 缺陷修复 | 修复已知问题 |
-| `refactor` | 重构优化 | 代码结构调整、性能优化 |
-| `infra` | 基础设施 | 构建配置、CI/CD、文档 |
-
-## TaskStage（6种）
-
-```
-todo → InSpec → InProgress → InDeploy → Done
-                  ↓                ↓
-              Cancelled        Cancelled
-```
-
-| 阶段 | 含义 | 合法转移 |
-|------|------|----------|
-| `todo` | 待办 | → InSpec |
-| `InSpec` | 探索中 | → InProgress |
-| `InProgress` | 进行中 | → InDeploy, Cancelled |
-| `InDeploy` | 部署中 | → Done, Cancelled |
-| `Done` | 完成 | 终态 |
-| `Cancelled` | 取消 | 终态 |
-
-## 存储位置
-
-```
-.dteam/
-├── task/                          # 活跃任务
-│   ├── {name}-{timestamp}-{random4}.md
-│   └── ...
-├── archive/                       # 归档任务（完成的任务）
-│   ├── {name}-{timestamp}-{random4}.md
-│   └── ...
-└── pitfalls/                      # 经验库（可选）
-    └── ...
-```
-
-## 不变量
-
-1. `id` 全局唯一（格式 `{timestamp}-{random4}`）
-2. `type` 必须是5个合法值之一
-3. `stage` 必须是6个合法值之一
-4. 验收条件必须包含GWT格式和对应测试
-5. Done 和 Cancelled 为终态，不可逆转
-
-## 示例
-
-```markdown
-# 实现用户认证
-
-## 基本信息
-- ID: 20260529141206-ofi4
-- 类型: functional
-- 创建时间: 2026-05-29T14:12:06Z
-- 状态: todo
-
-## 目标
-- 为什么: 当前系统无任何身份验证机制，任何人可以访问所有API端点
-- 做什么: 实现基于JWT的用户注册、登录和token刷新流程
-
-## 范围
-- 包含: 用户注册API、用户登录API、Token刷新API、中间件鉴权拦截器
-- 排除: OAuth2第三方登录、密码重置邮件、多因素认证
-
-## 验收条件（GWT + 测试）
-- [ ] Given 未注册用户 When 通过POST /api/register注册 Then 返回201和有效token
-- [ ] Given 已注册用户 When 凭据登录 Then 获得token
-- [ ] Given 过期token When 通过refresh endpoint续期 Then 获得新token
-- [ ] Given 无效token When 请求受保护API Then 返回401
-
-## 阶段记录
-### 探索发现
-（待填写）
-
-### 讨论决策
-（待填写）
-
-### 执行记录
-（待填写）
-```
+| 状态 | enum | ✅ | todo / InSpec / InProgress / Done / Cancelled |
+| 为什么 | string | ✅ | 为什么要做这个任务 |
+| 做什么 | string | ✅ | 目标是什么 |
+| 包含 | string | ⚪ | 范围包含 |
+| 排除 | string | ⚪ | 范围排除 |
+| 验收条件 | checklist | ✅ | GWT 格式 + 测试 |

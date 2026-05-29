@@ -3,159 +3,71 @@ title: "solo 编排模式"
 kind: definition
 domain: P2-组合层
 status: stable
-tags: [solo, 编排模式, 组合层]
+tags: [solo, 编排, 单任务]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # solo 编排模式
 
-> **定位**：dteam 的组合层。定义 solo 编排模式。依赖 worker（P2）、角色（P1）。
+> **定位**：dteam 的组合层。定义 solo 模式的执行逻辑。依赖 worker（P2）。
 
 ## 一句话
 
-solo 是 dteam 的**有效模式**——专注于单一任务的深入执行。
+solo 是 dteam 的**单任务模式**——一个角色执行一个任务，简单高效。
 
-## 核心特征
+## 适用场景
 
-| 特征 | 值 |
-|------|-----|
-| 定位 | 有效（专注、深入） |
-| 适用场景 | 小任务（<100行，<3文件） |
-| 子模式 | simple / maker-checker / adaptive |
-| 嵌套 | 不能嵌套（叶子节点） |
+- 小任务（<100行代码，<3个文件）
+- 任务边界清晰
+- 不需要多人协作
 
-## 三种子模式
-
-### simple（极简模式）
-
-**定义**：最简单的执行模式，直接执行任务，无额外检查。
-
-**适用场景**：
-- 极简改动（1-2行代码）
-- typo 修复
-- 配置文件修改
-- 格式调整
-
-**流程**：
-```
-用户需求 → build 执行 → 完成
-```
-
-**角色参与**：
-- build：执行任务
-
-**特点**：
-- 无检查步骤，直接完成
-- 执行速度快
-- 适用于风险极低的任务
-
-**示例**：
-```json
-{
-  "mode": "solo",
-  "agent": "build",
-  "task": "修改 README.md 中的 typo",
-  "sub_mode": "simple"
-}
-```
-
-### maker-checker（执行-检查模式）
-
-**定义**：标准的执行-检查模式，build 执行任务，check 验收结果。
-
-**适用场景**：
-- 标准任务（默认模式）
-- 需要质量保证的任务
-- 大多数开发任务
-
-**流程**：
-```
-用户需求 → build 执行 → check 检查 → 完成
-                    ↓
-                不通过 → build 修复 → check 重新检查
-```
-
-**角色参与**：
-- build：执行任务
-- check：验收结果
-
-**特点**：
-- 有检查步骤，确保质量
-- 支持迭代修复
-- 适用于大多数任务
-
-**示例**：
-```json
-{
-  "mode": "solo",
-  "agent": "build",
-  "task": "实现用户登录 API",
-  "sub_mode": "maker-checker"
-}
-```
-
-### adaptive（自适应模式）
-
-**定义**：自适应模式，先规划再执行，支持 replan。
-
-**适用场景**：
-- 复杂但无冲突的任务
-- 需要先规划再执行的任务
-- 不确定性较高的任务
-
-**流程**：
-```
-用户需求 → design 规划 → build 执行 → check 评估 → 完成
-                    ↓
-                不通过 → replan → build 重新执行
-```
-
-**角色参与**：
-- design：规划任务
-- build：执行任务
-- check：评估结果
-
-**特点**：
-- 先规划再执行，降低风险
-- 支持 replan，适应变化
-- 适用于复杂任务
-
-**示例**：
-```json
-{
-  "mode": "solo",
-  "agent": "build",
-  "task": "重构认证模块",
-  "sub_mode": "adaptive"
-}
-```
-
-## 接口定义
+## 配置示例
 
 ```typescript
-interface SoloConfig {
-  mode: "solo";
-  agent: RoleName;           // 角色名
-  task: string;              // 任务描述
-  sub_mode?: "simple" | "maker-checker" | "adaptive";
-  background?: boolean;      // 是否后台执行
-}
+const config: WorkerConfig = {
+  type: "solo",
+  task: "探索项目结构",
+  style: "pragmatist",
+  options: [
+    { type: "role", value: "explore" }
+  ]
+};
 ```
 
-## 决策逻辑
+## 执行流程
 
 ```
-任务复杂度？
-├─ 极简（1-2行） → simple
-├─ 标准（默认） → maker-checker
-└─ 复杂但无冲突 → adaptive
+创建 solo worker
+    │
+    ▼
+加载角色配置（explore/design/build/check/close）
+    │
+    ▼
+执行任务
+    │
+    ├─ 成功 → 完成
+    │
+    └─ 失败 → 发送 blocked 信号
+        │
+        └─ 等待策略
+            ├─ retry → 重试
+            ├─ adjust → 调整参数
+            ├─ switch → 切换方法
+            └─ replan → 重新规划
 ```
+
+## 配置字段
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| type | ✅ | 固定为 "solo" |
+| task | ✅ | 任务描述 |
+| style | ✅ | 思考方式 |
+| role | ✅ | 角色名（explore/design/build/check/close） |
 
 ## 不变量
 
-1. solo 只能有一个角色和一个任务
-2. simple 模式无检查步骤
-3. maker-checker 模式必须有 build 和 check
-4. adaptive 模式必须有 design、build 和 check
-5. solo 不能嵌套
+1. solo 必须有 role
+2. solo 不能嵌套其他 worker
+3. solo 是叶子节点
