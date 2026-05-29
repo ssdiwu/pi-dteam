@@ -1,7 +1,7 @@
 ---
 title: "探索者角色定义"
 kind: definition
-domain: P1-基础层
+domain: P1-分子层
 status: stable
 tags: [角色, explore, 探索者]
 created: 2026-05-29

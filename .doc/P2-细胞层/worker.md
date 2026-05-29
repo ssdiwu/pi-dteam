@@ -1,7 +1,7 @@
 ---
 title: "worker 概念"
 kind: definition
-domain: P2-组合层
+domain: P2-细胞层
 status: stable
 tags: [worker, 组合层]
 created: 2026-05-29

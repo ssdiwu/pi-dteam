@@ -1,7 +1,7 @@
 ---
 title: "验收者角色定义"
 kind: definition
-domain: P1-基础层
+domain: P1-分子层
 status: stable
 tags: [角色, check, 验收者]
 created: 2026-05-29

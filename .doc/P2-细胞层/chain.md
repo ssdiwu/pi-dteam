@@ -1,7 +1,7 @@
 ---
 title: "chain 编排模式"
 kind: definition
-domain: P2-组合层
+domain: P2-细胞层
 status: stable
 tags: [chain, 编排, 串行]
 created: 2026-05-29

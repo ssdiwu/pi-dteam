@@ -1,7 +1,7 @@
 ---
 title: "solo 编排模式"
 kind: definition
-domain: P2-组合层
+domain: P2-细胞层
 status: stable
 tags: [solo, 编排, 单任务]
 created: 2026-05-29

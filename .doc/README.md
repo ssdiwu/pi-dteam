@@ -34,13 +34,13 @@
 
 | 文件 | 内容 | 说明 |
 |------|------|------|
-| [角色.md](./P1-基础层/角色.md) | 角色定义 | 5个核心角色 |
-| [explore.md](./P1-基础层/explore.md) | 探索者 | 搜集信息 |
-| [design.md](./P1-基础层/design.md) | 方案制定者 | 制定方案 |
-| [build.md](./P1-基础层/build.md) | 实现者 | 执行代码 |
-| [check.md](./P1-基础层/check.md) | 验收者 | 检查质量 |
-| [close.md](./P1-基础层/close.md) | 收口者 | 归档任务 |
-| [工具接口.md](./P1-基础层/工具接口.md) | 工具接口 | task/reference/worker工具 |
+| [角色.md](./P1-分子层/角色.md) | 角色定义 | 5个核心角色 |
+| [explore.md](./P1-分子层/explore.md) | 探索者 | 搜集信息 |
+| [design.md](./P1-分子层/design.md) | 方案制定者 | 制定方案 |
+| [build.md](./P1-分子层/build.md) | 实现者 | 执行代码 |
+| [check.md](./P1-分子层/check.md) | 验收者 | 检查质量 |
+| [close.md](./P1-分子层/close.md) | 收口者 | 归档任务 |
+| [工具接口.md](./P1-分子层/工具接口.md) | 工具接口 | task/reference/worker工具 |
 | [信号总线.md](./P1-分子层/信号总线.md) | 信号总线 | 即时通信 |
 | [共享内存.md](./P1-分子层/共享内存.md) | 共享内存 | 数据共享 |
 | [TUI渲染层.md](./P1-分子层/TUI渲染层.md) | TUI渲染层 | 可视化 |
@@ -51,11 +51,11 @@
 
 | 文件 | 内容 | 说明 |
 |------|------|------|
-| [worker.md](./P2-组合层/worker.md) | worker 概念 | 执行引擎 |
-| [solo.md](./P2-组合层/solo.md) | solo 模式 | 单任务 |
-| [chain.md](./P2-组合层/chain.md) | chain 模式 | 串行执行 |
-| [team.md](./P2-组合层/team.md) | team 模式 | 并行执行 |
-| [信号总线.md](./P2-组合层/信号总线.md) | 信号总线 | 即时通信 |
+| [worker.md](./P2-细胞层/worker.md) | worker 概念 | 执行引擎 |
+| [solo.md](./P2-细胞层/solo.md) | solo 模式 | 单任务 |
+| [chain.md](./P2-细胞层/chain.md) | chain 模式 | 串行执行 |
+| [team.md](./P2-细胞层/team.md) | team 模式 | 并行执行 |
+| [信号总线.md](./P2-细胞层/信号总线.md) | 信号总线 | 即时通信 |
 
 ## P3-组织层
 
@@ -63,8 +63,8 @@
 
 | 文件 | 内容 | 说明 |
 |------|------|------|
-| [worker编排层.md](./P3-编排层/worker编排层.md) | worker 编排层 | 编排架构 |
-| [编排决策逻辑.md](./P3-编排层/编排决策逻辑.md) | 编排决策逻辑 | 选择模式 |
+| [worker编排层.md](./P3-组织层/worker编排层.md) | worker 编排层 | 编排架构 |
+| [编排决策逻辑.md](./P3-组织层/编排决策逻辑.md) | 编排决策逻辑 | 选择模式 |
 
 ## P4-用户接口层
 
@@ -114,6 +114,6 @@ P4-用户接口层
 
 ## 快速开始
 
-1. 了解核心概念：[task.md](./P0-原子层/task.md) → [角色.md](./P1-基础层/角色.md) → [worker.md](./P2-组合层/worker.md)
-2. 了解执行模式：[solo.md](./P2-组合层/solo.md) → [chain.md](./P2-组合层/chain.md) → [team.md](./P2-组合层/team.md)
+1. 了解核心概念：[task.md](./P0-原子层/task.md) → [角色.md](./P1-分子层/角色.md) → [worker.md](./P2-细胞层/worker.md)
+2. 了解执行模式：[solo.md](./P2-细胞层/solo.md) → [chain.md](./P2-细胞层/chain.md) → [team.md](./P2-细胞层/team.md)
 3. 了解用户接口：[prompts.md](./P4-用户接口层/prompts.md)

@@ -1,7 +1,7 @@
 ---
 title: "worker 编排层"
 kind: definition
-domain: P3-编排层
+domain: P3-组织层
 status: stable
 tags: [worker, 编排, 编排层]
 created: 2026-05-29
@@ -55,12 +55,12 @@ worker 编排层是 dteam 的**发动机**——驱动任务从创建到完成�
 
 | 组件 | 职责 | 位置 |
 |------|------|------|
-| WorkerConfig | 选择 solo/chain/team | [P2-组合层/worker.md](../P2-组合层/worker.md) |
-| solo | 单任务执行 | [P2-组合层/solo.md](../P2-组合层/solo.md) |
-| chain | 串行执行 | [P2-组合层/chain.md](../P2-组合层/chain.md) |
-| team | 并行执行 | [P2-组合层/team.md](../P2-组合层/team.md) |
-| 信号总线 | 即时通信 | [P2-组合层/信号总线.md](../P2-组合层/信号总线.md) |
-| 角色系统 | 执行角色 | [P1-基础层/角色.md](../P1-基础层/角色.md) |
+| WorkerConfig | 选择 solo/chain/team | [P2-细胞层/worker.md](../P2-细胞层/worker.md) |
+| solo | 单任务执行 | [P2-细胞层/solo.md](../P2-细胞层/solo.md) |
+| chain | 串行执行 | [P2-细胞层/chain.md](../P2-细胞层/chain.md) |
+| team | 并行执行 | [P2-细胞层/team.md](../P2-细胞层/team.md) |
+| 信号总线 | 即时通信 | [P2-细胞层/信号总线.md](../P2-细胞层/信号总线.md) |
+| 角色系统 | 执行角色 | [P1-分子层/角色.md](../P1-分子层/角色.md) |
 
 ## 执行流程
 
