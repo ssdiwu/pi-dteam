@@ -1,16 +1,16 @@
 ---
 title: "build 角色"
 kind: definition
-domain: P2-角色执行层
+domain: P1-基础层
 status: stable
-tags: [build, 角色]
+tags: [build, 角色, 基础层]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # build 角色
 
-> **定位**：实现者。执行计划、编写代码、实现功能。
+> **定位**：实现者。执行计划、编写代码、实现功能。依赖 task（P0）。
 
 ## 一句话
 

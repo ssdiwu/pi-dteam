@@ -1,16 +1,16 @@
 ---
 title: "close 角色"
 kind: definition
-domain: P2-角色执行层
+domain: P1-基础层
 status: stable
-tags: [close, 角色]
+tags: [close, 角色, 基础层]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # close 角色
 
-> **定位**：收口者。整理归档、记录经验、关闭任务。
+> **定位**：收口者。整理归档、记录经验、关闭任务。依赖 task（P0）。
 
 ## 一句话
 

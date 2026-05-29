@@ -1,20 +1,20 @@
 ---
 title: "task 数据模型"
 kind: definition
-domain: P0-数据模型层
+domain: P0-原子层
 status: stable
-tags: [task, 核心对象]
+tags: [task, 核心对象, 数据模型]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # task 数据模型
 
-> **定位**：dteam 的工作主语对象。一个完整的、有明确边界的功能或任务。
+> **定位**：dteam 的原子层。定义 task 的数据结构，不依赖其他概念。
 
 ## 一句话
 
-task 是你要做的**一件完整的功能**——从灵感到归档，跨会话存在，所有 worker 围绕它运转。
+task 是 dteam 的**工作主语**——一个完整的、有明确边界的功能或任务。
 
 ## 核心特征
 
@@ -106,24 +106,6 @@ todo → InSpec → InProgress → Done
 | `Done` | 完成 | 终态 |
 | `Cancelled` | 取消 | 终态 |
 
-## 工具接口
-
-| 工具 | 功能 | 参数 |
-|------|------|------|
-| `task.create` | 创建新任务 | `{ name, type, why, goal }` |
-| `task.read` | 读取指定section | `{ id, section }` |
-| `task.update` | 更新指定section | `{ id, section, content }` |
-| `task.complete` | 标记checklist项为完成 | `{ id, item }` |
-| `task.archive` | 归档完成的任务 | `{ id }` |
-
-## 不变量
-
-1. `id` 全局唯一（格式 `{timestamp}-{random4}`）
-2. `type` 必须是5个合法值之一
-3. `stage` 必须是5个合法值之一
-4. 验收条件必须包含GWT格式和对应测试
-5. Done 和 Cancelled 为终态，不可逆转
-
 ## 存储位置
 
 ```
@@ -137,6 +119,14 @@ todo → InSpec → InProgress → Done
 └── pitfalls/                      # 经验库（可选）
     └── ...
 ```
+
+## 不变量
+
+1. `id` 全局唯一（格式 `{timestamp}-{random4}`）
+2. `type` 必须是5个合法值之一
+3. `stage` 必须是5个合法值之一
+4. 验收条件必须包含GWT格式和对应测试
+5. Done 和 Cancelled 为终态，不可逆转
 
 ## 示例
 

@@ -1,16 +1,16 @@
 ---
 title: "solo 编排模式"
 kind: definition
-domain: P1-组装与行为层
+domain: P2-组合层
 status: stable
-tags: [solo, 编排模式]
+tags: [solo, 编排模式, 组合层]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # solo 编排模式
 
-> **定位**：dteam 的单任务执行模式。派一个角色执行一个任务。
+> **定位**：dteam 的组合层。定义 solo 编排模式。依赖 worker（P2）、角色（P1）。
 
 ## 一句话
 
@@ -140,41 +140,6 @@ interface SoloConfig {
   task: string;              // 任务描述
   sub_mode?: "simple" | "maker-checker" | "adaptive";
   background?: boolean;      // 是否后台执行
-}
-```
-
-## 使用示例
-
-### simple 示例
-
-```json
-{
-  "mode": "solo",
-  "agent": "build",
-  "task": "修改登录页面 logo 尺寸",
-  "sub_mode": "simple"
-}
-```
-
-### maker-checker 示例
-
-```json
-{
-  "mode": "solo",
-  "agent": "build",
-  "task": "实现用户登录 API",
-  "sub_mode": "maker-checker"
-}
-```
-
-### adaptive 示例
-
-```json
-{
-  "mode": "solo",
-  "agent": "build",
-  "task": "重构认证模块",
-  "sub_mode": "adaptive"
 }
 ```
 

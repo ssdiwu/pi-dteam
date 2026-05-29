@@ -1,16 +1,16 @@
 ---
 title: "team 编排模式"
 kind: definition
-domain: P1-组装与行为层
+domain: P2-组合层
 status: stable
-tags: [team, 编排模式]
+tags: [team, 编排模式, 组合层]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # team 编排模式
 
-> **定位**：dteam 的并行执行模式。同时派多个角色并行执行多个任务。
+> **定位**：dteam 的组合层。定义 team 编排模式。依赖 worker（P2）、角色（P1）。
 
 ## 一句话
 

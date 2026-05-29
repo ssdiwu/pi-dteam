@@ -3,14 +3,14 @@ title: "worker 编排层"
 kind: definition
 domain: P3-编排层
 status: stable
-tags: [worker, 编排]
+tags: [worker, 编排, 编排层]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # worker 编排层
 
-> **定位**：dteam 的执行引擎层。定义 worker 的编排架构和执行模式。
+> **定位**：dteam 的编排层。定义 worker 的编排架构和执行模式。依赖 solo/chain/team（P2）。
 
 ## 一句话
 
@@ -56,11 +56,11 @@ worker 编排层是 dteam 的**发动机**——驱动任务从创建到完成�
 | 组件 | 职责 | 位置 |
 |------|------|------|
 | 编排决策逻辑 | 选择 solo/chain/team | [编排决策逻辑.md](./编排决策逻辑.md) |
-| solo | 单任务执行 | [定义/P1-组装与行为层/solo.md](../定义/P1-组装与行为层/solo.md) |
-| chain | 串行执行 | [定义/P1-组装与行为层/chain.md](../定义/P1-组装与行为层/chain.md) |
-| team | 并行执行 | [定义/P1-组装与行为层/team.md](../定义/P1-组装与行为层/team.md) |
-| 信号总线 | 即时通信 | [定义/P1-组装与行为层/信号总线.md](../定义/P1-组装与行为层/信号总线.md) |
-| 角色系统 | 执行角色 | [定义/P2-角色执行层/角色.md](../定义/P2-角色执行层/角色.md) |
+| solo | 单任务执行 | [P2-组合层/solo.md](../P2-组合层/solo.md) |
+| chain | 串行执行 | [P2-组合层/chain.md](../P2-组合层/chain.md) |
+| team | 并行执行 | [P2-组合层/team.md](../P2-组合层/team.md) |
+| 信号总线 | 即时通信 | [P2-组合层/信号总线.md](../P2-组合层/信号总线.md) |
+| 角色系统 | 执行角色 | [P1-基础层/角色.md](../P1-基础层/角色.md) |
 
 ## 执行流程
 

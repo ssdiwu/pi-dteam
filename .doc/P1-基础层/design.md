@@ -1,16 +1,16 @@
 ---
 title: "design 角色"
 kind: definition
-domain: P2-角色执行层
+domain: P1-基础层
 status: stable
-tags: [design, 角色]
+tags: [design, 角色, 基础层]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # design 角色
 
-> **定位**：方案制定者。分析需求、制定方案、输出计划文档。
+> **定位**：方案制定者。分析需求、制定方案、输出计划文档。依赖 task（P0）。
 
 ## 一句话
 

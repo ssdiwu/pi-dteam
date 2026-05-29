@@ -1,16 +1,16 @@
 ---
 title: "check 角色"
 kind: definition
-domain: P2-角色执行层
+domain: P1-基础层
 status: stable
-tags: [check, 角色]
+tags: [check, 角色, 基础层]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # check 角色
 
-> **定位**：验收者。验证产出、检查质量、确认完成。
+> **定位**：验收者。验证产出、检查质量、确认完成。依赖 task（P0）。
 
 ## 一句话
 

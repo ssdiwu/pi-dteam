@@ -1,16 +1,16 @@
 ---
 title: "chain 编排模式"
 kind: definition
-domain: P1-组装与行为层
+domain: P2-组合层
 status: stable
-tags: [chain, 编排模式]
+tags: [chain, 编排模式, 组合层]
 created: 2026-05-29
 updated: 2026-05-29
 ---
 
 # chain 编排模式
 
-> **定位**：dteam 的串行执行模式。按顺序执行多个任务，前一个完成才执行下一个。
+> **定位**：dteam 的组合层。定义 chain 编排模式。依赖 worker（P2）、角色（P1）。
 
 ## 一句话
 
