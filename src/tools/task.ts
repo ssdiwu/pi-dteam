@@ -1,10 +1,10 @@
 /**
  * task 工具实现
  *
- * 5个工具：task.create/read/update/complete/archive
+ * 7个工具：task.create/read/update/complete/archive/list/search
  */
 
-import { readFile, mkdir, readdir, rename } from "node:fs/promises";
+import { readFile, mkdir, readdir, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -40,6 +40,15 @@ function generateId(): string {
 }
 
 /**
+ * 确保目录存在
+ */
+async function ensureDir(dir: string): Promise<void> {
+	if (!existsSync(dir)) {
+		await mkdir(dir, { recursive: true });
+	}
+}
+
+/**
  * 查找 task 文件
  */
 async function findTaskFile(cwd: string, id: string): Promise<string> {
@@ -68,8 +77,35 @@ async function readTaskFile(filepath: string): Promise<string> {
  * 写入 task 文件
  */
 async function writeTaskFile(filepath: string, content: string): Promise<void> {
-	const { writeFile } = await import("node:fs/promises");
 	await writeFile(filepath, content, "utf-8");
+}
+
+/**
+ * 解析 task 元数据
+ */
+function parseTaskMeta(content: string, filename: string): {
+	id: string;
+	name: string;
+	type: string;
+	status: string;
+	created: string;
+} {
+	const idMatch = filename.match(/(\d{14}-[a-z0-9]{4})/);
+	const id = idMatch ? idMatch[1] : filename;
+
+	const nameMatch = content.match(/^# (.+)$/m);
+	const name = nameMatch ? nameMatch[1] : filename.replace(/-\d{14}-[a-z0-9]{4}\.md$/, "");
+
+	const typeMatch = content.match(/类型:\s*(\w+)/);
+	const type = typeMatch ? typeMatch[1] : "unknown";
+
+	const statusMatch = content.match(/状态:\s*(\w+)/);
+	const status = statusMatch ? statusMatch[1] : "unknown";
+
+	const createdMatch = content.match(/创建时间:\s*(.+)$/m);
+	const created = createdMatch ? createdMatch[1] : "";
+
+	return { id, name, type, status, created };
 }
 
 // ── 工具实现 ──────────────────────────────────────────────────
@@ -78,11 +114,8 @@ async function writeTaskFile(filepath: string, content: string): Promise<void> {
  * task.create — 创建新的 task
  */
 export async function taskCreate(
-	_toolCallId: string,
-	params: { name: string; type: string; why: string; goal: string },
-	_signal: AbortSignal | undefined,
-	_onUpdate: unknown,
 	ctx: { cwd: string },
+	params: { name: string; type: string; why: string; goal: string },
 ): Promise<{ content: string }> {
 	const { name, type, why, goal } = params;
 	const id = generateId();
@@ -91,10 +124,7 @@ export async function taskCreate(
 	const filepath = join(ctx.cwd, TASK_DIR, filename);
 
 	// 确保目录存在
-	const taskDir = join(ctx.cwd, TASK_DIR);
-	if (!existsSync(taskDir)) {
-		await mkdir(taskDir, { recursive: true });
-	}
+	await ensureDir(join(ctx.cwd, TASK_DIR));
 
 	// 构建 task 内容
 	const content = `# ${name}
@@ -147,11 +177,8 @@ export async function taskCreate(
  * task.read — 读取 task 的指定 section
  */
 export async function taskRead(
-	_toolCallId: string,
-	params: { id: string; section: string },
-	_signal: AbortSignal | undefined,
-	_onUpdate: unknown,
 	ctx: { cwd: string },
+	params: { id: string; section: string },
 ): Promise<{ content: string }> {
 	const { id, section } = params;
 	const filepath = await findTaskFile(ctx.cwd, id);
@@ -182,11 +209,8 @@ export async function taskRead(
  * task.update — 更新 task 的指定 section
  */
 export async function taskUpdate(
-	_toolCallId: string,
-	params: { id: string; section: string; content: string },
-	_signal: AbortSignal | undefined,
-	_onUpdate: unknown,
 	ctx: { cwd: string },
+	params: { id: string; section: string; content: string },
 ): Promise<{ content: string }> {
 	const { id, section, content: newContent } = params;
 	const filepath = await findTaskFile(ctx.cwd, id);
@@ -212,11 +236,8 @@ export async function taskUpdate(
  * task.complete — 标记 checklist 项为完成
  */
 export async function taskComplete(
-	_toolCallId: string,
-	params: { id: string; item: string },
-	_signal: AbortSignal | undefined,
-	_onUpdate: unknown,
 	ctx: { cwd: string },
+	params: { id: string; item: string },
 ): Promise<{ content: string }> {
 	const { id, item } = params;
 	const filepath = await findTaskFile(ctx.cwd, id);
@@ -244,11 +265,8 @@ export async function taskComplete(
  * task.archive — 归档完成的任务
  */
 export async function taskArchive(
-	_toolCallId: string,
-	params: { id: string },
-	_signal: AbortSignal | undefined,
-	_onUpdate: unknown,
 	ctx: { cwd: string },
+	params: { id: string },
 ): Promise<{ content: string }> {
 	const { id } = params;
 	const sourcePath = await findTaskFile(ctx.cwd, id);
@@ -256,10 +274,7 @@ export async function taskArchive(
 	const destPath = join(ctx.cwd, ARCHIVE_DIR, filename || "");
 
 	// 确保归档目录存在
-	const archiveDir = join(ctx.cwd, ARCHIVE_DIR);
-	if (!existsSync(archiveDir)) {
-		await mkdir(archiveDir, { recursive: true });
-	}
+	await ensureDir(join(ctx.cwd, ARCHIVE_DIR));
 
 	// 移动文件
 	await rename(sourcePath, destPath);
@@ -270,6 +285,126 @@ export async function taskArchive(
 			sourcePath,
 			destPath,
 			message: `Task archived: ${id}`,
+		}),
+	};
+}
+
+/**
+ * task.list — 列出所有 task
+ */
+export async function taskList(
+	ctx: { cwd: string },
+	params: { status?: string },
+): Promise<{ content: string }> {
+	const { status } = params;
+	const taskDir = join(ctx.cwd, TASK_DIR);
+
+	if (!existsSync(taskDir)) {
+		return {
+			content: JSON.stringify({
+				tasks: [],
+				message: "No tasks found",
+			}),
+		};
+	}
+
+	const files = await readdir(taskDir);
+	const tasks: Array<{
+		id: string;
+		name: string;
+		type: string;
+		status: string;
+		created: string;
+	}> = [];
+
+	for (const file of files) {
+		if (!file.endsWith(".md")) continue;
+
+		try {
+			const filepath = join(taskDir, file);
+			const content = await readTaskFile(filepath);
+			const meta = parseTaskMeta(content, file);
+
+			// 按状态过滤
+			if (status && meta.status !== status) continue;
+
+			tasks.push(meta);
+		} catch {
+			// 跳过无法解析的文件
+		}
+	}
+
+	// 按创建时间排序（最新的在前）
+	tasks.sort((a, b) => b.created.localeCompare(a.created));
+
+	return {
+		content: JSON.stringify({
+			tasks,
+			count: tasks.length,
+			message: `Found ${tasks.length} tasks`,
+		}),
+	};
+}
+
+/**
+ * task.search — 搜索 task
+ */
+export async function taskSearch(
+	ctx: { cwd: string },
+	params: { query: string },
+): Promise<{ content: string }> {
+	const { query } = params;
+	const taskDir = join(ctx.cwd, TASK_DIR);
+
+	if (!existsSync(taskDir)) {
+		return {
+			content: JSON.stringify({
+				tasks: [],
+				message: "No tasks found",
+			}),
+		};
+	}
+
+	const files = await readdir(taskDir);
+	const tasks: Array<{
+		id: string;
+		name: string;
+		type: string;
+		status: string;
+		created: string;
+	}> = [];
+
+	const lowerQuery = query.toLowerCase();
+
+	for (const file of files) {
+		if (!file.endsWith(".md")) continue;
+
+		try {
+			const filepath = join(taskDir, file);
+			const content = await readTaskFile(filepath);
+			const meta = parseTaskMeta(content, file);
+
+			// 搜索匹配
+			if (
+				meta.name.toLowerCase().includes(lowerQuery) ||
+				meta.type.toLowerCase().includes(lowerQuery) ||
+				content.toLowerCase().includes(lowerQuery)
+			) {
+				tasks.push(meta);
+			}
+		} catch {
+			// 跳过无法解析的文件
+		}
+	}
+
+	// 按创建时间排序（最新的在前）
+	tasks.sort((a, b) => b.created.localeCompare(a.created));
+
+	return {
+		content: JSON.stringify({
+			tasks,
+			count: tasks.length,
+			message: `Found ${tasks.length} tasks matching "${query}"`,
 		}),
 	};
 }

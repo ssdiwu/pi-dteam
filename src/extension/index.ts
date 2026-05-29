@@ -1,7 +1,7 @@
 /**
  * pi-dteam Extension — 轻量级多代理编排系统入口
  *
- * 5个工具（task.create/read/update/complete/archive）+ 2个reference工具
+ * 7个工具（task.create/read/update/complete/archive/list/search）+ 2个reference工具
  * 5个agent（explore/design/build/check/close）
  * 4个信号 + 5个策略 = 9种信号类型
  */
@@ -15,6 +15,27 @@ import { existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+// ── Wrapper: tool handler → agent-tool-result shape ────────────
+// tools return { content: string }. This helper wraps
+// them into the shape that registerTool execute expects.
+function wrap(
+	fn: (ctx: ExtensionContext, params: any) => Promise<{ content: string }>,
+) {
+	return async (
+		_toolCallId: string,
+		params: any,
+		_signal: AbortSignal | undefined,
+		_onUpdate: unknown,
+		ctx: ExtensionContext,
+	) => {
+		const result = await fn(ctx, params);
+		return {
+			content: [{ type: "text" as const, text: result.content }],
+			details: undefined,
+		};
+	};
+}
+
 // ── 工具实现 ──────────────────────────────────────────────────
 import {
 	taskCreate,
@@ -22,6 +43,8 @@ import {
 	taskUpdate,
 	taskComplete,
 	taskArchive,
+	taskList,
+	taskSearch,
 } from "../tools/task.js";
 
 import {
@@ -57,7 +80,7 @@ export default async function (pi: ExtensionAPI) {
 			required: ["name", "type", "why", "goal"],
 			additionalProperties: false,
 		} as const,
-		execute: taskCreate,
+		execute: wrap(taskCreate),
 	});
 
 	pi.registerTool({
@@ -79,7 +102,7 @@ export default async function (pi: ExtensionAPI) {
 			required: ["id", "section"],
 			additionalProperties: false,
 		} as const,
-		execute: taskRead,
+		execute: wrap(taskRead),
 	});
 
 	pi.registerTool({
@@ -98,7 +121,7 @@ export default async function (pi: ExtensionAPI) {
 			required: ["id", "section", "content"],
 			additionalProperties: false,
 		} as const,
-		execute: taskUpdate,
+		execute: wrap(taskUpdate),
 	});
 
 	pi.registerTool({
@@ -116,7 +139,7 @@ export default async function (pi: ExtensionAPI) {
 			required: ["id", "item"],
 			additionalProperties: false,
 		} as const,
-		execute: taskComplete,
+		execute: wrap(taskComplete),
 	});
 
 	pi.registerTool({
@@ -133,7 +156,44 @@ export default async function (pi: ExtensionAPI) {
 			required: ["id"],
 			additionalProperties: false,
 		} as const,
-		execute: taskArchive,
+		execute: wrap(taskArchive),
+	});
+
+	pi.registerTool({
+		name: "task.list",
+		label: "Task List",
+		description: "列出所有 task。",
+		promptSnippet: "- task.list: 列出所有 task",
+		promptGuidelines: ["使用 task.list 列出所有 task，可选按状态过滤。"],
+		parameters: {
+			type: "object",
+			properties: {
+				status: {
+					type: "string",
+					enum: ["todo", "InSpec", "InProgress", "Done", "Cancelled"],
+					description: "按状态过滤（可选）",
+				},
+			},
+			additionalProperties: false,
+		} as const,
+		execute: wrap(taskList),
+	});
+
+	pi.registerTool({
+		name: "task.search",
+		label: "Task Search",
+		description: "搜索 task。",
+		promptSnippet: "- task.search: 搜索 task",
+		promptGuidelines: ["使用 task.search 搜索 task，需要提供 query 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				query: { type: "string", description: "搜索关键词" },
+			},
+			required: ["query"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(taskSearch),
 	});
 
 	// ═══════════════════════════════════════════════════════════
@@ -154,7 +214,7 @@ export default async function (pi: ExtensionAPI) {
 			required: ["query"],
 			additionalProperties: false,
 		} as const,
-		execute: referenceArchitecture,
+		execute: wrap(referenceArchitecture),
 	});
 
 	pi.registerTool({
@@ -171,7 +231,7 @@ export default async function (pi: ExtensionAPI) {
 			required: ["query"],
 			additionalProperties: false,
 		} as const,
-		execute: referenceThinking,
+		execute: wrap(referenceThinking),
 	});
 
 	// ═══════════════════════════════════════════════════════════

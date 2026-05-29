@@ -72,11 +72,8 @@ function searchToml(data: Record<string, string>, query: string): Array<{ key: s
  * reference.architecture — 查询架构类型参考
  */
 export async function referenceArchitecture(
-	_toolCallId: string,
-	params: { query: string },
-	_signal: AbortSignal | undefined,
-	_onUpdate: unknown,
 	ctx: { cwd: string },
+	params: { query: string },
 ): Promise<{ content: string }> {
 	const { query } = params;
 	const filepath = join(ctx.cwd, REFERENCE_DIR, ARCHITECTURE_FILE);
@@ -105,11 +102,8 @@ export async function referenceArchitecture(
  * reference.thinking — 查询思考方式参考
  */
 export async function referenceThinking(
-	_toolCallId: string,
-	params: { query: string },
-	_signal: AbortSignal | undefined,
-	_onUpdate: unknown,
 	ctx: { cwd: string },
+	params: { query: string },
 ): Promise<{ content: string }> {
 	const { query } = params;
 	const filepath = join(ctx.cwd, REFERENCE_DIR, THINKING_FILE);
