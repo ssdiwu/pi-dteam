@@ -4,8 +4,8 @@
 
 import { WorkerConfig, getRequiredOption } from "../P0/config.js";
 import { WorkerStatus } from "../P0/status.js";
+import { MemoryAdapter } from "../P0/memory.js";
 import { SignalBus } from "../P1/signalBus.js";
-import { SharedMemory } from "../P1/sharedMemory.js";
 
 export interface SoloResult {
   status: WorkerStatus;
@@ -19,7 +19,7 @@ export interface SoloResult {
 export async function runSolo(
   config: WorkerConfig,
   bus: SignalBus,
-  memory: SharedMemory,
+  memory: MemoryAdapter,
   executor: (role: string, task: string, style: string) => Promise<string>,
 ): Promise<SoloResult> {
   const role = getRequiredOption<string>(config.options, "role");

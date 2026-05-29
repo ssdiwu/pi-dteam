@@ -4,8 +4,8 @@
 
 import { WorkerConfig } from "../P0/config.js";
 import { WorkerStatus } from "../P0/status.js";
+import { MemoryAdapter } from "../P0/memory.js";
 import { SignalBus } from "../P1/signalBus.js";
-import { SharedMemory } from "../P1/sharedMemory.js";
 import { runSolo, SoloResult } from "../P2/solo.js";
 import { runChain, ChainResult } from "../P2/chain.js";
 import { runTeam, TeamResult } from "../P2/team.js";
@@ -25,7 +25,7 @@ export interface OrchestratorResult {
 export async function runWorker(
   config: WorkerConfig,
   bus: SignalBus,
-  memory: SharedMemory,
+  memory: MemoryAdapter,
   executor: (role: string, task: string, style: string) => Promise<string>,
 ): Promise<OrchestratorResult> {
   try {
