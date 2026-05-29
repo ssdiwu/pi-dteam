@@ -49,7 +49,6 @@ import {
 
 import {
 	referenceArchitecture,
-	referenceThinking,
 } from "../tools/reference.js";
 
 import {
@@ -233,23 +232,6 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(referenceArchitecture),
-	});
-
-	pi.registerTool({
-		name: "reference.thinking",
-		label: "Reference Thinking",
-		description: "查询思考方式参考。",
-		promptSnippet: "- reference.thinking: 查询思考方式参考",
-		promptGuidelines: ["使用 reference.thinking 查询思考方式参考，需要提供 query 参数。"],
-		parameters: {
-			type: "object",
-			properties: {
-				query: { type: "string", description: "查询关键词" },
-			},
-			required: ["query"],
-			additionalProperties: false,
-		} as const,
-		execute: wrap(referenceThinking),
 	});
 
 	// ═══════════════════════════════════════════════════════════
