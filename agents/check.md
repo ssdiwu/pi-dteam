@@ -2,7 +2,7 @@
 name: check
 package: dteam
 description: 验收者，检查代码质量、验证结果
-tools: read, grep, find, ls, bash, write, task.read, task.update
+tools: read, grep, find, ls, bash, write, task.read, task.update, task.complete
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
