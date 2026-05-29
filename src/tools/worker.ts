@@ -28,8 +28,8 @@ const workers = new Map<string, {
   abortController?: AbortController;
 }>();
 
-const bus = new SignalBus();
-const memory = createEnhancedSharedMemory();
+export const bus = new SignalBus();
+export const memory = createEnhancedSharedMemory();
 
 // ── 执行器注册 ────────────────────────────────────────────────
 

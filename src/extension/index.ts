@@ -72,6 +72,22 @@ import {
 	authLogout,
 } from "../tools/auth.js";
 
+import {
+	memoryGet,
+	memorySet,
+	memoryKeys,
+	memoryHas,
+	memoryDelete,
+	memoryClear,
+	memorySave,
+	memoryLoad,
+} from "../tools/memory.js";
+
+import {
+	signalEmit,
+	signalHistory,
+} from "../tools/signal.js";
+
 // ── 扩展入口 ──────────────────────────────────────────────────
 
 export default async function (pi: ExtensionAPI) {
@@ -471,6 +487,191 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(authLogout),
+	});
+
+	// ═══════════════════════════════════════════════════════════
+	// memory 工具
+	// ═══════════════════════════════════════════════════════════
+
+	pi.registerTool({
+		name: "memory.get",
+		label: "Memory Get",
+		description: "从共享内存获取值。",
+		promptSnippet: "- memory.get: 从共享内存获取值",
+		promptGuidelines: ["使用 memory.get 从共享内存获取值，需要提供 namespace 和 key 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				namespace: { type: "string", description: "命名空间" },
+				key: { type: "string", description: "键名" },
+			},
+			required: ["namespace", "key"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(memoryGet),
+	});
+
+	pi.registerTool({
+		name: "memory.set",
+		label: "Memory Set",
+		description: "向共享内存设置值。",
+		promptSnippet: "- memory.set: 向共享内存设置值",
+		promptGuidelines: ["使用 memory.set 向共享内存设置值，需要提供 namespace、key、value、agentId 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				namespace: { type: "string", description: "命名空间" },
+				key: { type: "string", description: "键名" },
+				value: { type: "any", description: "值" },
+				agentId: { type: "string", description: "代理ID" },
+			},
+			required: ["namespace", "key", "value", "agentId"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(memorySet),
+	});
+
+	pi.registerTool({
+		name: "memory.keys",
+		label: "Memory Keys",
+		description: "列出命名空间下的所有键。",
+		promptSnippet: "- memory.keys: 列出命名空间下的所有键",
+		promptGuidelines: ["使用 memory.keys 列出命名空间下的所有键，需要提供 namespace 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				namespace: { type: "string", description: "命名空间" },
+			},
+			required: ["namespace"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(memoryKeys),
+	});
+
+	pi.registerTool({
+		name: "memory.has",
+		label: "Memory Has",
+		description: "检查键是否存在。",
+		promptSnippet: "- memory.has: 检查键是否存在",
+		promptGuidelines: ["使用 memory.has 检查键是否存在，需要提供 namespace 和 key 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				namespace: { type: "string", description: "命名空间" },
+				key: { type: "string", description: "键名" },
+			},
+			required: ["namespace", "key"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(memoryHas),
+	});
+
+	pi.registerTool({
+		name: "memory.delete",
+		label: "Memory Delete",
+		description: "删除键。",
+		promptSnippet: "- memory.delete: 删除键",
+		promptGuidelines: ["使用 memory.delete 删除键，需要提供 namespace 和 key 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				namespace: { type: "string", description: "命名空间" },
+				key: { type: "string", description: "键名" },
+			},
+			required: ["namespace", "key"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(memoryDelete),
+	});
+
+	pi.registerTool({
+		name: "memory.clear",
+		label: "Memory Clear",
+		description: "清空命名空间。",
+		promptSnippet: "- memory.clear: 清空命名空间",
+		promptGuidelines: ["使用 memory.clear 清空命名空间，需要提供 namespace 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				namespace: { type: "string", description: "命名空间" },
+			},
+			required: ["namespace"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(memoryClear),
+	});
+
+	pi.registerTool({
+		name: "memory.save",
+		label: "Memory Save",
+		description: "保存共享内存到文件。",
+		promptSnippet: "- memory.save: 保存共享内存到文件",
+		promptGuidelines: ["使用 memory.save 保存共享内存到文件，需要提供 filepath 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				filepath: { type: "string", description: "文件路径" },
+			},
+			required: ["filepath"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(memorySave),
+	});
+
+	pi.registerTool({
+		name: "memory.load",
+		label: "Memory Load",
+		description: "从文件加载共享内存。",
+		promptSnippet: "- memory.load: 从文件加载共享内存",
+		promptGuidelines: ["使用 memory.load 从文件加载共享内存，需要提供 filepath 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				filepath: { type: "string", description: "文件路径" },
+			},
+			required: ["filepath"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(memoryLoad),
+	});
+
+	// ═══════════════════════════════════════════════════════════
+	// signal 工具
+	// ═══════════════════════════════════════════════════════════
+
+	pi.registerTool({
+		name: "signal.emit",
+		label: "Signal Emit",
+		description: "发送信号。",
+		promptSnippet: "- signal.emit: 发送信号",
+		promptGuidelines: ["使用 signal.emit 发送信号，需要提供 type、workerId 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				type: { type: "string", description: "信号类型" },
+				workerId: { type: "string", description: "工作者ID" },
+				data: { type: "object", description: "信号数据" },
+			},
+			required: ["type", "workerId"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(signalEmit),
+	});
+
+	pi.registerTool({
+		name: "signal.history",
+		label: "Signal History",
+		description: "获取信号历史。",
+		promptSnippet: "- signal.history: 获取信号历史",
+		promptGuidelines: ["使用 signal.history 获取信号历史，可选提供 workerId 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				workerId: { type: "string", description: "工作者ID" },
+			},
+			additionalProperties: false,
+		} as const,
+		execute: wrap(signalHistory),
 	});
 
 	// ═══════════════════════════════════════════════════════════
