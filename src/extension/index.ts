@@ -52,6 +52,12 @@ import {
 	referenceThinking,
 } from "../tools/reference.js";
 
+import {
+	workerCreate,
+	workerStart,
+	workerSendSignal,
+} from "../tools/worker.js";
+
 // ── 扩展入口 ──────────────────────────────────────────────────
 
 export default async function (pi: ExtensionAPI) {
@@ -232,6 +238,63 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(referenceThinking),
+	});
+
+	// ═══════════════════════════════════════════════════════════
+	// worker 工具
+	// ═══════════════════════════════════════════════════════════
+
+	pi.registerTool({
+		name: "worker.create",
+		label: "Worker Create",
+		description: "创建 worker 实例。",
+		promptSnippet: "- worker.create: 创建 worker 实例",
+		promptGuidelines: ["使用 worker.create 创建 worker 实例，需要提供 config 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				config: { type: "object", description: "WorkerConfig 配置" },
+			},
+			required: ["config"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(workerCreate),
+	});
+
+	pi.registerTool({
+		name: "worker.start",
+		label: "Worker Start",
+		description: "启动 worker 执行。",
+		promptSnippet: "- worker.start: 启动 worker 执行",
+		promptGuidelines: ["使用 worker.start 启动 worker 执行，需要提供 workerId 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				workerId: { type: "string", description: "Worker ID" },
+			},
+			required: ["workerId"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(workerStart),
+	});
+
+	pi.registerTool({
+		name: "worker.sendSignal",
+		label: "Worker Send Signal",
+		description: "发送信号到 worker。",
+		promptSnippet: "- worker.sendSignal: 发送信号到 worker",
+		promptGuidelines: ["使用 worker.sendSignal 发送信号到 worker，需要提供 workerId、signalType、data 参数。"],
+		parameters: {
+			type: "object",
+			properties: {
+				workerId: { type: "string", description: "Worker ID" },
+				signalType: { type: "string", description: "信号类型" },
+				data: { type: "object", description: "信号数据" },
+			},
+			required: ["workerId", "signalType"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(workerSendSignal),
 	});
 
 	// ═══════════════════════════════════════════════════════════
