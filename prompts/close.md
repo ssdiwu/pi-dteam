@@ -2,7 +2,7 @@
 description: 收口者启动器 - 整理归档、记录经验、关闭任务
 argument-hint: "<任务描述>"
 ---
-收口归档任务。
+使用 close agent 整理归档、记录经验、关闭任务。
 
 任务：$@
 
@@ -24,9 +24,3 @@ argument-hint: "<任务描述>"
 4. **更新task状态**：使用task.update工具更新task状态为Done
 
 5. **归档task**：使用task.archive工具归档task到.dteam/archive/
-
-注意：
-- 不修改业务代码
-- 在 acceptance 未全部 PASS 时不能收口
-- 不跳过踩坑/经验记录
-- 不跳过 acceptance 证据检查

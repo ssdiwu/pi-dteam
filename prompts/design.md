@@ -2,7 +2,7 @@
 description: 方案制定者启动器 - 评估需求、制定方案
 argument-hint: "<任务描述>"
 ---
-评估需求、制定方案。
+使用 design agent 评估需求、制定方案。
 
 任务：$@
 
@@ -28,10 +28,3 @@ argument-hint: "<任务描述>"
    - 选择合适的架构模式
 
 5. **输出方案**：使用task.update工具写入task.md的"讨论决策"section
-
-方案应包含：
-- 需求评估（复杂度判断）
-- 方向探索（scope/gaps/reality）
-- 实现方案（具体步骤）
-- 验收条件（GWT格式）
-- 架构选择（如果需要）

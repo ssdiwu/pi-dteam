@@ -2,7 +2,7 @@
 description: 验收者启动器 - 检查代码质量、验证结果
 argument-hint: "<任务描述>"
 ---
-验收任务。
+使用 check agent 检查代码质量、验证结果。
 
 任务：$@
 
@@ -28,9 +28,3 @@ argument-hint: "<任务描述>"
    - 记录问题和修复建议
 
 5. **更新task**：使用task.update工具更新task.md的"验收条件"section
-
-注意：
-- 不修改业务代码
-- 基于代码事实判定，不基于感觉
-- 每条 acceptance 必须有 PASS/FAIL 判定
-- 发现 BLOCKER 必须明确标注
