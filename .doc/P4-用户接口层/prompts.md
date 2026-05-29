@@ -16,13 +16,14 @@ updated: 2026-05-29
 
 prompts 是 dteam 的**用户入口**——通过 `/命令` 触发 worker 启动器。
 
-## Prompt 模板清单（5个）
+## Prompt 模板清单（6个）
 
 | 模板 | 命令 | 功能 | 整合功能 |
 |------|------|------|----------|
 | `explore.md` | `/explore` | 探索者启动器 | explain |
 | `design.md` | `/design` | 方案制定者启动器 | - |
 | `build.md` | `/build` | 实现者启动器 | fix、test |
+| `deploy.md` | `/deploy` | 部署者启动器 | - |
 | `check.md` | `/check` | 验收者启动器 | review |
 | `close.md` | `/close` | 收口者启动器 | commit |
 
@@ -32,8 +33,8 @@ prompts 是 dteam 的**用户入口**——通过 `/命令` 触发 worker 启动
 用户需求
     │
     ▼
-/explore → /design → /build → /check → /close
-（探索）   （设计）   （实现）   （验收）   （收口）
+/explore → /design → /build → /check → /deploy → /close
+（探索）   （设计）   （实现）   （验收）   （部署）   （收口）
 ```
 
 ## Prompt 详细说明
@@ -110,6 +111,25 @@ prompts 是 dteam 的**用户入口**——通过 `/命令` 触发 worker 启动
 
 ---
 
+### /deploy — 部署者启动器
+
+**职责**：
+- 验证验收条件是否全部 PASS
+- 执行构建命令
+- 执行部署命令
+- 验证部署结果（健康检查、冒烟测试）
+
+**产出**：
+- task.md 的“部署记录”section
+- 部署成功的服务
+
+**使用场景**：
+- 部署到生产环境
+- 发布新版本
+- 执行 CI/CD 流程
+
+---
+
 ### /close — 收口者启动器
 
 **职责**：
@@ -143,7 +163,10 @@ prompts 是 dteam 的**用户入口**——通过 `/命令` 触发 worker 启动
 # 4. 验收
 /check 实现用户认证功能
 
-# 5. 收口
+# 5. 部署
+/deploy 实现用户认证功能
+
+# 6. 收口
 /close 实现用户认证功能
 ```
 
@@ -162,6 +185,9 @@ prompts 是 dteam 的**用户入口**——通过 `/命令` 触发 worker 启动
 # 只验收
 /check 验收用户认证功能
 
+# 只部署
+/deploy 部署用户认证功能
+
 # 只收口
 /close 归档用户认证任务
 ```
@@ -172,8 +198,9 @@ prompts 使用工具接口来操作 task：
 
 | prompt | 使用的工具 |
 |--------|-----------|
-| `/explore` | task.create、task.update |
-| `/design` | task.create、task.update |
+| `/explore` | task.read、task.update |
+| `/design` | task.create、task.read、task.update、reference.architecture、reference.thinking |
 | `/build` | task.read、task.update |
-| `/check` | task.read、task.update |
-| `/close` | task.read、task.update、task.archive |
+| `/deploy` | task.read、task.update |
+| `/check` | task.read、task.update、task.complete |
+| `/close` | task.read、task.update、task.archive、task.list、task.search |

@@ -2,7 +2,7 @@
  * pi-dteam Extension — 轻量级多代理编排系统入口
  *
  * 7个工具（task.create/read/update/complete/archive/list/search）+ 2个reference工具
- * 5个agent（explore/design/build/check/close）
+ * 6个agent（explore/design/build/deploy/check/close）
  * 4个信号 + 5个策略 = 9种信号类型
  */
 
@@ -170,7 +170,7 @@ export default async function (pi: ExtensionAPI) {
 			properties: {
 				status: {
 					type: "string",
-					enum: ["todo", "InSpec", "InProgress", "Done", "Cancelled"],
+					enum: ["todo", "InSpec", "InProgress", "InDeploy", "Done", "Cancelled"],
 					description: "按状态过滤（可选）",
 				},
 			},

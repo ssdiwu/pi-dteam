@@ -23,7 +23,7 @@ task 是 dteam 的**工作主语**——一个完整的、有明确边界的功�
 | 生命周期 | 永久态：创建 → 执行 → 归档 |
 | 持久化 | `.dteam/task/{name}-{timestamp}-{random4}.md` |
 | 格式 | Markdown（统一格式） |
-| 状态 | 5个：todo / InSpec / InProgress / Done / Cancelled |
+| 状态 | 6个：todo / InSpec / InProgress / InDeploy / Done / Cancelled |
 
 ## 文件命名
 
@@ -78,7 +78,7 @@ task 是 dteam 的**工作主语**——一个完整的、有明确边界的功�
 | ID | string | ✅ | 全局唯一标识，格式 `{timestamp}-{random4}` |
 | 类型 | enum | ✅ | functional / ui / bugfix / refactor / infra |
 | 创建时间 | ISO8601 | ✅ | 创建时间 |
-| 状态 | enum | ✅ | todo / InSpec / InProgress / Done / Cancelled |
+| 状态 | enum | ✅ | todo / InSpec / InProgress / InDeploy / Done / Cancelled |
 
 ## TaskType（5种）
 
@@ -90,19 +90,20 @@ task 是 dteam 的**工作主语**——一个完整的、有明确边界的功�
 | `refactor` | 重构优化 | 代码结构调整、性能优化 |
 | `infra` | 基础设施 | 构建配置、CI/CD、文档 |
 
-## TaskStage（5种）
+## TaskStage（6种）
 
 ```
-todo → InSpec → InProgress → Done
-                  ↓
-              Cancelled
+todo → InSpec → InProgress → InDeploy → Done
+                  ↓                ↓
+              Cancelled        Cancelled
 ```
 
 | 阶段 | 含义 | 合法转移 |
-|------|------|---------|
+|------|------|----------|
 | `todo` | 待办 | → InSpec |
 | `InSpec` | 探索中 | → InProgress |
-| `InProgress` | 进行中 | → Done, Cancelled |
+| `InProgress` | 进行中 | → InDeploy, Cancelled |
+| `InDeploy` | 部署中 | → Done, Cancelled |
 | `Done` | 完成 | 终态 |
 | `Cancelled` | 取消 | 终态 |
 
@@ -124,7 +125,7 @@ todo → InSpec → InProgress → Done
 
 1. `id` 全局唯一（格式 `{timestamp}-{random4}`）
 2. `type` 必须是5个合法值之一
-3. `stage` 必须是5个合法值之一
+3. `stage` 必须是6个合法值之一
 4. 验收条件必须包含GWT格式和对应测试
 5. Done 和 Cancelled 为终态，不可逆转
 

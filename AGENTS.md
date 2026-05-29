@@ -10,7 +10,7 @@ dteam 是一个 **Pi 扩展包项目**，提供轻量级的多代理编排能力
 
 - **task**：工作主语对象（Markdown格式）
 - **worker**：执行单元（solo/chain/team三种模式）
-- **角色**：5个执行角色（explore/design/build/check/close）
+- **角色**：6个执行角色（explore/design/build/deploy/check/close）
 - **信号**：即时通信机制（4个信号 + 5个策略 = 9种）
 
 ### 文档结构

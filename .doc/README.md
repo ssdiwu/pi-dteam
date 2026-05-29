@@ -19,7 +19,7 @@ dteam 是一个**轻量级的多代理编排系统**。通过 solo/chain/team �
 **核心概念**：
 - task：工作主语对象
 - worker：执行单元（solo/chain/team）
-- 角色：5个执行角色（explore/design/build/check/close）
+- 角色：6个执行角色（explore/design/build/deploy/check/close）
 - 信号：即时通信机制
 
 ## 文档体系
@@ -56,6 +56,7 @@ P3-编排层（编排决策逻辑、worker编排层）
 | explore 角色 | [P1-基础层/explore.md](./P1-基础层/explore.md) |
 | design 角色 | [P1-基础层/design.md](./P1-基础层/design.md) |
 | build 角色 | [P1-基础层/build.md](./P1-基础层/build.md) |
+| deploy 角色 | [P1-基础层/deploy.md](./P1-基础层/deploy.md) |
 | check 角色 | [P1-基础层/check.md](./P1-基础层/check.md) |
 | close 角色 | [P1-基础层/close.md](./P1-基础层/close.md) |
 | 工具接口 | [P1-基础层/工具接口.md](./P1-基础层/工具接口.md) |
