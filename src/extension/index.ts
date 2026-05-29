@@ -522,7 +522,7 @@ export default async function (pi: ExtensionAPI) {
 			properties: {
 				namespace: { type: "string", description: "命名空间" },
 				key: { type: "string", description: "键名" },
-				value: { type: "any", description: "值" },
+				value: { description: "值" },  // type 省略（允许任意类型）
 				agentId: { type: "string", description: "代理ID" },
 			},
 			required: ["namespace", "key", "value", "agentId"],
