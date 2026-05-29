@@ -7,7 +7,7 @@
 import { WorkerConfig } from "../P0/config.js";
 import { WorkerStatus } from "../P0/status.js";
 import { SignalBus } from "./signalBus.js";
-import { SharedMemory } from "./sharedMemory.js";
+import { EnhancedSharedMemory } from "./enhancedSharedMemory.js";
 import { runWorker } from "../P3/worker.js";
 
 // ── 类型定义 ──────────────────────────────────────────────
@@ -36,6 +36,7 @@ class BackgroundWorkerImpl implements BackgroundWorker {
   private config: WorkerConfig;
   private bus: SignalBus;
   private memory: SharedMemory;
+  private memory: EnhancedSharedMemory;
   private options: BackgroundWorkerOptions;
   private abortController: AbortController;
   private helpCallbacks: Map<string, (answer: string) => void> = new Map();
@@ -45,6 +46,7 @@ class BackgroundWorkerImpl implements BackgroundWorker {
     config: WorkerConfig,
     bus: SignalBus,
     memory: SharedMemory,
+    memory: EnhancedSharedMemory,
     options: BackgroundWorkerOptions,
   ) {
     this.id = id;
@@ -146,6 +148,7 @@ export function createBackgroundWorker(
   config: WorkerConfig,
   bus: SignalBus,
   memory: SharedMemory,
+  memory: EnhancedSharedMemory,
   options: BackgroundWorkerOptions = {},
 ): BackgroundWorker {
   const id = `bg-worker-${Date.now()}-${++workerCounter}`;
