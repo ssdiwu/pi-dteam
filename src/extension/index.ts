@@ -1,7 +1,7 @@
 /**
  * pi-dteam Extension — 轻量级多代理编排系统入口
  *
- * 7个工具（task.create/read/update/complete/archive/list/search）+ 2个reference工具
+ * 7个工具（task_create/read/update/complete/archive/list/search）+ 2个reference工具
  * 6个agent（explore/design/build/deploy/check/close）
  * 4个信号 + 5个策略 = 9种信号类型
  */
@@ -98,11 +98,11 @@ export default async function (pi: ExtensionAPI) {
 	// ═══════════════════════════════════════════════════════════
 
 	pi.registerTool({
-		name: "task.create",
+		name: "task_create",
 		label: "Task Create",
 		description: "创建新的 task。",
-		promptSnippet: "- task.create: 创建新的 task",
-		promptGuidelines: ["使用 task.create 创建新的 task，需要提供 name、type、why、goal 参数。"],
+		promptSnippet: "- task_create: 创建新的 task",
+		promptGuidelines: ["使用 task_create 创建新的 task，需要提供 name、type、why、goal 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -122,11 +122,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "task.read",
+		name: "task_read",
 		label: "Task Read",
 		description: "读取 task 的指定 section。",
-		promptSnippet: "- task.read: 读取 task 的指定 section",
-		promptGuidelines: ["使用 task.read 读取 task 的指定 section，需要提供 id 和 section 参数。"],
+		promptSnippet: "- task_read: 读取 task 的指定 section",
+		promptGuidelines: ["使用 task_read 读取 task 的指定 section，需要提供 id 和 section 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -144,11 +144,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "task.update",
+		name: "task_update",
 		label: "Task Update",
 		description: "更新 task 的指定 section。",
-		promptSnippet: "- task.update: 更新 task 的指定 section",
-		promptGuidelines: ["使用 task.update 更新 task 的指定 section，需要提供 id、section 和 content 参数。"],
+		promptSnippet: "- task_update: 更新 task 的指定 section",
+		promptGuidelines: ["使用 task_update 更新 task 的指定 section，需要提供 id、section 和 content 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -163,11 +163,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "task.complete",
+		name: "task_complete",
 		label: "Task Complete",
 		description: "标记 checklist 项为完成。",
-		promptSnippet: "- task.complete: 标记 checklist 项为完成",
-		promptGuidelines: ["使用 task.complete 标记 checklist 项为完成，需要提供 id 和 item 参数。"],
+		promptSnippet: "- task_complete: 标记 checklist 项为完成",
+		promptGuidelines: ["使用 task_complete 标记 checklist 项为完成，需要提供 id 和 item 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -181,11 +181,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "task.archive",
+		name: "task_archive",
 		label: "Task Archive",
 		description: "归档完成的任务。",
-		promptSnippet: "- task.archive: 归档完成的任务",
-		promptGuidelines: ["使用 task.archive 归档完成的任务，需要提供 id 参数。"],
+		promptSnippet: "- task_archive: 归档完成的任务",
+		promptGuidelines: ["使用 task_archive 归档完成的任务，需要提供 id 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -198,11 +198,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "task.list",
+		name: "task_list",
 		label: "Task List",
 		description: "列出所有 task。",
-		promptSnippet: "- task.list: 列出所有 task",
-		promptGuidelines: ["使用 task.list 列出所有 task，可选按状态过滤。"],
+		promptSnippet: "- task_list: 列出所有 task",
+		promptGuidelines: ["使用 task_list 列出所有 task，可选按状态过滤。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -218,11 +218,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "task.search",
+		name: "task_search",
 		label: "Task Search",
 		description: "搜索 task。",
-		promptSnippet: "- task.search: 搜索 task",
-		promptGuidelines: ["使用 task.search 搜索 task，需要提供 query 参数。"],
+		promptSnippet: "- task_search: 搜索 task",
+		promptGuidelines: ["使用 task_search 搜索 task，需要提供 query 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -239,11 +239,11 @@ export default async function (pi: ExtensionAPI) {
 	// ═══════════════════════════════════════════════════════════
 
 	pi.registerTool({
-		name: "reference.architecture",
+		name: "reference_architecture",
 		label: "Reference Architecture",
 		description: "查询架构类型参考。",
-		promptSnippet: "- reference.architecture: 查询架构类型参考",
-		promptGuidelines: ["使用 reference.architecture 查询架构类型参考，需要提供 query 参数。"],
+		promptSnippet: "- reference_architecture: 查询架构类型参考",
+		promptGuidelines: ["使用 reference_architecture 查询架构类型参考，需要提供 query 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -260,11 +260,11 @@ export default async function (pi: ExtensionAPI) {
 	// ═══════════════════════════════════════════════════════════
 
 	pi.registerTool({
-		name: "worker.create",
+		name: "worker_create",
 		label: "Worker Create",
 		description: "创建 worker 实例。",
-		promptSnippet: "- worker.create: 创建 worker 实例",
-		promptGuidelines: ["使用 worker.create 创建 worker 实例，需要提供 config 参数。"],
+		promptSnippet: "- worker_create: 创建 worker 实例",
+		promptGuidelines: ["使用 worker_create 创建 worker 实例，需要提供 config 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -277,11 +277,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "worker.start",
+		name: "worker_start",
 		label: "Worker Start",
 		description: "启动 worker 执行。",
-		promptSnippet: "- worker.start: 启动 worker 执行",
-		promptGuidelines: ["使用 worker.start 启动 worker 执行，需要提供 workerId 参数。"],
+		promptSnippet: "- worker_start: 启动 worker 执行",
+		promptGuidelines: ["使用 worker_start 启动 worker 执行，需要提供 workerId 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -294,11 +294,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "worker.sendSignal",
+		name: "worker_sendSignal",
 		label: "Worker Send Signal",
 		description: "发送信号到 worker。",
-		promptSnippet: "- worker.sendSignal: 发送信号到 worker",
-		promptGuidelines: ["使用 worker.sendSignal 发送信号到 worker，需要提供 workerId、signalType、data 参数。"],
+		promptSnippet: "- worker_sendSignal: 发送信号到 worker",
+		promptGuidelines: ["使用 worker_sendSignal 发送信号到 worker，需要提供 workerId、signalType、data 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -313,11 +313,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "worker.cancel",
+		name: "worker_cancel",
 		label: "Worker Cancel",
 		description: "取消后台执行的 worker。",
-		promptSnippet: "- worker.cancel: 取消后台执行的 worker",
-		promptGuidelines: ["使用 worker.cancel 取消后台执行的 worker，需要提供 workerId 参数。"],
+		promptSnippet: "- worker_cancel: 取消后台执行的 worker",
+		promptGuidelines: ["使用 worker_cancel 取消后台执行的 worker，需要提供 workerId 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -330,11 +330,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "worker.status",
+		name: "worker_status",
 		label: "Worker Status",
 		description: "获取 worker 状态。",
-		promptSnippet: "- worker.status: 获取 worker 状态",
-		promptGuidelines: ["使用 worker.status 获取 worker 状态，需要提供 workerId 参数。"],
+		promptSnippet: "- worker_status: 获取 worker 状态",
+		promptGuidelines: ["使用 worker_status 获取 worker 状态，需要提供 workerId 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -347,11 +347,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "worker.saveMemory",
+		name: "worker_saveMemory",
 		label: "Worker Save Memory",
 		description: "保存共享内存到文件。",
-		promptSnippet: "- worker.saveMemory: 保存共享内存到文件",
-		promptGuidelines: ["使用 worker.saveMemory 保存共享内存到文件，需要提供 filepath 参数。"],
+		promptSnippet: "- worker_saveMemory: 保存共享内存到文件",
+		promptGuidelines: ["使用 worker_saveMemory 保存共享内存到文件，需要提供 filepath 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -364,11 +364,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "worker.loadMemory",
+		name: "worker_loadMemory",
 		label: "Worker Load Memory",
 		description: "从文件加载共享内存。",
-		promptSnippet: "- worker.loadMemory: 从文件加载共享内存",
-		promptGuidelines: ["使用 worker.loadMemory 从文件加载共享内存，需要提供 filepath 参数。"],
+		promptSnippet: "- worker_loadMemory: 从文件加载共享内存",
+		promptGuidelines: ["使用 worker_loadMemory 从文件加载共享内存，需要提供 filepath 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -381,11 +381,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "worker.getMemory",
+		name: "worker_getMemory",
 		label: "Worker Get Memory",
 		description: "获取共享内存内容。",
-		promptSnippet: "- worker.getMemory: 获取共享内存内容",
-		promptGuidelines: ["使用 worker.getMemory 获取共享内存内容，可选提供 namespace 和 key 参数。"],
+		promptSnippet: "- worker_getMemory: 获取共享内存内容",
+		promptGuidelines: ["使用 worker_getMemory 获取共享内存内容，可选提供 namespace 和 key 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -402,11 +402,11 @@ export default async function (pi: ExtensionAPI) {
 	// ═══════════════════════════════════════════════════════════
 
 	pi.registerTool({
-		name: "auth.register",
+		name: "auth_register",
 		label: "Auth Register",
 		description: "用户注册。",
-		promptSnippet: "- auth.register: 用户注册",
-		promptGuidelines: ["使用 auth.register 进行用户注册，需要提供 username、email、password 参数。"],
+		promptSnippet: "- auth_register: 用户注册",
+		promptGuidelines: ["使用 auth_register 进行用户注册，需要提供 username、email、password 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -421,11 +421,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "auth.login",
+		name: "auth_login",
 		label: "Auth Login",
 		description: "用户登录。",
-		promptSnippet: "- auth.login: 用户登录",
-		promptGuidelines: ["使用 auth.login 进行用户登录，需要提供 username、password 参数。"],
+		promptSnippet: "- auth_login: 用户登录",
+		promptGuidelines: ["使用 auth_login 进行用户登录，需要提供 username、password 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -439,11 +439,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "auth.verify",
+		name: "auth_verify",
 		label: "Auth Verify",
 		description: "验证token。",
-		promptSnippet: "- auth.verify: 验证token",
-		promptGuidelines: ["使用 auth.verify 验证token，需要提供 token 参数。"],
+		promptSnippet: "- auth_verify: 验证token",
+		promptGuidelines: ["使用 auth_verify 验证token，需要提供 token 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -456,11 +456,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "auth.refresh",
+		name: "auth_refresh",
 		label: "Auth Refresh",
 		description: "刷新token。",
-		promptSnippet: "- auth.refresh: 刷新token",
-		promptGuidelines: ["使用 auth.refresh 刷新token，需要提供 refreshToken 参数。"],
+		promptSnippet: "- auth_refresh: 刷新token",
+		promptGuidelines: ["使用 auth_refresh 刷新token，需要提供 refreshToken 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -473,11 +473,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "auth.logout",
+		name: "auth_logout",
 		label: "Auth Logout",
 		description: "用户登出。",
-		promptSnippet: "- auth.logout: 用户登出",
-		promptGuidelines: ["使用 auth.logout 进行用户登出，需要提供 refreshToken 参数。"],
+		promptSnippet: "- auth_logout: 用户登出",
+		promptGuidelines: ["使用 auth_logout 进行用户登出，需要提供 refreshToken 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -494,11 +494,11 @@ export default async function (pi: ExtensionAPI) {
 	// ═══════════════════════════════════════════════════════════
 
 	pi.registerTool({
-		name: "memory.get",
+		name: "memory_get",
 		label: "Memory Get",
 		description: "从共享内存获取值。",
-		promptSnippet: "- memory.get: 从共享内存获取值",
-		promptGuidelines: ["使用 memory.get 从共享内存获取值，需要提供 namespace 和 key 参数。"],
+		promptSnippet: "- memory_get: 从共享内存获取值",
+		promptGuidelines: ["使用 memory_get 从共享内存获取值，需要提供 namespace 和 key 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -512,11 +512,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "memory.set",
+		name: "memory_set",
 		label: "Memory Set",
 		description: "向共享内存设置值。",
-		promptSnippet: "- memory.set: 向共享内存设置值",
-		promptGuidelines: ["使用 memory.set 向共享内存设置值，需要提供 namespace、key、value、agentId 参数。"],
+		promptSnippet: "- memory_set: 向共享内存设置值",
+		promptGuidelines: ["使用 memory_set 向共享内存设置值，需要提供 namespace、key、value、agentId 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -532,11 +532,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "memory.keys",
+		name: "memory_keys",
 		label: "Memory Keys",
 		description: "列出命名空间下的所有键。",
-		promptSnippet: "- memory.keys: 列出命名空间下的所有键",
-		promptGuidelines: ["使用 memory.keys 列出命名空间下的所有键，需要提供 namespace 参数。"],
+		promptSnippet: "- memory_keys: 列出命名空间下的所有键",
+		promptGuidelines: ["使用 memory_keys 列出命名空间下的所有键，需要提供 namespace 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -549,11 +549,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "memory.has",
+		name: "memory_has",
 		label: "Memory Has",
 		description: "检查键是否存在。",
-		promptSnippet: "- memory.has: 检查键是否存在",
-		promptGuidelines: ["使用 memory.has 检查键是否存在，需要提供 namespace 和 key 参数。"],
+		promptSnippet: "- memory_has: 检查键是否存在",
+		promptGuidelines: ["使用 memory_has 检查键是否存在，需要提供 namespace 和 key 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -567,11 +567,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "memory.delete",
+		name: "memory_delete",
 		label: "Memory Delete",
 		description: "删除键。",
-		promptSnippet: "- memory.delete: 删除键",
-		promptGuidelines: ["使用 memory.delete 删除键，需要提供 namespace 和 key 参数。"],
+		promptSnippet: "- memory_delete: 删除键",
+		promptGuidelines: ["使用 memory_delete 删除键，需要提供 namespace 和 key 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -585,11 +585,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "memory.clear",
+		name: "memory_clear",
 		label: "Memory Clear",
 		description: "清空命名空间。",
-		promptSnippet: "- memory.clear: 清空命名空间",
-		promptGuidelines: ["使用 memory.clear 清空命名空间，需要提供 namespace 参数。"],
+		promptSnippet: "- memory_clear: 清空命名空间",
+		promptGuidelines: ["使用 memory_clear 清空命名空间，需要提供 namespace 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -602,11 +602,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "memory.save",
+		name: "memory_save",
 		label: "Memory Save",
 		description: "保存共享内存到文件。",
-		promptSnippet: "- memory.save: 保存共享内存到文件",
-		promptGuidelines: ["使用 memory.save 保存共享内存到文件，需要提供 filepath 参数。"],
+		promptSnippet: "- memory_save: 保存共享内存到文件",
+		promptGuidelines: ["使用 memory_save 保存共享内存到文件，需要提供 filepath 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -619,11 +619,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "memory.load",
+		name: "memory_load",
 		label: "Memory Load",
 		description: "从文件加载共享内存。",
-		promptSnippet: "- memory.load: 从文件加载共享内存",
-		promptGuidelines: ["使用 memory.load 从文件加载共享内存，需要提供 filepath 参数。"],
+		promptSnippet: "- memory_load: 从文件加载共享内存",
+		promptGuidelines: ["使用 memory_load 从文件加载共享内存，需要提供 filepath 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -640,11 +640,11 @@ export default async function (pi: ExtensionAPI) {
 	// ═══════════════════════════════════════════════════════════
 
 	pi.registerTool({
-		name: "signal.emit",
+		name: "signal_emit",
 		label: "Signal Emit",
 		description: "发送信号。",
-		promptSnippet: "- signal.emit: 发送信号",
-		promptGuidelines: ["使用 signal.emit 发送信号，需要提供 type、workerId 参数。"],
+		promptSnippet: "- signal_emit: 发送信号",
+		promptGuidelines: ["使用 signal_emit 发送信号，需要提供 type、workerId 参数。"],
 		parameters: {
 			type: "object",
 			properties: {
@@ -659,11 +659,11 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "signal.history",
+		name: "signal_history",
 		label: "Signal History",
 		description: "获取信号历史。",
-		promptSnippet: "- signal.history: 获取信号历史",
-		promptGuidelines: ["使用 signal.history 获取信号历史，可选提供 workerId 参数。"],
+		promptSnippet: "- signal_history: 获取信号历史",
+		promptGuidelines: ["使用 signal_history 获取信号历史，可选提供 workerId 参数。"],
 		parameters: {
 			type: "object",
 			properties: {

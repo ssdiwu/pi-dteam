@@ -130,15 +130,7 @@ npm run test:watch  # 监听模式
 
 ### 1. 提交信息
 
-遵循 Conventional Commits 格式：
-
-```
-type(scope): 描述
-
-[可选正文]
-```
-
-类型：feat, fix, refactor, docs, test, chore, perf, ci, style, build
+- 遵循全局的规则。
 
 ### 2. 分支策略
 
