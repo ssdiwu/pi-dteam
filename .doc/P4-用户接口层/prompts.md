@@ -198,9 +198,9 @@ prompts 使用工具接口来操作 task：
 
 | prompt | 使用的工具 |
 |--------|-----------|
-| `/explore` | task.read、task.update |
-| `/design` | task.create、task.read、task.update、reference.architecture、reference.thinking |
-| `/build` | task.read、task.update |
-| `/deploy` | task.read、task.update |
-| `/check` | task.read、task.update、task.complete |
-| `/close` | task.read、task.update、task.archive、task.list、task.search |
+| `/explore` | task_read、task_update |
+| `/design` | task_create、task_read、task_update、reference_architecture、reference.thinking |
+| `/build` | task_read、task_update |
+| `/deploy` | task_read、task_update |
+| `/check` | task_read、task_update、task_complete |
+| `/close` | task_read、task_update、task_archive、task_list、task_search |

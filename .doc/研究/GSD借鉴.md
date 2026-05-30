@@ -78,11 +78,11 @@ gsd complete task-001
 
 **dteam 借鉴**：
 ```bash
-task.create "任务名称"
-task.read {id}
-task.update {id} --section=执行记录
-task.complete {id} --item=条件1
-task.archive {id}
+task_create "任务名称"
+task_read {id}
+task_update {id} --section=执行记录
+task_complete {id} --item=条件1
+task_archive {id}
 ```
 
 ## 差异化设计

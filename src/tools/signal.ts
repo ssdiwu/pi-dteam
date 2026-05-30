@@ -10,7 +10,7 @@ import { bus } from "./worker.js";
 // ── 工具实现 ──────────────────────────────────────────────────
 
 /**
- * signal.emit — 发送信号
+ * signal_emit — 发送信号
  */
 export async function signalEmit(
   ctx: { cwd: string },

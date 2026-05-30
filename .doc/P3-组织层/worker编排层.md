@@ -94,14 +94,14 @@ WorkerConfig 选择模式
 
 | 工具 | 功能 | 说明 |
 |------|------|------|
-| `task.create` | 创建任务 | 创建新的 task.md |
-| `task.read` | 读取任务 | 读取 task.md 的指定 section |
-| `task.update` | 更新任务 | 更新 task.md 的指定 section |
-| `task.complete` | 标记完成 | 标记验收条件为完成 |
-| `task.archive` | 归档任务 | 归档完成的 task |
-| `worker.create` | 创建 worker | 创建 solo/chain/team 实例 |
-| `worker.start` | 启动 worker | 启动 worker 执行 |
-| `worker.sendSignal` | 发送信号 | 通过信号总线发送信号 |
+| `task_create` | 创建任务 | 创建新的 task.md |
+| `task_read` | 读取任务 | 读取 task.md 的指定 section |
+| `task_update` | 更新任务 | 更新 task.md 的指定 section |
+| `task_complete` | 标记完成 | 标记验收条件为完成 |
+| `task_archive` | 归档任务 | 归档完成的 task |
+| `worker_create` | 创建 worker | 创建 solo/chain/team 实例 |
+| `worker_start` | 启动 worker | 启动 worker 执行 |
+| `worker_sendSignal` | 发送信号 | 通过信号总线发送信号 |
 
 ## 与 task 的关系
 

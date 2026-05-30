@@ -181,7 +181,7 @@ type WorkerOption =
 
 ## 工具接口
 
-### worker.create
+### worker_create
 
 创建 worker 实例。
 
@@ -191,7 +191,7 @@ type WorkerOption =
 }
 ```
 
-### worker.start
+### worker_start
 
 启动 worker 执行。
 
@@ -202,7 +202,7 @@ type WorkerOption =
 }
 ```
 
-### worker.sendSignal
+### worker_sendSignal
 
 发送信号到 worker。
 
@@ -214,7 +214,7 @@ type WorkerOption =
 }
 ```
 
-### worker.saveMemory
+### worker_saveMemory
 
 保存共享内存到文件。
 
@@ -224,7 +224,7 @@ type WorkerOption =
 }
 ```
 
-### worker.loadMemory
+### worker_loadMemory
 
 从文件加载共享内存。
 
@@ -234,7 +234,7 @@ type WorkerOption =
 }
 ```
 
-### worker.getMemory
+### worker_getMemory
 
 获取共享内存内容。
 

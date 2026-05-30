@@ -1,7 +1,7 @@
 /**
  * task 工具实现
  *
- * 7个工具：task.create/read/update/complete/archive/list/search
+ * 7个工具：task_create/read/update/complete/archive/list/search
  */
 
 import { readFile, mkdir, readdir, rename, writeFile } from "node:fs/promises";
@@ -111,7 +111,7 @@ function parseTaskMeta(content: string, filename: string): {
 // ── 工具实现 ──────────────────────────────────────────────────
 
 /**
- * task.create — 创建新的 task
+ * task_create — 创建新的 task
  */
 export async function taskCreate(
 	ctx: { cwd: string },

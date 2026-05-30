@@ -10,7 +10,7 @@ import { memory } from "./worker.js";
 // ── 工具实现 ──────────────────────────────────────────────────
 
 /**
- * memory.get — 从共享内存获取值
+ * memory_get — 从共享内存获取值
  */
 export async function memoryGet(
   ctx: { cwd: string },

@@ -40,7 +40,7 @@ updated: 2026-05-29
 
 - **复杂度评估**：评估任务复杂度（C1-C7）
 - **路径决策**：决定走dfeat还是dtask路径
-- **任务创建**：如果是dfeat，使用task.create工具创建task
+- **任务创建**：如果是dfeat，使用task_create工具创建task
 
 ### 2. 方向探索（dpth）
 
@@ -56,7 +56,7 @@ updated: 2026-05-29
 
 ### 4. 架构选择
 
-- **架构查询**：使用reference.architecture工具查询架构类型
+- **架构查询**：使用reference_architecture工具查询架构类型
 - **架构选择**：选择合适的架构模式
 
 ### 5. 输出方案

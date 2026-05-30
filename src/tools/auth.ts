@@ -18,7 +18,7 @@ function getAuthModule(): AuthModule {
 }
 
 /**
- * auth.register — 用户注册
+ * auth_register — 用户注册
  */
 export async function authRegister(
   ctx: { cwd: string },

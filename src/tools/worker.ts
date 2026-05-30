@@ -1,7 +1,7 @@
 /**
  * worker 工具实现（增强版）
  *
- * 3个工具：worker.create/start/sendSignal
+ * 3个工具：worker_create/start/sendSignal
  * 
  * 增强功能：
  * 1. 使用增强的共享内存
@@ -134,7 +134,7 @@ ${executionHistory.learnings.slice(-5).map(l => `- ${l}`).join('\n')}`;
 // ── 工具实现 ──────────────────────────────────────────────────
 
 /**
- * worker.create — 创建 worker 实例
+ * worker_create — 创建 worker 实例
  */
 export async function workerCreate(
   ctx: { cwd: string },

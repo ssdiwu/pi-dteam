@@ -40,17 +40,17 @@ const translations: Record<SupportedLanguage, TranslationTable> = {
     "role.close": "收口者",
     
     // 工具
-    "tool.task.create": "创建任务",
-    "tool.task.read": "读取任务",
-    "tool.task.update": "更新任务",
-    "tool.task.complete": "完成任务",
-    "tool.task.archive": "归档任务",
-    "tool.task.list": "列出任务",
-    "tool.task.search": "搜索任务",
-    "tool.reference.architecture": "查询架构",
-    "tool.worker.create": "创建Worker",
-    "tool.worker.start": "启动Worker",
-    "tool.worker.sendSignal": "发送信号",
+    "tool.task_create": "创建任务",
+    "tool.task_read": "读取任务",
+    "tool.task_update": "更新任务",
+    "tool.task_complete": "完成任务",
+    "tool.task_archive": "归档任务",
+    "tool.task_list": "列出任务",
+    "tool.task_search": "搜索任务",
+    "tool.reference_architecture": "查询架构",
+    "tool.worker_create": "创建Worker",
+    "tool.worker_start": "启动Worker",
+    "tool.worker_sendSignal": "发送信号",
     
     // 信号
     "signal.progress": "进度",
