@@ -5,6 +5,7 @@
 import { WorkerConfig, getRequiredOption, getOption } from "../P0/config.js";
 import { WorkerStatus } from "../P0/status.js";
 import { MemoryAdapter } from "../P0/memory.js";
+import { mapWithConcurrencyLimit, withTimeout } from "../P0/concurrency.js";
 import { SignalBus } from "../P1/signalBus.js";
 import { runSolo, SoloResult } from "./solo.js";
 import { runChain, ChainResult } from "./chain.js";
@@ -33,18 +34,32 @@ export async function runTeam(
   try {
     bus.emit("progress", workerId, { status: "running" });
 
-    // 并行执行所有 worker
-    const promises = workers.map(async (worker) => {
-      if (worker.type === "solo") {
-        return runSolo(worker, bus, memory, executor);
-      } else if (worker.type === "chain") {
-        return runChain(worker, bus, memory, executor);
-      } else {
-        throw new Error(`Unsupported worker type: ${worker.type}`);
-      }
-    });
+    // 获取并发控制参数
+    const maxConcurrency = getOption<number>(config.options, "maxConcurrency") || workers.length;
+    const timeoutMs = getOption<number>(config.options, "timeoutMs") || 300000; // 默认 5 分钟
 
-    const results = await Promise.all(promises);
+    // 并行执行所有 worker（带并发控制）
+    const results = await mapWithConcurrencyLimit(
+      workers,
+      maxConcurrency,
+      async (worker) => {
+        if (worker.type === "solo") {
+          return withTimeout(
+            runSolo(worker, bus, memory, executor),
+            timeoutMs,
+            `Worker ${worker.type} timed out after ${timeoutMs}ms`,
+          );
+        } else if (worker.type === "chain") {
+          return withTimeout(
+            runChain(worker, bus, memory, executor),
+            timeoutMs,
+            `Worker ${worker.type} timed out after ${timeoutMs}ms`,
+          );
+        } else {
+          throw new Error(`Unsupported worker type: ${worker.type}`);
+        }
+      },
+    );
 
     // 检查是否有失败的 worker
     const failed = results.find(r => r.status === "failed");
