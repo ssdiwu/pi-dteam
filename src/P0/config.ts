@@ -16,7 +16,9 @@ export type WorkerOption =
   | { type: "rounds"; value: number }
   | { type: "voting"; value: boolean }
   | { type: "maxDepth"; value: number }
-  | { type: "debug"; value: boolean };
+  | { type: "debug"; value: boolean }
+  | { type: "maxConcurrency"; value: number }
+  | { type: "timeoutMs"; value: number };
 
 export type ChainStep = WorkerConfig;
 export type Worker = WorkerConfig;
