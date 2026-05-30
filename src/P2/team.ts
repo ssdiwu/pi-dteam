@@ -35,13 +35,13 @@ export async function runTeam(
     bus.emit("progress", workerId, { status: "running" });
 
     // 获取并发控制参数
-    const maxConcurrency = getOption<number>(config.options, "maxConcurrency") || workers.length;
+    const concurrency = getOption<number>(config.options, "concurrency") || workers.length;
     const timeoutMs = getOption<number>(config.options, "timeoutMs") || 300000; // 默认 5 分钟
 
     // 并行执行所有 worker（带并发控制）
     const results = await mapWithConcurrencyLimit(
       workers,
-      maxConcurrency,
+      concurrency,
       async (worker) => {
         if (worker.type === "solo") {
           return withTimeout(
