@@ -8,7 +8,7 @@ import { readFile, mkdir, readdir, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
-import { assertInside, safeFilenamePart } from "./pathSafety.js";
+import { assertInside, safeFilenamePart } from "../P0/pathSafety.js";
 
 // ── 常量 ──────────────────────────────────────────────────────
 

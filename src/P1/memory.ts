@@ -4,8 +4,8 @@
  * 提供共享内存的读写接口
  */
 
-import { memory } from "./worker.js";
-import { resolveDteamMemoryPath } from "./pathSafety.js";
+import { memory } from "../P2/worker.js";
+import { resolveDteamMemoryPath } from "../P0/pathSafety.js";
 
 // ── 工具实现 ──────────────────────────────────────────────────
 

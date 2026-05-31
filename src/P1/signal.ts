@@ -5,7 +5,7 @@
  */
 
 import { SignalType } from "../P0/signal.js";
-import { bus } from "./worker.js";
+import { bus } from "../P2/worker.js";
 
 // ── 工具实现 ──────────────────────────────────────────────────
 

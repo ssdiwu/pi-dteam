@@ -15,7 +15,7 @@ import { SignalBus } from "../P1/signalBus.js";
 import { EnhancedSharedMemory, createEnhancedSharedMemory } from "../P1/enhancedSharedMemory.js";
 import { ContextBuilder, createContextBuilder, ExecutionContext, Executor } from "../P2/contextBuilder.js";
 import { runWorker } from "../P3/worker.js";
-import { resolveDteamMemoryPath } from "./pathSafety.js";
+import { resolveDteamMemoryPath } from "../P0/pathSafety.js";
 
 // ── 全局状态 ──────────────────────────────────────────────────
 

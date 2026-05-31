@@ -13,7 +13,7 @@ import {
   workerLoadMemory,
   workerGetMemory,
   registerExecutor
-} from "../../src/tools/worker.js";
+} from "../../src/P2/worker.js";
 import { WorkerConfig } from "../../src/P0/config.js";
 import { ExecutionContext } from "../../src/P2/contextBuilder.js";
 
