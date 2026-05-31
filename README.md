@@ -74,16 +74,6 @@ pi install /path/to/pi-dteam
 | `memory_save` | Save shared memory to a file |
 | `memory_load` | Load shared memory from a file |
 
-#### Auth Tools
-
-| Tool | Description |
-|------|-------------|
-| `auth_register` | User registration |
-| `auth_login` | User login |
-| `auth_verify` | Verify a token |
-| `auth_refresh` | Refresh a token |
-| `auth_logout` | User logout |
-
 #### Other Tools
 
 | Tool | Description |

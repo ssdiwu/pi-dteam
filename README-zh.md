@@ -74,16 +74,6 @@ pi install /path/to/pi-dteam
 | `memory_save` | 保存共享内存到文件 |
 | `memory_load` | 从文件加载共享内存 |
 
-#### Auth 工具
-
-| 工具 | 功能 |
-|------|------|
-| `auth_register` | 用户注册 |
-| `auth_login` | 用户登录 |
-| `auth_verify` | 验证 token |
-| `auth_refresh` | 刷新 token |
-| `auth_logout` | 用户登出 |
-
 #### 其他工具
 
 | 工具 | 功能 |

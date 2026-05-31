@@ -145,14 +145,6 @@ import { registerRenderers } from "./renderers.js";
 import { registerCompactionI18n } from "../P1/compaction.js";
 
 import {
-	authRegister,
-	authLogin,
-	authVerify,
-	authRefresh,
-	authLogout,
-} from "../P1/auth.js";
-
-import {
 	memoryGet,
 	memorySet,
 	memoryKeys,
@@ -497,98 +489,6 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(workerGetMemory),
-	});
-
-	// ═══════════════════════════════════════════════════════════
-	// auth 工具
-	// ═══════════════════════════════════════════════════════════
-
-	pi.registerTool({
-		name: "auth_register",
-		label: "Auth Register",
-		description: "用户注册。",
-		promptSnippet: "- auth_register: 用户注册",
-		promptGuidelines: ["使用 auth_register 进行用户注册，需要提供 username、email、password 参数。"],
-		parameters: {
-			type: "object",
-			properties: {
-				username: { type: "string", description: "用户名" },
-				email: { type: "string", description: "邮箱" },
-				password: { type: "string", description: "密码" },
-			},
-			required: ["username", "email", "password"],
-			additionalProperties: false,
-		} as const,
-		execute: wrap(authRegister),
-	});
-
-	pi.registerTool({
-		name: "auth_login",
-		label: "Auth Login",
-		description: "用户登录。",
-		promptSnippet: "- auth_login: 用户登录",
-		promptGuidelines: ["使用 auth_login 进行用户登录，需要提供 username、password 参数。"],
-		parameters: {
-			type: "object",
-			properties: {
-				username: { type: "string", description: "用户名" },
-				password: { type: "string", description: "密码" },
-			},
-			required: ["username", "password"],
-			additionalProperties: false,
-		} as const,
-		execute: wrap(authLogin),
-	});
-
-	pi.registerTool({
-		name: "auth_verify",
-		label: "Auth Verify",
-		description: "验证token。",
-		promptSnippet: "- auth_verify: 验证token",
-		promptGuidelines: ["使用 auth_verify 验证token，需要提供 token 参数。"],
-		parameters: {
-			type: "object",
-			properties: {
-				token: { type: "string", description: "JWT token" },
-			},
-			required: ["token"],
-			additionalProperties: false,
-		} as const,
-		execute: wrap(authVerify),
-	});
-
-	pi.registerTool({
-		name: "auth_refresh",
-		label: "Auth Refresh",
-		description: "刷新token。",
-		promptSnippet: "- auth_refresh: 刷新token",
-		promptGuidelines: ["使用 auth_refresh 刷新token，需要提供 refreshToken 参数。"],
-		parameters: {
-			type: "object",
-			properties: {
-				refreshToken: { type: "string", description: "刷新token" },
-			},
-			required: ["refreshToken"],
-			additionalProperties: false,
-		} as const,
-		execute: wrap(authRefresh),
-	});
-
-	pi.registerTool({
-		name: "auth_logout",
-		label: "Auth Logout",
-		description: "用户登出。",
-		promptSnippet: "- auth_logout: 用户登出",
-		promptGuidelines: ["使用 auth_logout 进行用户登出，需要提供 refreshToken 参数。"],
-		parameters: {
-			type: "object",
-			properties: {
-				refreshToken: { type: "string", description: "刷新token" },
-			},
-			required: ["refreshToken"],
-			additionalProperties: false,
-		} as const,
-		execute: wrap(authLogout),
 	});
 
 	// ═══════════════════════════════════════════════════════════
