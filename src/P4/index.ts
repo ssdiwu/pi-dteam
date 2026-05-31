@@ -96,11 +96,50 @@ function wrapWorker(
 			// 解析失败，忽略TUI消息
 		}
 		
+		// 生成简洁报告
+		const brief = buildBriefReport(result.content, workerAction);
 		return {
-			content: [{ type: "text" as const, text: result.content }],
+			content: [{ type: "text" as const, text: brief }],
 			details: undefined,
 		};
 	};
+}
+
+/**
+ * 生成简洁报告
+ */
+function buildBriefReport(raw: string, action: string): string {
+	try {
+		const parsed = JSON.parse(raw);
+		const workerId = parsed.workerId || "unknown";
+		
+		if (parsed.error) {
+			return `❌ Worker ${workerId} 失败: ${parsed.error}`;
+		}
+		
+		if (action === "create") {
+			return `✅ Worker 已创建: ${workerId}`;
+		}
+		
+		if (action === "start" && parsed.result) {
+			const { status, conclusion } = parsed.result;
+			const icon = status === "done" ? "✅" : "❌";
+			const brief = conclusion ? conclusion.split("\n")[0] : "执行完成";
+			return `${icon} Worker ${workerId}: ${brief}`;
+		}
+		
+		if (action === "cancel") {
+			return `🚫 Worker ${workerId} 已取消`;
+		}
+		
+		if (action === "status") {
+			return `📊 Worker ${workerId}: ${parsed.status}`;
+		}
+		
+		return `✅ Worker ${workerId}: ${action} 完成`;
+	} catch {
+		return raw.substring(0, 200);
+	}
 }
 
 // ── 工具实现 ──────────────────────────────────────────────────
