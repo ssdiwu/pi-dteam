@@ -36,6 +36,85 @@ function wrap(
 	};
 }
 
+// ── Worker Wrapper: 带TUI消息的worker工具包装 ────────────────
+function wrapWorker(
+	fn: (ctx: ExtensionContext, params: any) => Promise<{ content: string }>,
+	workerAction: "create" | "start" | "signal" | "cancel" | "status",
+	extensionApi: ExtensionAPI,
+) {
+	return async (
+		_toolCallId: string,
+		params: any,
+		_signal: AbortSignal | undefined,
+		_onUpdate: unknown,
+		ctx: ExtensionContext,
+	) => {
+		const result = await fn(ctx, params);
+		
+		// 解析结果，发送TUI消息
+		try {
+			const parsed = JSON.parse(result.content);
+			const workerId = parsed.workerId || params.workerId;
+			
+			if (workerId) {
+				let status = "pending";
+				let task = "";
+				
+				switch (workerAction) {
+					case "create":
+						status = "pending";
+						task = parsed.config?.task || "Worker created";
+						break;
+					case "start":
+						status = "running";
+						task = "Executing...";
+						// 启动后立即发送running状态
+						extensionApi.sendMessage({
+							customType: "dteam-progress",
+							content: `[DTEAM_PROGRESS] ${workerId} running ${task}`,
+							display: true,
+						}, { triggerTurn: false, deliverAs: "followUp" });
+						// 执行完成后发送done状态
+						setTimeout(() => {
+							extensionApi.sendMessage({
+								customType: "dteam-progress",
+								content: `[DTEAM_PROGRESS] ${workerId} done ${task}`,
+								display: true,
+							}, { triggerTurn: false, deliverAs: "followUp" });
+						}, 100);
+						break;
+					case "signal":
+						status = "running";
+						task = `Signal: ${params.signalType}`;
+						break;
+					case "cancel":
+						status = "failed";
+						task = "Cancelled";
+						break;
+					case "status":
+						status = parsed.status || "unknown";
+						task = "Status check";
+						break;
+				}
+				
+				// 发送TUI消息
+				extensionApi.sendMessage({
+					customType: "dteam-progress",
+					content: `[DTEAM_PROGRESS] ${workerId} ${status} ${task}`,
+					display: true,
+				}, { triggerTurn: false, deliverAs: "followUp" });
+			}
+		} catch (e) {
+			// 解析失败，忽略TUI消息
+		}
+		
+		return {
+			content: [{ type: "text" as const, text: result.content }],
+			details: undefined,
+		};
+	};
+}
+
 // ── 工具实现 ──────────────────────────────────────────────────
 import {
 	taskCreate,
@@ -266,9 +345,13 @@ export default async function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "worker_create",
 		label: "Worker Create",
-		description: "创建 worker 实例。",
+		description: "创建 worker 实例。用于复杂任务的执行，提供更好的上下文管理和协作能力。",
 		promptSnippet: "- worker_create: 创建 worker 实例",
-		promptGuidelines: ["使用 worker_create 创建 worker 实例，需要提供 config 参数。"],
+		promptGuidelines: [
+			"当任务复杂（>30分钟，多文件修改，需要上下文积累）时，使用 worker_create 创建 worker 实例。",
+			"worker 提供共享内存、信号通信、执行上下文构建等能力，适合需要多角色协作的场景。",
+			"简单任务（<30分钟，单文件修改）可以直接执行，不需要 worker。"
+		],
 		parameters: {
 			type: "object",
 			properties: {
@@ -277,15 +360,19 @@ export default async function (pi: ExtensionAPI) {
 			required: ["config"],
 			additionalProperties: false,
 		} as const,
-		execute: wrap(workerCreate),
+		execute: wrapWorker(workerCreate, "create", pi),
 	});
 
 	pi.registerTool({
 		name: "worker_start",
 		label: "Worker Start",
-		description: "启动 worker 执行。",
+		description: "启动 worker 执行。支持前台和后台执行模式。",
 		promptSnippet: "- worker_start: 启动 worker 执行",
-		promptGuidelines: ["使用 worker_start 启动 worker 执行，需要提供 workerId 参数，可选 background、executorName。"],
+		promptGuidelines: [
+			"使用 worker_start 启动 worker 执行，需要提供 workerId 参数。",
+			"设置 background: true 可以后台执行，不阻塞当前流程。",
+			"设置 executorName 可以使用自定义执行器。"
+		],
 		parameters: {
 			type: "object",
 			properties: {
@@ -296,15 +383,19 @@ export default async function (pi: ExtensionAPI) {
 			required: ["workerId"],
 			additionalProperties: false,
 		} as const,
-		execute: wrap(workerStart),
+		execute: wrapWorker(workerStart, "start", pi),
 	});
 
 	pi.registerTool({
 		name: "worker_sendSignal",
 		label: "Worker Send Signal",
-		description: "发送信号到 worker。",
+		description: "发送信号到 worker。用于实时通信和状态报告。",
 		promptSnippet: "- worker_sendSignal: 发送信号到 worker",
-		promptGuidelines: ["使用 worker_sendSignal 发送信号到 worker，需要提供 workerId、signalType、data 参数。"],
+		promptGuidelines: [
+			"使用 worker_sendSignal 发送信号到 worker，需要提供 workerId、signalType、data 参数。",
+			"信号类型包括：progress（进度）、blocked（阻塞）、found（发现）、help（求助）。",
+			"用于向 worker 报告执行状态或接收 worker 的反馈。"
+		],
 		parameters: {
 			type: "object",
 			properties: {
@@ -315,7 +406,7 @@ export default async function (pi: ExtensionAPI) {
 			required: ["workerId", "signalType"],
 			additionalProperties: false,
 		} as const,
-		execute: wrap(workerSendSignal),
+		execute: wrapWorker(workerSendSignal, "signal", pi),
 	});
 
 	pi.registerTool({
@@ -332,7 +423,7 @@ export default async function (pi: ExtensionAPI) {
 			required: ["workerId"],
 			additionalProperties: false,
 		} as const,
-		execute: wrap(workerCancel),
+		execute: wrapWorker(workerCancel, "cancel", pi),
 	});
 
 	pi.registerTool({
@@ -349,7 +440,7 @@ export default async function (pi: ExtensionAPI) {
 			required: ["workerId"],
 			additionalProperties: false,
 		} as const,
-		execute: wrap(workerStatus),
+		execute: wrapWorker(workerStatus, "status", pi),
 	});
 
 	pi.registerTool({
@@ -389,9 +480,14 @@ export default async function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "worker_getMemory",
 		label: "Worker Get Memory",
-		description: "获取共享内存内容。",
+		description: "获取共享内存内容。用于访问 worker 的执行上下文和共享数据。",
 		promptSnippet: "- worker_getMemory: 获取共享内存内容",
-		promptGuidelines: ["使用 worker_getMemory 获取共享内存内容，可选提供 namespace 和 key 参数。"],
+		promptGuidelines: [
+			"使用 worker_getMemory 获取共享内存内容，可选提供 namespace 和 key 参数。",
+			"不提供参数：获取所有命名空间列表。",
+			"提供 namespace：获取该命名空间下的所有键值对。",
+			"提供 namespace 和 key：获取特定键的值。"
+		],
 		parameters: {
 			type: "object",
 			properties: {

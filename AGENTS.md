@@ -75,6 +75,22 @@ P4 → P3 → P2 → P1 → P0
 
 ## 五、Git 规范
 
-- 提交信息遵循全局规则
+- 提交格式遵循 Conventional Commits，描述使用中文
 - 运行测试：`npm test`
 - 构建检查：`npm run build`
+
+### 提交格式
+
+```
+type: 中文描述
+
+[可选正文]
+```
+
+类型（type）使用英文关键词：feat、fix、refactor、docs、test、chore、perf、ci、style、build
+
+示例：
+- `feat: 添加 worker 并行执行支持`
+- `fix: 修复信号丢失问题`
+- `refactor: 收敛 task 创建逻辑`
+- `docs: 更新 README 规范`

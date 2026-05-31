@@ -15,6 +15,21 @@ argument-hint: "<任务描述或代码路径>"
 
 ## 验收模式（有 task）
 
+### 验收方式选择
+
+根据验收复杂度选择执行方式：
+
+**简单验收**（单个功能/文件）：
+- 直接执行，不需要worker
+
+**复杂验收**（整个系统，需要多维度检查）：
+- 使用 `worker_create` 创建验收worker
+- 使用 `worker_start` 启动验收
+- 使用 `worker_getMemory` 获取验收上下文
+- 使用 `worker_sendSignal` 报告验收结果
+
+### 验收步骤
+
 1. 使用 task_read 读取「验收条件」和「执行记录」
 2. 逐条检查验收条件，标记 PASS/FAIL/BLOCKER
 3. 检查代码问题：Bug、安全、性能、可读性

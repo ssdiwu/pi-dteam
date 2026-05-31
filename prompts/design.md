@@ -21,6 +21,21 @@ argument-hint: "<任务描述>"
 
 ## 第三步：方案设计
 
+### 设计方式选择
+
+根据设计复杂度选择执行方式：
+
+**简单设计**（单个组件/功能）：
+- 直接执行，不需要worker
+
+**复杂设计**（系统架构，需要多角色协作）：
+- 使用 `worker_create` 创建设计worker
+- 使用 `worker_start` 启动设计
+- 使用 `worker_getMemory` 获取设计上下文
+- 使用 `worker_sendSignal` 报告进展
+
+### 设计内容
+
 - 使用 reference_architecture 查询架构类型参考
 - 制定实现方案
 - 制定技术选型和权衡取舍
