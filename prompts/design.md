@@ -27,4 +27,7 @@ argument-hint: "<任务描述>"
    - 使用reference.architecture工具查询架构类型
    - 选择合适的架构模式
 
-5. **输出方案**：使用task.update工具写入task.md的"讨论决策"section
+5. **输出方案**：
+   - **必须**使用 task_update 工具写入 task.md 的「阶段记录」→「讨论决策」section
+   - 内容包括：最终方案、技术选型理由、权衡取舍、实施步骤
+   - 这些信息会自动传递给 build agent 作为执行依据

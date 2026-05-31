@@ -109,6 +109,15 @@ ${projectContext.relatedFiles.map(f => `- ${f.path} (${f.reason})`).join('\n') |
 
 执行风格：${style}
 `;
+
+  // 添加阶段记录（探索发现、讨论决策、执行记录等）
+  const stageRecord = taskContext.sections['阶段记录'] || '';
+  const hasStageContent = stageRecord && !stageRecord.includes('（待填写）');
+  if (hasStageContent) {
+    prompt += `
+阶段记录：
+${stageRecord}`;
+  }
   
   // 添加历史上下文
   if (executionHistory.previousResults.length > 0) {

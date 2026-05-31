@@ -19,4 +19,7 @@ argument-hint: "<任务描述>"
    - 查找同类项目
    - 参考最佳实践
 
-3. **输出探索报告**：使用task.update工具写入task.md的"探索发现"section
+3. **输出探索报告**：
+   - **必须**使用 task_update 工具写入 task.md 的「阶段记录」→「探索发现」section
+   - 内容包括：发现的关键信息、约束条件、风险点、建议方向
+   - 这些信息会自动传递给后续的 design 和 build agent

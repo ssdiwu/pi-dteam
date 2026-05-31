@@ -27,4 +27,6 @@ argument-hint: "<任务描述>"
    - 标记PASS/FAIL/BLOCKER
    - 记录问题和修复建议
 
-5. **更新task**：使用task.update工具更新task.md的"验收条件"section
+5. **更新task**：
+   - **必须**使用 task_update 工具更新 task.md 的「验收条件」section，标记每条 PASS/FAIL/BLOCKER
+   - **必须**使用 task_update 工具写入 task.md 的「阶段记录」→「执行记录」section，补充验收发现
