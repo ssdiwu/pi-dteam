@@ -21,7 +21,8 @@
     "agents/**/*",
     "prompts/**/*",
     "reference/**/*",
-    "README.md"
+    "README.md",
+    "README-zh.md"
   ],
   "pi": {
     "extensions": [

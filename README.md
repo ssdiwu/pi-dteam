@@ -1,96 +1,136 @@
 # pi-dteam
 
-> 轻量级多代理编排系统 — 基于 Pi 的多代理工作流框架
+> Lightweight multi-agent orchestration system — a multi-agent workflow framework for Pi
 
-## 概述
+English | [中文](./README-zh.md)
 
-dteam 是一个 **Pi 扩展包**，提供轻量级的多代理编排能力。通过 solo/chain/team 三种模式，在高效与有效之间取得平衡。
+## Overview
 
-## 核心概念
+dteam is a **Pi extension package** that provides lightweight multi-agent orchestration capabilities. It balances efficiency and effectiveness through three modes: solo, chain, and team.
 
-- **task**：工作主语对象（Markdown格式）
-- **worker**：执行单元（solo/chain/team三种模式）
-- **角色**：5个执行角色（explore/design/build/check/close）
-- **信号**：即时通信机制（4个信号 + 5个策略 = 9种）
+## Core Concepts
 
-## 安装
+- **Task**: Work unit object (Markdown format)
+- **Worker**: Execution unit (solo/chain/team modes)
+- **Roles**: 5 execution roles (explore/design/build/check/close)
+- **Signals**: Real-time communication mechanism (4 signals + 5 strategies = 9 types)
+
+## Installation
 
 ```bash
-# 通过 git 安装（推荐）
+# Install via git (recommended)
 pi install git:github.com/ssdiwu/pi-dteam
 
-# 或通过本地路径
+# Or via local path
 pi install /path/to/pi-dteam
 ```
 
-## 使用
+## Usage
 
-### 命令
-
-```
-/explore 任务描述    # 探索者：搜集内部和外部信息
-/design 任务描述     # 方案制定者：评估需求、制定方案
-/build 任务描述      # 实现者：执行计划、编写代码、更新文档、编写测试
-/check 任务描述      # 验收者：检查代码质量、验证结果
-/close 任务描述      # 收口者：整理归档、记录经验、关闭任务
-```
-
-### 工具
+### Commands
 
 ```
-task.create          # 创建新的 task
-task.read            # 读取 task 的指定 section
-task.update          # 更新 task 的指定 section
-task.complete        # 标记 checklist 项为完成
-task.archive         # 归档完成的任务
-reference.architecture  # 查询架构类型参考
-reference.thinking      # 查询思考方式参考
-auth.register        # 用户注册
-auth.login           # 用户登录
-auth.verify          # 验证token
-auth.refresh         # 刷新token
-auth.logout          # 用户登出
+/explore task description    # Explorer: gather internal and external information
+/design task description     # Designer: evaluate requirements, create plans
+/build task description      # Builder: execute plans, write code, update docs, write tests
+/check task description      # Reviewer: check code quality, verify results
+/close task description      # Closer: organize, archive, record lessons, close tasks
 ```
 
-## 开发全流程
+### Tools
+
+#### Task Tools
+
+| Tool | Description |
+|------|-------------|
+| `task_create` | Create a new task |
+| `task_read` | Read a specific section of a task |
+| `task_update` | Update a specific section of a task |
+| `task_complete` | Mark a checklist item as completed |
+| `task_archive` | Archive a completed task |
+| `task_list` | List all tasks |
+| `task_search` | Search tasks |
+
+#### Worker Tools
+
+| Tool | Description |
+|------|-------------|
+| `worker_create` | Create a worker instance |
+| `worker_start` | Start worker execution |
+| `worker_sendSignal` | Send a signal to a worker |
+| `worker_cancel` | Cancel a background worker |
+| `worker_status` | Get worker status |
+
+#### Memory Tools
+
+| Tool | Description |
+|------|-------------|
+| `memory_get` | Get a value from shared memory |
+| `memory_set` | Set a value in shared memory |
+| `memory_keys` | List all keys in a namespace |
+| `memory_has` | Check if a key exists |
+| `memory_delete` | Delete a key |
+| `memory_clear` | Clear a namespace |
+| `memory_save` | Save shared memory to a file |
+| `memory_load` | Load shared memory from a file |
+
+#### Auth Tools
+
+| Tool | Description |
+|------|-------------|
+| `auth_register` | User registration |
+| `auth_login` | User login |
+| `auth_verify` | Verify a token |
+| `auth_refresh` | Refresh a token |
+| `auth_logout` | User logout |
+
+#### Other Tools
+
+| Tool | Description |
+|------|-------------|
+| `reference_architecture` | Query architecture type references |
+| `signal_emit` | Emit a signal |
+| `signal_history` | Get signal history |
+
+## Full Workflow
 
 ```
-用户需求
-    │
-    ▼
+User Requirement
+       │
+       ▼
 /explore → /design → /build → /check → /close
-（探索）   （设计）   （实现）   （验收）   （收口）
+ (explore)  (design)  (build)  (review)  (close)
 ```
 
-## 目录结构
+## Directory Structure
 
 ```
-dteam/
-├── package.json        # 扩展包元数据
-├── extensions/         # 扩展入口
-├── src/                # 源代码
-│   ├── extension/      # 扩展实现
-│   ├── tools/          # 工具实现
-│   ├── core/           # 核心模块
-│   ├── P0/             # 原子层：配置定义
-│   ├── P1/             # 基础层：服务实现
-│   ├── P2/             # 组合层：模块实现
-│   └── P3/             # 编排层：编排器
-├── agents/             # agent定义（5个）
-├── prompts/            # prompt模板（5个）
-├── reference/          # 参考数据
-├── .doc/               # 文档
-├── tests/              # 测试
-├── AGENTS.md           # Agent行为规范
-└── README.md           # 本文件
+pi-dteam/
+├── package.json        # Package metadata
+├── extensions/         # Extension entry point
+├── src/                # Source code
+│   ├── extension/      # Extension implementation
+│   ├── tools/          # Tool implementations
+│   ├── core/           # Core modules
+│   ├── P0/             # Atomic layer: config definitions
+│   ├── P1/             # Base layer: service implementations
+│   ├── P2/             # Composite layer: module implementations
+│   └── P3/             # Orchestration layer: orchestrators
+├── agents/             # Agent definitions (5)
+├── prompts/            # Prompt templates (5)
+├── reference/          # Reference data
+├── .doc/               # Documentation
+├── tests/              # Tests
+├── AGENTS.md           # Agent behavior specification
+└── README.md           # This file
 ```
 
-## 文档
+## Documentation
 
-- [文档导航](.doc/README.md)
-- [Agent行为规范](AGENTS.md)
-- [系统注入提示词](reference/系统注入提示词.md)
+- [Documentation Navigation](.doc/README.md)
+- [Agent Behavior Specification](AGENTS.md)
+- [System Injection Prompt](reference/系统注入提示词.md)
 
-## 许可证
+## License
 
 MIT
