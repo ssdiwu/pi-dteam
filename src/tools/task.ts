@@ -6,8 +6,9 @@
 
 import { readFile, mkdir, readdir, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
+import { assertInside, safeFilenamePart } from "./pathSafety.js";
 
 // ── 常量 ──────────────────────────────────────────────────────
 
@@ -52,18 +53,24 @@ async function ensureDir(dir: string): Promise<void> {
  * 查找 task 文件
  */
 async function findTaskFile(cwd: string, id: string): Promise<string> {
-	const taskDir = join(cwd, TASK_DIR);
+	if (!/^\d{14}-[a-z0-9]{4}$/.test(id)) {
+		throw new Error(`Invalid task id: ${id}`);
+	}
+
+	const taskDir = resolve(cwd, TASK_DIR);
 	if (!existsSync(taskDir)) {
 		throw new Error(`Task directory not found: ${taskDir}`);
 	}
 
 	const files = await readdir(taskDir);
-	const file = files.find((f) => f.includes(id));
+	const file = files.find((f) => f.endsWith(`-${id}.md`));
 	if (!file) {
 		throw new Error(`Task not found: ${id}`);
 	}
 
-	return join(taskDir, file);
+	const filepath = resolve(taskDir, file);
+	assertInside(taskDir, filepath);
+	return filepath;
 }
 
 /**
@@ -108,6 +115,36 @@ function parseTaskMeta(content: string, filename: string): {
 	return { id, name, type, status, created };
 }
 
+function isRequestedSection(title: string, section: string): boolean {
+	return title === section || title.startsWith(`${section}（`) || title.startsWith(`${section}(`);
+}
+
+function findSectionRange(content: string, section: string): {
+	headingStart: number;
+	bodyStart: number;
+	end: number;
+} | null {
+	const headingRegex = /^##\s+(.+)$/gm;
+	let match: RegExpExecArray | null;
+	let target: { headingStart: number; bodyStart: number } | null = null;
+
+	while ((match = headingRegex.exec(content)) !== null) {
+		if (target) {
+			return { ...target, end: match.index };
+		}
+
+		const title = match[1].trim();
+		if (isRequestedSection(title, section)) {
+			target = {
+				headingStart: match.index,
+				bodyStart: headingRegex.lastIndex,
+			};
+		}
+	}
+
+	return target ? { ...target, end: content.length } : null;
+}
+
 // ── 工具实现 ──────────────────────────────────────────────────
 
 /**
@@ -120,11 +157,14 @@ export async function taskCreate(
 	const { name, type, why, goal } = params;
 	const id = generateId();
 	const timestamp = new Date().toISOString();
-	const filename = `${name}-${id}.md`;
-	const filepath = join(ctx.cwd, TASK_DIR, filename);
+	const safeName = safeFilenamePart(name, "task");
+	const filename = `${safeName}-${id}.md`;
+	const taskDir = resolve(ctx.cwd, TASK_DIR);
+	const filepath = resolve(taskDir, filename);
+	assertInside(taskDir, filepath);
 
 	// 确保目录存在
-	await ensureDir(join(ctx.cwd, TASK_DIR));
+	await ensureDir(taskDir);
 
 	// 构建 task 内容
 	const content = `# ${name}
@@ -185,10 +225,9 @@ export async function taskRead(
 	const content = await readTaskFile(filepath);
 
 	// 提取指定 section
-	const sectionRegex = new RegExp(`## ${section}\\n([\\s\\S]*?)(?=## |$)`, "i");
-	const match = content.match(sectionRegex);
+	const range = findSectionRange(content, section);
 
-	if (!match) {
+	if (!range) {
 		return {
 			content: JSON.stringify({
 				error: `Section not found: ${section}`,
@@ -200,7 +239,7 @@ export async function taskRead(
 		content: JSON.stringify({
 			id,
 			section,
-			content: match[1].trim(),
+			content: content.slice(range.bodyStart, range.end).trim(),
 		}),
 	};
 }
@@ -217,8 +256,16 @@ export async function taskUpdate(
 	const existingContent = await readTaskFile(filepath);
 
 	// 替换指定 section
-	const sectionRegex = new RegExp(`(## ${section}\\n)([\\s\\S]*?)(?=## |$)`, "i");
-	const updatedContent = existingContent.replace(sectionRegex, `$1${newContent}\n\n`);
+	const range = findSectionRange(existingContent, section);
+	if (!range) {
+		return {
+			content: JSON.stringify({
+				error: `Section not found: ${section}`,
+			}),
+		};
+	}
+
+	const updatedContent = `${existingContent.slice(0, range.bodyStart)}${newContent}\n\n${existingContent.slice(range.end).replace(/^\n+/, "")}`;
 
 	// 写入文件
 	await writeTaskFile(filepath, updatedContent);
@@ -248,6 +295,16 @@ export async function taskComplete(
 		`- [ ] ${item}`,
 		`- [x] ${item}`,
 	);
+
+	if (updatedContent === content) {
+		return {
+			content: JSON.stringify({
+				id,
+				item,
+				error: `Checklist item not found: ${item}`,
+			}),
+		};
+	}
 
 	// 写入文件
 	await writeTaskFile(filepath, updatedContent);

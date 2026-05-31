@@ -281,11 +281,13 @@ export default async function (pi: ExtensionAPI) {
 		label: "Worker Start",
 		description: "启动 worker 执行。",
 		promptSnippet: "- worker_start: 启动 worker 执行",
-		promptGuidelines: ["使用 worker_start 启动 worker 执行，需要提供 workerId 参数。"],
+		promptGuidelines: ["使用 worker_start 启动 worker 执行，需要提供 workerId 参数，可选 background、executorName。"],
 		parameters: {
 			type: "object",
 			properties: {
 				workerId: { type: "string", description: "Worker ID" },
+				executorName: { type: "string", description: "自定义执行器名称（可选）" },
+				background: { type: "boolean", description: "是否后台执行（可选）" },
 			},
 			required: ["workerId"],
 			additionalProperties: false,
@@ -303,7 +305,7 @@ export default async function (pi: ExtensionAPI) {
 			type: "object",
 			properties: {
 				workerId: { type: "string", description: "Worker ID" },
-				signalType: { type: "string", description: "信号类型" },
+				signalType: { type: "string", enum: ["progress", "blocked", "found", "help"], description: "信号类型" },
 				data: { type: "object", description: "信号数据" },
 			},
 			required: ["workerId", "signalType"],
@@ -648,7 +650,7 @@ export default async function (pi: ExtensionAPI) {
 		parameters: {
 			type: "object",
 			properties: {
-				type: { type: "string", description: "信号类型" },
+				type: { type: "string", enum: ["progress", "blocked", "found", "help"], description: "信号类型" },
 				workerId: { type: "string", description: "工作者ID" },
 				data: { type: "object", description: "信号数据" },
 			},

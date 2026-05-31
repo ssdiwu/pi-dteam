@@ -4,8 +4,8 @@
  * 提供共享内存的读写接口
  */
 
-import { EnhancedSharedMemory } from "../P1/enhancedSharedMemory.js";
 import { memory } from "./worker.js";
+import { resolveDteamMemoryPath } from "./pathSafety.js";
 
 // ── 工具实现 ──────────────────────────────────────────────────
 
@@ -135,7 +135,7 @@ export async function memorySave(
   const { filepath } = params;
 
   try {
-    await memory.save(filepath);
+    await memory.save(resolveDteamMemoryPath(ctx.cwd, filepath));
     return {
       content: JSON.stringify({
         filepath,
@@ -162,7 +162,7 @@ export async function memoryLoad(
   const { filepath } = params;
 
   try {
-    await memory.load(filepath);
+    await memory.load(resolveDteamMemoryPath(ctx.cwd, filepath));
     return {
       content: JSON.stringify({
         filepath,

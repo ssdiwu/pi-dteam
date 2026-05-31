@@ -39,6 +39,7 @@ class BackgroundWorkerImpl implements BackgroundWorker {
   private options: BackgroundWorkerOptions;
   private abortController: AbortController;
   private helpCallbacks: Map<string, (answer: string) => void> = new Map();
+  private unsubscribeListeners: Array<() => void> = [];
 
   constructor(
     id: string,
@@ -60,7 +61,7 @@ class BackgroundWorkerImpl implements BackgroundWorker {
 
   private setupSignalListeners() {
     // 监听进度信号
-    this.bus.on("progress", (signal) => {
+    this.unsubscribeListeners.push(this.bus.on("progress", (signal) => {
       if (this.options.onProgress) {
         this.options.onProgress(
           signal.workerId,
@@ -68,27 +69,27 @@ class BackgroundWorkerImpl implements BackgroundWorker {
           signal.data.task as string,
         );
       }
-    });
+    }));
 
     // 监听help信号
-    this.bus.on("help", (signal) => {
+    this.unsubscribeListeners.push(this.bus.on("help", (signal) => {
       if (this.options.onHelp) {
         this.options.onHelp(
           signal.workerId,
           signal.data.question as string,
         );
       }
-    });
+    }));
 
     // 监听blocked信号
-    this.bus.on("blocked", (signal) => {
+    this.unsubscribeListeners.push(this.bus.on("blocked", (signal) => {
       if (this.options.onError) {
         this.options.onError(
           signal.workerId,
           signal.data.error as string,
         );
       }
-    });
+    }));
   }
 
   async start(): Promise<void> {
@@ -96,6 +97,9 @@ class BackgroundWorkerImpl implements BackgroundWorker {
 
     // 默认执行器
     const executor = async (role: string, task: string, style: string) => {
+      if (this.abortController.signal.aborted) {
+        throw new Error(`Worker cancelled: ${this.id}`);
+      }
       return `Executed ${role} with style ${style}: ${task}`;
     };
 
@@ -106,6 +110,11 @@ class BackgroundWorkerImpl implements BackgroundWorker {
         this.memory,
         executor,
       );
+
+      if (this.abortController.signal.aborted) {
+        this.status = "failed";
+        return;
+      }
 
       this.status = result.status;
 
@@ -118,12 +127,22 @@ class BackgroundWorkerImpl implements BackgroundWorker {
       if (this.options.onError) {
         this.options.onError(this.id, (error as Error).message);
       }
+    } finally {
+      this.cleanup();
     }
   }
 
   cancel(): void {
     this.abortController.abort();
     this.status = "failed";
+    this.cleanup();
+  }
+
+  private cleanup(): void {
+    for (const unsubscribe of this.unsubscribeListeners.splice(0)) {
+      unsubscribe();
+    }
+    this.helpCallbacks.clear();
   }
 
   respond(workerId: string, answer: string): void {

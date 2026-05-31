@@ -34,7 +34,7 @@ export interface AuthResponse {
   success: boolean;
   token?: string;
   refreshToken?: string;
-  user?: Omit<User, 'passwordHash'>;
+  user?: Omit<User, 'passwordHash' | 'salt'>;
   error?: string;
 }
 

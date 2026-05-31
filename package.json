@@ -16,6 +16,7 @@
     "url": "https://github.com/ssdiwu/pi-dteam"
   },
   "files": [
+    "extensions/**/*",
     "src/**/*.ts",
     "agents/**/*",
     "prompts/**/*",
@@ -31,7 +32,8 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.75.5"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
@@ -43,7 +45,5 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "dependencies": {
-    "@earendil-works/pi-tui": "^0.74.2"
-  }
+  "dependencies": {}
 }

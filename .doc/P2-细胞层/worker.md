@@ -198,7 +198,8 @@ type WorkerOption =
 ```typescript
 {
   workerId: string,
-  executorName?: string  // 可选：指定执行器名称
+  executorName?: string, // 可选：指定执行器名称
+  background?: boolean   // 可选：是否后台执行
 }
 ```
 
@@ -220,7 +221,7 @@ type WorkerOption =
 
 ```typescript
 {
-  filepath: string
+  filepath: string // 相对 .dteam/memory/，仅允许 .json
 }
 ```
 
@@ -230,7 +231,7 @@ type WorkerOption =
 
 ```typescript
 {
-  filepath: string
+  filepath: string // 相对 .dteam/memory/，仅允许 .json
 }
 ```
 

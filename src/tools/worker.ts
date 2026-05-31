@@ -10,10 +10,12 @@
  */
 
 import { WorkerConfig } from "../P0/config.js";
+import { SignalType } from "../P0/signal.js";
 import { SignalBus } from "../P1/signalBus.js";
 import { EnhancedSharedMemory, createEnhancedSharedMemory } from "../P1/enhancedSharedMemory.js";
 import { ContextBuilder, createContextBuilder, ExecutionContext, Executor } from "../P2/contextBuilder.js";
 import { runWorker } from "../P3/worker.js";
+import { resolveDteamMemoryPath } from "./pathSafety.js";
 
 // ── 全局状态 ──────────────────────────────────────────────────
 
@@ -190,6 +192,9 @@ export async function workerStart(
     try {
       worker.status = "running";
       
+      const signal = worker.abortController?.signal;
+      if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
+
       // 1. 构建执行上下文
       const context = await worker.contextBuilder.build(worker.config);
       worker.context = context;
@@ -199,13 +204,16 @@ export async function workerStart(
       
       // 3. 创建包装执行器（适配原有接口）
       const wrappedExecutor = async (role: string, task: string, style: string) => {
+        if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
         // 使用构建的上下文
         const result = await executorFn(context);
+        if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
         return result;
       };
       
       // 4. 执行任务
       const result = await runWorker(worker.config, worker.bus, worker.memory, wrappedExecutor);
+      if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
       worker.status = "done";
 
       // 5. 保存执行结果到共享内存
@@ -310,7 +318,16 @@ export async function workerSendSignal(
     };
   }
 
-  const signal = worker.bus.emit(signalType as any, workerId, data);
+  const allowedSignals: SignalType[] = ["progress", "blocked", "found", "help"];
+  if (!allowedSignals.includes(signalType as SignalType)) {
+    return {
+      content: JSON.stringify({
+        error: `Invalid signal type: ${signalType}`,
+      }),
+    };
+  }
+
+  const signal = worker.bus.emit(signalType as SignalType, workerId, data);
 
   return {
     content: JSON.stringify({
@@ -331,7 +348,7 @@ export async function workerSaveMemory(
   const { filepath } = params;
   
   try {
-    await memory.save(filepath);
+    await memory.save(resolveDteamMemoryPath(ctx.cwd, filepath));
     return {
       content: JSON.stringify({
         filepath,
@@ -358,7 +375,7 @@ export async function workerLoadMemory(
   const { filepath } = params;
   
   try {
-    await memory.load(filepath);
+    await memory.load(resolveDteamMemoryPath(ctx.cwd, filepath));
     return {
       content: JSON.stringify({
         filepath,

@@ -150,17 +150,16 @@ npm run test:watch  # 监听模式
 
 ```
 dteam/
-├── agents/             # 角色定义（explore/design/build/deploy/check/close）
+├── agents/             # 角色定义（explore/design/build/check/close）
 ├── prompts/            # worker启动器
 ├── reference/          # 结构化数据
 ├── src/                # 源代码
-│   ├── P0/             # 原子层实现
-│   ├── P1/             # 分子层实现
-│   ├── P2/             # 细胞层实现
-│   ├── P3/             # 组织层实现
-│   ├── core/           # 核心模块
-│   ├── extension/      # 扩展模块
-│   └── tools/          # 工具实现
+│   ├── P0/             # 原子层实现（status/signal/memory/config/i18n/loopDetector/concurrency/atomic/gateChecks/stateMachine）
+│   ├── P1/             # 分子层实现（signalBus/sharedMemory/enhancedSharedMemory/backgroundWorker/i18n翻译）
+│   ├── P2/             # 细胞层实现（solo/chain/team/contextBuilder）
+│   ├── P3/             # 组织层实现（worker编排器）
+│   ├── tools/          # 工具实现（task/reference/worker）
+│   └── extension/      # 扩展模块（index/renderers）
 ├── tests/              # 测试
 ├── .doc/               # 文档
 ├── .dteam/             # dteam配置

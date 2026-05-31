@@ -4,7 +4,7 @@
  * 提供信号的发送和监听接口
  */
 
-import { SignalBus } from "../P1/signalBus.js";
+import { SignalType } from "../P0/signal.js";
 import { bus } from "./worker.js";
 
 // ── 工具实现 ──────────────────────────────────────────────────
@@ -17,7 +17,16 @@ export async function signalEmit(
   params: { type: string; workerId: string; data?: Record<string, unknown> },
 ): Promise<{ content: string }> {
   const { type, workerId, data = {} } = params;
-  const signal = bus.emit(type as any, workerId, data);
+  const allowedSignals: SignalType[] = ["progress", "blocked", "found", "help"];
+  if (!allowedSignals.includes(type as SignalType)) {
+    return {
+      content: JSON.stringify({
+        error: `Invalid signal type: ${type}`,
+      }),
+    };
+  }
+
+  const signal = bus.emit(type as SignalType, workerId, data);
 
   return {
     content: JSON.stringify({

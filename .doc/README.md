@@ -25,9 +25,14 @@
 | [task.md](./P0-原子层/task.md) | task 数据模型 | 工作主语对象 |
 | [signal.md](./P0-原子层/signal.md) | 信号定义 | 4信号+5策略=9种 |
 | [memory.md](./P0-原子层/memory.md) | 内存定义 | 内存条目结构 |
-| [status.md](./P0-原子层/status.md) | 状态定义 | 4个状态 |
+| [status.md](./P0-原子层/status.md) | 状态定义 | 6个状态（pending/running/blocked/done/failed/cancelled） |
 | [config.md](./P0-原子层/config.md) | 配置定义 | WorkerConfig |
 | [i18n.md](./P0-原子层/i18n.md) | i18n 定义 | 国际化基础 |
+| [loopDetector.md](./P0-原子层/loopDetector.md) | 循环检测器 | 防止渐进式参数变化 |
+| [concurrency.md](./P0-原子层/concurrency.md) | 并发控制 | 最大并发数、超时控制 |
+| [atomic.md](./P0-原子层/atomic.md) | 原子操作 | atomicCommit、atomicWrite |
+| [gateChecks.md](./P0-原子层/gateChecks.md) | 门控检查 | 8项门控检查 + 四态判定 |
+| [stateMachine.md](./P0-原子层/stateMachine.md) | 状态机 | 状态转换验证 |
 
 ## P1-分子层
 
@@ -91,6 +96,7 @@
 |------|------|------|
 | [GSD借鉴.md](./研究/GSD借鉴.md) | GSD 借鉴 | 设计理念 |
 | [Superpowers借鉴.md](./研究/Superpowers借鉴.md) | Superpowers 借鉴 | 设计理念 |
+| [dteam-vs-dflow-对比研究.md](./研究/dteam-vs-dflow-对比研究.md) | dteam vs dflow 对比研究 | 核心功能差异分析 |
 
 ## 规范
 

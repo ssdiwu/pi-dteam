@@ -8,7 +8,7 @@
 import { writeFile, rename, mkdir, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 // ── 原子提交 ──────────────────────────────────────────────────
 
@@ -26,8 +26,8 @@ export interface AtomicCommitResult {
   error?: string;
 }
 
-function runGit(args: string, cwd: string): string {
-  return execSync(`git ${args}`, {
+function runGit(args: string[], cwd: string): string {
+  return execFileSync("git", args, {
     cwd,
     encoding: "utf-8",
     timeout: 30_000,
@@ -70,8 +70,7 @@ export function atomicCommit(options: AtomicCommitOptions): AtomicCommitResult {
   }
 
   try {
-    const quoted = files.map((f) => `"${f}"`).join(" ");
-    runGit(`add ${quoted}`, cwd);
+    runGit(["add", "--", ...files], cwd);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: `git add failed: ${msg}` };
@@ -80,7 +79,7 @@ export function atomicCommit(options: AtomicCommitOptions): AtomicCommitResult {
   const message = buildCommitMessage(options);
 
   try {
-    execSync(`git commit -F -`, {
+    execFileSync("git", ["commit", "-F", "-"], {
       cwd,
       input: message,
       encoding: "utf-8",
@@ -93,7 +92,7 @@ export function atomicCommit(options: AtomicCommitOptions): AtomicCommitResult {
   }
 
   try {
-    const hash = runGit("rev-parse HEAD", cwd);
+    const hash = runGit(["rev-parse", "HEAD"], cwd);
     return { success: true, commitHash: hash };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -120,7 +120,7 @@ describe("Worker 工具集成测试", () => {
 
   describe("共享内存工具", () => {
     it("应该能够保存和加载共享内存", async () => {
-      const filepath = "/tmp/test-worker-memory.json";
+      const filepath = "test-worker-memory.json";
 
       // 保存内存
       const saveResult = await workerSaveMemory(ctx, { filepath });

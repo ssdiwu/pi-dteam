@@ -10,62 +10,95 @@ import {
   AuthResponse, 
   TokenPayload 
 } from '../P0/auth.js';
+import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 // 简单的内存存储（实际项目应使用数据库）
 const users: Map<string, User> = new Map();
-const refreshTokens: Map<string, string> = new Map();
+const refreshTokens: Map<string, { userId: string; expiresAt: number }> = new Map();
+const runtimeJwtSecret = process.env.DTEAM_JWT_SECRET || randomBytes(32).toString('hex');
 
 // 默认配置
 const defaultConfig: AuthConfig = {
-  jwtSecret: 'dteam-secret-key',
+  jwtSecret: runtimeJwtSecret,
   tokenExpiration: 3600, // 1小时
   refreshTokenExpiration: 86400, // 24小时
   passwordSaltRounds: 10
 };
 
 /**
- * 简单的密码哈希（实际项目应使用bcrypt等）
+ * 密码哈希：scrypt + per-user salt。
  */
 function hashPassword(password: string, salt: string): string {
-  // 这里只是演示，实际项目应使用安全的哈希算法
-  return Buffer.from(password + salt).toString('base64');
+  return scryptSync(password, salt, 64).toString('base64url');
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 /**
- * 生成随机ID
+ * 生成随机ID/token。
  */
-function generateId(): string {
-  return Math.random().toString(36).slice(2, 11);
+function generateId(bytes = 18): string {
+  return randomBytes(bytes).toString('base64url');
+}
+
+function hashRefreshToken(token: string): string {
+  return createHash('sha256').update(token).digest('base64url');
+}
+
+function encodeBase64Url(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+function sign(data: string, secret: string): string {
+  return createHmac('sha256', secret).update(data).digest('base64url');
 }
 
 /**
- * 生成简单的JWT token（实际项目应使用jsonwebtoken库）
+ * 生成签名 token。
  */
 function generateToken(payload: Omit<TokenPayload, 'iat' | 'exp'>, config: AuthConfig): string {
   const now = Math.floor(Date.now() / 1000);
+  const header = { alg: 'HS256', typ: 'JWT' };
   const tokenPayload: TokenPayload = {
     ...payload,
     iat: now,
     exp: now + config.tokenExpiration
   };
-  
-  // 简单编码（实际项目应使用JWT签名）
-  return Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
+  const data = `${encodeBase64Url(header)}.${encodeBase64Url(tokenPayload)}`;
+  return `${data}.${sign(data, config.jwtSecret)}`;
 }
 
 /**
- * 验证token
+ * 验证 token 签名和过期时间。
  */
-function verifyToken(token: string): TokenPayload | null {
+function verifyToken(token: string, config: AuthConfig): TokenPayload | null {
   try {
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString()) as TokenPayload;
-    const now = Math.floor(Date.now() / 1000);
-    
-    if (payload.exp < now) {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const [header, payload, signature] = parts;
+    const data = `${header}.${payload}`;
+    if (!safeEqual(signature, sign(data, config.jwtSecret))) {
       return null;
     }
-    
-    return payload;
+
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString()) as Partial<TokenPayload>;
+    const now = Math.floor(Date.now() / 1000);
+    if (
+      typeof parsed.userId !== 'string' ||
+      typeof parsed.username !== 'string' ||
+      typeof parsed.iat !== 'number' ||
+      typeof parsed.exp !== 'number' ||
+      parsed.exp < now
+    ) {
+      return null;
+    }
+
+    return parsed as TokenPayload;
   } catch {
     return null;
   }
@@ -115,11 +148,14 @@ export class AuthService {
         this.config
       );
       
-      const refreshToken = generateId();
-      refreshTokens.set(refreshToken, user.id);
+      const refreshToken = generateId(32);
+      refreshTokens.set(hashRefreshToken(refreshToken), {
+        userId: user.id,
+        expiresAt: Math.floor(Date.now() / 1000) + this.config.refreshTokenExpiration,
+      });
       
-      // 返回用户信息（不包含密码）
-      const { passwordHash: _, ...userWithoutPassword } = user;
+      // 返回用户信息（不包含密码和 salt）
+      const { passwordHash: _, salt: __, ...userWithoutPassword } = user;
       
       return {
         success: true,
@@ -160,7 +196,7 @@ export class AuthService {
       // 验证密码
       const passwordHash = hashPassword(request.password, foundUser.salt);
       
-      if (foundUser.passwordHash !== passwordHash) {
+      if (!safeEqual(foundUser.passwordHash, passwordHash)) {
         return {
           success: false,
           error: '用户名或密码错误'
@@ -173,11 +209,14 @@ export class AuthService {
         this.config
       );
       
-      const refreshToken = generateId();
-      refreshTokens.set(refreshToken, foundUser.id);
+      const refreshToken = generateId(32);
+      refreshTokens.set(hashRefreshToken(refreshToken), {
+        userId: foundUser.id,
+        expiresAt: Math.floor(Date.now() / 1000) + this.config.refreshTokenExpiration,
+      });
       
-      // 返回用户信息（不包含密码）
-      const { passwordHash: _, ...userWithoutPassword } = foundUser;
+      // 返回用户信息（不包含密码和 salt）
+      const { passwordHash: _, salt: __, ...userWithoutPassword } = foundUser;
       
       return {
         success: true,
@@ -197,7 +236,7 @@ export class AuthService {
    * 验证token
    */
   async verifyToken(token: string): Promise<User | null> {
-    const payload = verifyToken(token);
+    const payload = verifyToken(token, this.config);
     
     if (!payload) {
       return null;
@@ -211,18 +250,22 @@ export class AuthService {
    * 刷新token
    */
   async refreshToken(refreshToken: string): Promise<AuthResponse> {
-    const userId = refreshTokens.get(refreshToken);
+    const tokenHash = hashRefreshToken(refreshToken);
+    const storedToken = refreshTokens.get(tokenHash);
+    const now = Math.floor(Date.now() / 1000);
     
-    if (!userId) {
+    if (!storedToken || storedToken.expiresAt < now) {
+      refreshTokens.delete(tokenHash);
       return {
         success: false,
         error: '无效的刷新token'
       };
     }
     
-    const user = users.get(userId);
+    const user = users.get(storedToken.userId);
     
     if (!user) {
+      refreshTokens.delete(tokenHash);
       return {
         success: false,
         error: '用户不存在'
@@ -235,12 +278,15 @@ export class AuthService {
       this.config
     );
     
-    const newRefreshToken = generateId();
-    refreshTokens.delete(refreshToken);
-    refreshTokens.set(newRefreshToken, user.id);
+    const newRefreshToken = generateId(32);
+    refreshTokens.delete(tokenHash);
+    refreshTokens.set(hashRefreshToken(newRefreshToken), {
+      userId: user.id,
+      expiresAt: now + this.config.refreshTokenExpiration,
+    });
     
-    // 返回用户信息（不包含密码）
-    const { passwordHash: _, ...userWithoutPassword } = user;
+    // 返回用户信息（不包含密码和 salt）
+    const { passwordHash: _, salt: __, ...userWithoutPassword } = user;
     
     return {
       success: true,
@@ -254,7 +300,7 @@ export class AuthService {
    * 用户登出
    */
   async logout(refreshToken: string): Promise<boolean> {
-    const deleted = refreshTokens.delete(refreshToken);
+    const deleted = refreshTokens.delete(hashRefreshToken(refreshToken));
     return deleted;
   }
 }

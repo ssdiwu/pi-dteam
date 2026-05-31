@@ -152,10 +152,10 @@ export class ContextBuilder {
    * 构建完整的执行上下文
    */
   async build(config: WorkerConfig): Promise<ExecutionContext> {
-    // 1. 并行获取各种上下文
-    const [taskContext, projectContext, executionHistory] = await Promise.all([
-      this.buildTaskContext(config.task),
-      this.buildProjectContext(),
+    // 1. 构建上下文；project 相关文件依赖 task 关键词，需先得到 taskContext
+    const taskContext = await this.buildTaskContext(config.task);
+    const [projectContext, executionHistory] = await Promise.all([
+      this.buildProjectContext(taskContext),
       this.buildExecutionHistory(),
     ]);
     
@@ -296,13 +296,13 @@ export class ContextBuilder {
   /**
    * 构建项目上下文
    */
-  private async buildProjectContext(): Promise<ProjectContext> {
+  private async buildProjectContext(taskContext: TaskContext): Promise<ProjectContext> {
     const structure = await this.getDirectoryStructure(this.cwd, 0, 3); // 最多3层
     const config = await this.getProjectConfig();
-    const relatedFiles = await this.findRelatedFiles();
+    const relatedFiles = await this.findRelatedFiles(taskContext);
     const dependencies = [
-      ...Object.keys(config.dependencies || {}),
-      ...Object.keys(config.devDependencies || {}),
+      ...(config.dependencies || []),
+      ...(config.devDependencies || []),
     ];
     
     return {
@@ -396,14 +396,11 @@ export class ContextBuilder {
   /**
    * 查找相关文件
    */
-  private async findRelatedFiles(): Promise<RelatedFile[]> {
-    // 从共享内存获取任务描述
-    const taskDetails = this.memory.get('task', 'details') as TaskContext | undefined;
-    if (!taskDetails) {
+  private async findRelatedFiles(taskDetails: TaskContext): Promise<RelatedFile[]> {
+    const keywords = taskDetails.goal.toLowerCase().split(/\s+/).filter(Boolean);
+    if (keywords.length === 0) {
       return [];
     }
-    
-    const keywords = taskDetails.goal.toLowerCase().split(/\s+/);
     const relatedFiles: RelatedFile[] = [];
     
     // 搜索源代码目录
