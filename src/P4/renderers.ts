@@ -142,7 +142,7 @@ export function registerRenderers(pi: ExtensionAPI): void {
 // ── 导出辅助函数 ──────────────────────────────────────────────────
 
 /**
- * 发送 worker 进度消息
+ * 更新 worker 进度（仅 TUI 状态栏，不发消息到聊天）
  */
 export function emitWorkerProgress(
 	pi: ExtensionAPI,
@@ -158,13 +158,6 @@ export function emitWorkerProgress(
 		updatedAt: Date.now(),
 	});
 
-	// 发送消息
-	pi.sendMessage({
-		customType: "dteam-progress",
-		content: `[DTEAM_PROGRESS] ${workerId} ${status} ${task}`,
-		display: true,
-	}, { triggerTurn: false, deliverAs: "followUp" });
-
-	// 触发状态栏刷新
+	// 只触发状态栏刷新，不发消息到聊天流
 	pi.events.emit("dteam:render-status", undefined);
 }

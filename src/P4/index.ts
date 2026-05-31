@@ -68,19 +68,11 @@ function wrapWorker(
 					case "start":
 						status = "running";
 						task = "Executing...";
-						// 启动后立即发送running状态
-						extensionApi.sendMessage({
-							customType: "dteam-progress",
-							content: `[DTEAM_PROGRESS] ${workerId} running ${task}`,
-							display: true,
-						}, { triggerTurn: false, deliverAs: "followUp" });
-						// 执行完成后发送done状态
+						// 使用 emitWorkerProgress 更新 TUI 状态栏
+						emitWorkerProgress(extensionApi, workerId, "running", task);
+						// 执行完成后更新状态
 						setTimeout(() => {
-							extensionApi.sendMessage({
-								customType: "dteam-progress",
-								content: `[DTEAM_PROGRESS] ${workerId} done ${task}`,
-								display: true,
-							}, { triggerTurn: false, deliverAs: "followUp" });
+							emitWorkerProgress(extensionApi, workerId, "done", task);
 						}, 100);
 						break;
 					case "signal":
@@ -97,12 +89,8 @@ function wrapWorker(
 						break;
 				}
 				
-				// 发送TUI消息
-				extensionApi.sendMessage({
-					customType: "dteam-progress",
-					content: `[DTEAM_PROGRESS] ${workerId} ${status} ${task}`,
-					display: true,
-				}, { triggerTurn: false, deliverAs: "followUp" });
+				// 更新 TUI 状态栏
+				emitWorkerProgress(extensionApi, workerId, status as "pending" | "running" | "done" | "failed", task);
 			}
 		} catch (e) {
 			// 解析失败，忽略TUI消息
@@ -141,7 +129,7 @@ import {
 	workerGetMemory,
 } from "../P2/worker.js";
 
-import { registerRenderers } from "./renderers.js";
+import { registerRenderers, emitWorkerProgress } from "./renderers.js";
 import { registerCompactionI18n } from "../P1/compaction.js";
 
 import {
