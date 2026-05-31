@@ -18,5 +18,8 @@ Thumbs.db
 .dteam/memory/
 .dteam/pitfalls/
 
+# Internal docs
+.doc/
+
 # Pi
 .pi/
