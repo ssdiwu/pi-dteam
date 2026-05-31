@@ -1,6 +1,6 @@
-# extension — Pi 扩展入口
+# P4 — 用户接口层
 
-> 注册所有工具、命令、渲染器，是 dteam 与 Pi 的对接层。
+> 依赖 P0-P3，提供 Pi 扩展入口和 TUI 渲染。
 
 ## 模块清单
 
@@ -28,7 +28,7 @@
 
 ```
 extensions/index.ts
-  └─ export { default } from "../src/extension/index.ts"
+  └─ export { default } from "../src/P4/index.ts"
       └─ registerRenderers(pi)
       └─ pi.registerTool(...) × 20+
       └─ pi.registerCommand("dteam", ...)

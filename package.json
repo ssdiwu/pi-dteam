@@ -45,6 +45,5 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest"
-  },
-  "dependencies": {}
+  }
 }

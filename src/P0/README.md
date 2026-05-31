@@ -17,6 +17,8 @@
 | `gateChecks.ts` | 门控检查：8 项准入检查 |
 | `loopDetector.ts` | 循环检测：防止重复调用和渐进式参数变化 |
 | `i18n.ts` | 国际化：locale 检测和翻译函数 |
+| `reference.ts` | 参考数据查询：architecture（TOML 搜索） |
+| `pathSafety.ts` | 路径安全：文件名净化、路径边界检查、memory 路径沙箱 |
 
 ## 依赖关系
 

@@ -92,6 +92,34 @@ pi install /path/to/pi-dteam
 | `signal_emit` | 发送信号 |
 | `signal_history` | 获取信号历史 |
 
+### Compaction 本地化
+
+dteam 内置了 Pi compaction 和 branch summary 输出的本地化功能。这意味着当你使用 `/compact` 或通过 `/tree` 导航分支时，总结的标题会自动翻译成你的语言。
+
+**支持的语言：**
+
+| Locale | 语言 | 标题示例 |
+|--------|------|----------|
+| `zh-CN` | 简体中文 | `## 目标 / ## 进展 / ## 下一步` |
+| `zh-TW` | 繁體中文 | `## 目標 / ## 進展 / ## 下一步` |
+| `ja` | 日本語 | `## 目標 / ## 進捗 / ## 次のステップ` |
+| `ko` | 한국어 | `## 목표 / ## 진행 상황 / ## 다음 단계` |
+| `de` | Deutsch | `## Ziel / ## Fortschritt / ## Nächste Schritte` |
+| `fr` | Français | `## Objectif / ## Progression / ## Étapes suivantes` |
+| `es` | Español | `## Objetivo / ## Progreso / ## Próximos pasos` |
+| `pt` | Português | `## Objetivo / ## Progresso / ## Próximos passos` |
+| `ru` | Русский | `## Цель / ## Прогресс / ## Следующие шаги` |
+| `ar` | العربية | `## الهدف / ## التقدم / ## الخطوات التالية` |
+| `en` | English | `## Goal / ## Progress / ## Next Steps` |
+
+**检查状态：**
+
+```
+/compaction-i18n-status
+```
+
+语言会从你的环境变量自动检测（`PI_LOCALE` > `LC_ALL` > `LANG`）。
+
 ## 开发全流程
 
 ```

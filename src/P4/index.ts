@@ -45,11 +45,11 @@ import {
 	taskArchive,
 	taskList,
 	taskSearch,
-} from "../tools/task.js";
+} from "../P1/task.js";
 
 import {
 	referenceArchitecture,
-} from "../tools/reference.js";
+} from "../P0/reference.js";
 
 import {
 	workerCreate,
@@ -60,9 +60,10 @@ import {
 	workerSaveMemory,
 	workerLoadMemory,
 	workerGetMemory,
-} from "../tools/worker.js";
+} from "../P2/worker.js";
 
 import { registerRenderers } from "./renderers.js";
+import { registerCompactionI18n } from "../P1/compaction.js";
 
 import {
 	authRegister,
@@ -70,7 +71,7 @@ import {
 	authVerify,
 	authRefresh,
 	authLogout,
-} from "../tools/auth.js";
+} from "../P1/auth.js";
 
 import {
 	memoryGet,
@@ -81,18 +82,21 @@ import {
 	memoryClear,
 	memorySave,
 	memoryLoad,
-} from "../tools/memory.js";
+} from "../P1/memory.js";
 
 import {
 	signalEmit,
 	signalHistory,
-} from "../tools/signal.js";
+} from "../P1/signal.js";
 
 // ── 扩展入口 ──────────────────────────────────────────────────
 
 export default async function (pi: ExtensionAPI) {
 	// 注册渲染器
 	registerRenderers(pi);
+	
+	// 注册 compaction i18n
+	registerCompactionI18n(pi);
 	// ═══════════════════════════════════════════════════════════
 	// task 工具
 	// ═══════════════════════════════════════════════════════════

@@ -92,6 +92,34 @@ pi install /path/to/pi-dteam
 | `signal_emit` | Emit a signal |
 | `signal_history` | Get signal history |
 
+### Compaction I18n
+
+dteam includes built-in localization for Pi's compaction and branch summary outputs. This means when you use `/compact` or navigate branches with `/tree`, the summary headings will be automatically localized to your language.
+
+**Supported Languages:**
+
+| Locale | Language | Headings Example |
+|--------|----------|------------------|
+| `zh-CN` | 简体中文 | `## 目标 / ## 进展 / ## 下一步` |
+| `zh-TW` | 繁體中文 | `## 目標 / ## 進展 / ## 下一步` |
+| `ja` | 日本語 | `## 目標 / ## 進捗 / ## 次のステップ` |
+| `ko` | 한국어 | `## 목표 / ## 진행 상황 / ## 다음 단계` |
+| `de` | Deutsch | `## Ziel / ## Fortschritt / ## Nächste Schritte` |
+| `fr` | Français | `## Objectif / ## Progression / ## Étapes suivantes` |
+| `es` | Español | `## Objetivo / ## Progreso / ## Próximos pasos` |
+| `pt` | Português | `## Objetivo / ## Progresso / ## Próximos passos` |
+| `ru` | Русский | `## Цель / ## Прогресс / ## Следующие шаги` |
+| `ar` | العربية | `## الهدف / ## التقدم / ## الخطوات التالية` |
+| `en` | English | `## Goal / ## Progress / ## Next Steps` |
+
+**Check Status:**
+
+```
+/compaction-i18n-status
+```
+
+The language is auto-detected from your environment (`PI_LOCALE` > `LC_ALL` > `LANG`).
+
 ## Full Workflow
 
 ```
@@ -109,13 +137,11 @@ pi-dteam/
 ├── package.json        # Package metadata
 ├── extensions/         # Extension entry point
 ├── src/                # Source code
-│   ├── extension/      # Extension implementation
-│   ├── tools/          # Tool implementations
-│   ├── core/           # Core modules
-│   ├── P0/             # Atomic layer: config definitions
-│   ├── P1/             # Base layer: service implementations
-│   ├── P2/             # Composite layer: module implementations
-│   └── P3/             # Orchestration layer: orchestrators
+│   ├── P0/             # Atomic layer: types, config, pure functions
+│   ├── P1/             # Molecular layer: service implementations
+│   ├── P2/             # Cellular layer: orchestration patterns
+│   ├── P3/             # Organizational layer: orchestration logic
+│   └── P4/             # User interface layer: Pi extension entry
 ├── agents/             # Agent definitions (5)
 ├── prompts/            # Prompt templates (5)
 ├── reference/          # Reference data

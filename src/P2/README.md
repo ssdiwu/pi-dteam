@@ -11,6 +11,7 @@
 | `team.ts` | Team 模式：并行执行多个 worker，支持并发控制和超时 |
 | `contextBuilder.ts` | 上下文构建器：构建 task/project/execution 三维执行上下文 |
 | `authModule.ts` | 认证模块：封装 AuthService 为高层接口 |
+| `worker.ts` | worker 管理工具：create/start/sendSignal/cancel/status/saveMemory/loadMemory/getMemory |
 
 ## 依赖关系
 

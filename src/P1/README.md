@@ -13,6 +13,11 @@
 | `backgroundWorker.ts` | 后台 Worker：不阻塞主进程的异步执行 |
 | `spawn.ts` | 子代理运行：通过 Pi SDK createAgentSession 运行子代理 |
 | `i18n.ts` | 国际化翻译表：中英文工具名和状态翻译 |
+| `compaction.ts` | 消息压缩：历史消息压缩和摘要 |
+| `task.ts` | task CRUD 工具：create/read/update/complete/archive/list/search |
+| `memory.ts` | 共享内存操作工具：get/set/keys/has/delete/clear/save/load |
+| `signal.ts` | 信号操作工具：emit/history |
+| `auth.ts` | 认证操作工具：register/login/verify/refresh/logout |
 
 ## 依赖关系
 
