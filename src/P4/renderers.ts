@@ -92,13 +92,13 @@ export function registerRenderers(pi: ExtensionAPI): void {
 
 	// ── session_start: 注册 setStatus 底部状态栏 ──
 
-	let unsubStatusRender: (() => void) | null = null;
+	let unsubRender: (() => void) | null = null;
 
 	pi.on("session_start", async (_event, ctx) => {
-		// 移除旧监听器
-		if (unsubStatusRender) {
-			unsubStatusRender();
-			unsubStatusRender = null;
+		// 移除旧监听器（session 重启 / /reload 时 ctx 已失效）
+		if (unsubRender) {
+			unsubRender();
+			unsubRender = null;
 		}
 
 		const refreshStatus = () => {
@@ -119,23 +119,15 @@ export function registerRenderers(pi: ExtensionAPI): void {
 
 			// 构建状态文本
 			const statusLines = sorted.map((w) => {
-				const { icon, color } = formatStatus(w.status);
-				return `${icon} ${w.workerId}: ${trim(w.task, 30)}`;
+				const { icon } = formatStatus(w.status);
+				return `${icon} ${trim(w.task, 20)}`;
 			});
 
-			ctx.ui.setStatus("dteam", statusLines.join(" | "));
+			ctx.ui.setStatus("dteam", statusLines.join(" │ "));
 		};
 
-		// 监听事件
-		unsubStatusRender = pi.events.on("dteam:render-status", () => refreshStatus());
-
-		// 初始刷新
-		refreshStatus();
-	});
-
-	// 工具调用后刷新状态栏
-	pi.on("tool_call", async () => {
-		setTimeout(() => pi.events.emit("dteam:render-status", undefined), 100);
+		// on() 返回取消订阅函数
+		unsubRender = pi.events.on("dteam:render-status", refreshStatus);
 	});
 }
 
