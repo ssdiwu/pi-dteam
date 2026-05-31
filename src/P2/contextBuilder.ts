@@ -177,8 +177,14 @@ export class ContextBuilder {
     }, 'context-builder');
     
     // 3. 返回完整上下文
+    // chain/team 模式不需要 role，使用默认值
+    const roleOption = config.options?.find(o => o.type === 'role');
+    const role = config.type === 'solo' 
+      ? getRequiredOption<string>(config.options, 'role')
+      : (roleOption ? String(roleOption.value) : 'orchestrator');
+    
     return {
-      role: getRequiredOption(config.options, 'role'),
+      role,
       task: config.task,
       style: config.style,
       cwd: this.cwd,
