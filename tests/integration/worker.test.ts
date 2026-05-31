@@ -2,7 +2,9 @@
  * Worker 工具集成测试
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { existsSync, unlinkSync } from "node:fs";
+import { resolve } from "node:path";
 import { 
   workerCreate, 
   workerStart, 
@@ -119,8 +121,17 @@ describe("Worker 工具集成测试", () => {
   });
 
   describe("共享内存工具", () => {
+    const memoryTestFile = "test-worker-memory.json";
+    const memoryTestPath = resolve(process.cwd(), ".dteam/memory", memoryTestFile);
+
+    afterAll(() => {
+      if (existsSync(memoryTestPath)) {
+        unlinkSync(memoryTestPath);
+      }
+    });
+
     it("应该能够保存和加载共享内存", async () => {
-      const filepath = "test-worker-memory.json";
+      const filepath = memoryTestFile;
 
       // 保存内存
       const saveResult = await workerSaveMemory(ctx, { filepath });

@@ -15,6 +15,7 @@ Thumbs.db
 # dteam data (optional)
 .dteam/task/
 .dteam/archive/
+.dteam/memory/
 .dteam/pitfalls/
 
 # Pi
