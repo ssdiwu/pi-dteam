@@ -61,6 +61,18 @@ pi install /path/to/pi-dteam
 | `worker_cancel` | Cancel a background worker |
 | `worker_status` | Get worker status |
 
+##### LLM Executor (since v0.4.0)
+
+By default, `worker_start` calls real LLM via Pi SDK (`createAgentSession`). The worker:
+
+1. Loads `agents/<role>.md` for `systemPrompt` + `tools` (frontmatter)
+2. Resolves `model` from (in priority order): `WorkerConfig.model` → role frontmatter `model` → user current session model (`sessionModel` fallback)
+3. Walks `fallbackModels` chain if primary model is unavailable (truncated to 5)
+4. Streams responses via `onUpdate`; accumulates `text_delta` events
+5. Returns `{ exitCode, output, usage, model, stopReason, errorMessage, isModelError }`
+
+Pass `executorName: "llm"` to `worker_start` to explicitly opt into LLM execution. Without it, the same default behavior applies (default executor is now real LLM, not mock).
+
 #### Memory Tools
 
 | Tool | Description |

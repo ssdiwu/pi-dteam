@@ -61,6 +61,18 @@ pi install /path/to/pi-dteam
 | `worker_cancel` | 取消后台执行的 worker |
 | `worker_status` | 获取 worker 状态 |
 
+##### LLM 执行器(自 v0.4.0)
+
+`worker_start` 默认调真实 LLM(走 Pi SDK `createAgentSession`)。执行流程:
+
+1. 加载 `agents/<role>.md` 拿 `systemPrompt` + `tools`(frontmatter)
+2. 解析 `model` 优先级:`WorkerConfig.model` → role frontmatter `model` → 当前会话模型(`sessionModel` 兜底)
+3. 首选 model 不可用时走 `fallbackModels` 链(超过 5 个截断)
+4. 通过 `onUpdate` 流式推送响应,累加 `text_delta` 事件
+5. 返回 `{ exitCode, output, usage, model, stopReason, errorMessage, isModelError }`
+
+`executorName: "llm"` 是显式语义入口。默认 executor 自 v0.4.0 起也是真 LLM。
+
 #### Memory 工具
 
 | 工具 | 功能 |
