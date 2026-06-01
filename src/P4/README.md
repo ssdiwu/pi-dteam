@@ -35,3 +35,27 @@ extensions/index.ts
       └─ pi.registerTool(...) × 20+
       └─ pi.registerCommand("dteam", ...)
 ```
+
+## 关键设计
+
+### Model 注入
+
+worker_create 时不指定 model 的情况下，自动注入当前会话模型：
+
+1. `session_start` 事件触发时，从 `ctx.model` 读取当前模型并缓存
+2. worker_create 调用时，如果用户没指定 model，从 dconfig 读取角色模型，fallback 到 ctx.model
+3. fallbackModels 同理，从 dconfig 读取角色的 fallback 链
+
+### options 归一化
+
+Pi 工具 JSON 序列化层可能把数组变成 `{ item: ... }` 或普通对象，`normalizeOptions()` 统一收敛成 `WorkerOption[]`：
+
+```typescript
+// 输入变体
+["a", "b"]           // 正常数组
+{ item: ["a", "b"] }  // 包装对象
+{ 0: "a", 1: "b" }    // 普通对象
+
+// 输出
+["a", "b"]           // 统一数组
+```
