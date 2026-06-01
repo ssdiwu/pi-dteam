@@ -17,6 +17,7 @@ import { ContextBuilder, createContextBuilder, ExecutionContext, Executor } from
 import { runWorker } from "../P3/worker.js";
 import { resolveDteamMemoryPath } from "../P0/pathSafety.js";
 import { spawnAgent, type SpawnResult } from "../P1/spawn.js";
+import { createWorktree, cleanupWorktree, isGitRepo } from "../P1/worktree.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
@@ -335,6 +336,20 @@ export async function workerStart(
   worker.background = background;
   worker.abortController = new AbortController();
 
+  // worktree 隔离支持
+  let worktreePath: string | undefined;
+  const useWorktree = worker.config.worktree === true && isGitRepo(ctx.cwd);
+  
+  if (useWorktree) {
+    try {
+      const worktree = createWorktree({ workerId, cwd: ctx.cwd, autoCleanup: worker.config.worktreeAutoCleanup });
+      worktreePath = worktree.path;
+      console.log(`[dteam.worker] Using worktree: ${worktreePath}`);
+    } catch (error) {
+      console.warn(`[dteam.worker] Failed to create worktree, falling back to cwd: ${error}`);
+    }
+  }
+
   // 后台执行函数
   const executeInBackground = async () => {
     try {
@@ -343,8 +358,13 @@ export async function workerStart(
       const signal = worker.abortController?.signal;
       if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
 
-      // 1. 构建执行上下文
+      // 1. 构建执行上下文（使用 worktree 路径或原始 cwd）
+      const executionCwd = worktreePath || ctx.cwd;
       const context = await worker.contextBuilder.build(worker.config);
+      // 如果使用 worktree，覆盖 context 的 cwd
+      if (worktreePath) {
+        context.cwd = worktreePath;
+      }
       worker.context = context;
       
       // 2. 获取执行器
@@ -365,6 +385,12 @@ export async function workerStart(
       const result = await runWorker(worker.config, worker.bus, worker.memory, wrappedExecutor);
       if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
       worker.status = "done";
+      
+      // worktree 自动清理
+      if (useWorktree && worktreePath && worker.config.worktreeAutoCleanup) {
+        cleanupWorktree(ctx.cwd, workerId);
+      }
+      
       // 终态清理:仅后台模式清理大引用(避免 Map 长期持有 ExecutionContext)
       // 前台模式保留 context——workerStart 同步 return 要拼 JSON 给调用方
       if (worker.background) {

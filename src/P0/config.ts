@@ -16,6 +16,16 @@ export interface WorkerConfig {
    * Fallback 模型链。超过 5 个会被 spawn.ts 截断并 warn。
    */
   fallbackModels?: string[];
+  /**
+   * 是否启用 git worktree 隔离。
+   * 启用后，worker 在独立的 worktree 中执行，避免并行修改冲突。
+   */
+  worktree?: boolean;
+  /**
+   * 是否在 worker 完成后自动清理 worktree。
+   * 默认 false，保留 worktree 给用户检查。
+   */
+  worktreeAutoCleanup?: boolean;
 }
 
 export type WorkerOption = 
