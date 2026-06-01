@@ -73,6 +73,21 @@ By default, `worker_start` calls real LLM via Pi SDK (`createAgentSession`). The
 
 Pass `executorName: "llm"` to `worker_start` to explicitly opt into LLM execution. Without it, the same default behavior applies (default executor is now real LLM, not mock).
 
+##### Worker Status Widget (since v0.4.1)
+
+A bordered box widget shown in TUI while worker is running (inspired by pi-tldr):
+
+```
+╭ worker ── 🔄 running ──────────────────────────────────╮
+│ Agent: build                                            │
+│ Task: Implement feature                                 │
+│ Tools: 3 (current: edit)                                │
+│ Elapsed: 5.0s                                           │
+╰─────────────────────────────────────────────────────────╯
+```
+
+Automatically shown on `worker_start` and cleared on completion/failure. Throttled at 1s intervals to avoid flicker.
+
 #### Memory Tools
 
 | Tool | Description |

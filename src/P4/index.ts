@@ -86,6 +86,19 @@ function wrapWorker(
 				
 				// 更新 TUI 状态栏
 				emitWorkerProgress(extensionApi, workerId, status as "pending" | "running" | "done" | "failed", task);
+
+				// 更新 worker widget
+				if (workerAction === "start" && status === "running") {
+					showWorkerStatus(ctx, {
+						status: "running",
+						agent: params.executorName ?? "default",
+						task: parsed.config?.task ?? "Executing...",
+						toolCount: 0,
+						elapsedMs: 0,
+					});
+				} else if (workerAction === "start" && (status === "done" || status === "failed")) {
+					clearWorkerStatus(ctx);
+				}
 			}
 		} catch (e) {
 			// 解析失败，记录错误但不影响主流程
@@ -171,6 +184,7 @@ import {
 import { spawnAgent } from "../P1/spawn.js";
 
 import { registerRenderers, emitWorkerProgress } from "./renderers.js";
+import { showWorkerStatus, clearWorkerStatus } from "./worker-widget.js";
 import { registerCompactionI18n } from "../P1/compaction.js";
 
 import {

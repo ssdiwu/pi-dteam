@@ -41,6 +41,8 @@ export interface SpawnOptions {
 	/** 流式回调，每次 text_delta 触发 */
 	onUpdate?: (partial: { output: string }) => void;
 	cwd?: string;
+	/** Tool 事件回调（用于 widget 更新等） */
+	onToolEvent?: (event: { type: "start" | "end"; toolName?: string }) => void;
 }
 
 export interface SpawnUsageStats {
@@ -171,6 +173,7 @@ interface StreamState {
 function subscribeEventsWithState(
 	session: AgentSession,
 	onUpdate?: (partial: { output: string }) => void,
+	onToolEvent?: (event: { type: "start" | "end"; toolName?: string }) => void,
 ): StreamState {
 	const state: StreamState = {
 		accumulatedText: "",
@@ -185,6 +188,14 @@ function subscribeEventsWithState(
 			state.accumulatedText += event.assistantMessageEvent.delta;
 			const out = state.accumulatedText || "(running...)";
 			onUpdate?.({ output: out });
+		}
+
+		// Tool 事件回调（用于 widget 更新）
+		if (event.type === "tool_execution_start") {
+			onToolEvent?.({ type: "start", toolName: (event as { toolName?: string }).toolName });
+		}
+		if (event.type === "tool_execution_end") {
+			onToolEvent?.({ type: "end" });
 		}
 
 		if (event.type === "turn_end") {
@@ -324,7 +335,7 @@ export async function spawnAgent(options: SpawnOptions): Promise<SpawnResult> {
 	}
 
 	// 步骤 5：订阅事件流
-	const state = subscribeEventsWithState(session, options.onUpdate);
+	const state = subscribeEventsWithState(session, options.onUpdate, options.onToolEvent);
 
 	// 处理 AbortSignal
 	let onAbort: (() => void) | undefined;

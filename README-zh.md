@@ -73,6 +73,21 @@ pi install /path/to/pi-dteam
 
 `executorName: "llm"` 是显式语义入口。默认 executor 自 v0.4.0 起也是真 LLM。
 
+##### Worker 状态 Widget（自 v0.4.1）
+
+worker 运行时在 TUI 中显示 bordered box widget（借鉴 pi-tldr 设计）：
+
+```
+╭ worker ── 🔄 running ──────────────────────────────────╮
+│ Agent: build                                            │
+│ Task: 实现功能                                          │
+│ Tools: 3 (current: edit)                                │
+│ Elapsed: 5.0s                                           │
+╰─────────────────────────────────────────────────────────╯
+```
+
+`worker_start` 时自动显示，完成/失败时自动清除。1s 节流更新避免闪烁。
+
 #### Memory 工具
 
 | 工具 | 功能 |
