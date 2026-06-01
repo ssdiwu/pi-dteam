@@ -844,7 +844,7 @@ export default async function (pi: ExtensionAPI) {
 		promptSnippet: "- dteam: dteam 调度入口，支持 list/plan/run/status 4 个 action",
 		promptGuidelines: [
 			"action=list：列出所有 dteam 角色及其能力",
-			"action=plan：根据目标推断执行计划（solo/chain/team）",
+			"action=plan：根据目标推断执行计划，或通过 taskId 从 task 文件自动生成 chain plan",
 			"action=run：创建 worker 并后台启动执行",
 			"action=status：查询 worker 运行状态",
 			"run 后用 status 查询进度，用 workerId 标识",
@@ -859,7 +859,11 @@ export default async function (pi: ExtensionAPI) {
 				},
 				goal: {
 					type: "string",
-					description: "目标描述（plan/run 必填）",
+					description: "目标描述（plan/run 可选）",
+				},
+				taskId: {
+					type: "string",
+					description: "task id（plan 可选，从 task Markdown 自动生成 chain plan）",
 				},
 				agents: {
 					type: "array",

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { DTEAM_PACKAGE_ROOT, workerCreate, workerStart, workerStatus } from "../P2/worker.js";
 import type { WorkerConfig } from "../P0/config.js";
+import { planFromTaskId, type ChainPlan } from "../P3/chainPlanner.js";
 
 // ── 类型定义 ──────────────────────────────────────────────────
 
@@ -49,6 +50,8 @@ export interface DteamParams {
   style?: string;
   /** run 使用：已有 plan（跳过推断直接执行） */
   plan?: ExecutionPlan;
+  /** plan 使用：从 task 文件自动生成 chain plan */
+  taskId?: string;
   /** status 使用：worker ID */
   workerId?: string;
 }
@@ -296,8 +299,23 @@ export async function handleDteamAction(
     }
 
     case "plan": {
+      // 优先从 taskId 自动生成 chain plan
+      if (params.taskId) {
+        try {
+          const chainPlan = await planFromTaskId(ctx.cwd, params.taskId);
+          return {
+            content: JSON.stringify({
+              chainPlan,
+              message: `Chain plan 已生成：${chainPlan.taskType} 类型，${chainPlan.steps.length} 个步骤`,
+            }),
+          };
+        } catch (err) {
+          return { content: JSON.stringify({ error: (err as Error).message }) };
+        }
+      }
+
       if (!params.goal) {
-        return { content: JSON.stringify({ error: "plan 需要 goal 参数" }) };
+        return { content: JSON.stringify({ error: "plan 需要 goal 或 taskId 参数" }) };
       }
       const plan = buildPlan({
         goal: params.goal,

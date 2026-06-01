@@ -7,6 +7,7 @@
 | 文件 | 职责 |
 |------|------|
 | `worker.ts` | Worker 编排器：根据 config.type 分发到 solo/chain/team |
+| `chainPlanner.ts` | Task → ChainPlan 解析器：从 task Markdown 自动生成执行计划 |
 
 ## 依赖关系
 
@@ -21,6 +22,12 @@ runWorker(config, bus, memory, executor)
   ├─ solo  → runSolo()
   ├─ chain → runChain()
   └─ team  → runTeam()
+
+planFromTaskId(cwd, taskId)
+  → readFile → generatePlan(content, filename)
+    ├─ extractTaskType()  → 选择默认链模板
+    ├─ extractGoal()      → 生成 step 描述
+    └─ extractAcceptanceCriteria() → 匹配验收条件到角色
 ```
 
 ## 返回值
@@ -32,4 +39,28 @@ interface OrchestratorResult {
   conclusion?: string;
   error?: string;
 }
+
+interface ChainPlan {
+  taskId: string;
+  taskType: string;
+  steps: ChainStep[];
+}
+
+interface ChainStep {
+  role: string;         // explore/design/build/check/close
+  mode: "solo";
+  task: string;         // 该步骤的任务描述
+  dependsOn?: string[];  // 依赖的前序步骤角色
+}
 ```
+
+## 默认链模板
+
+| task 类型 | 角色链 |
+|-----------|--------|
+| `refactor` | explore → design → build → check → close |
+| `bugfix` | explore → build → check → close |
+| `infra` | explore → design → build → check → close |
+| `functional` | explore → build → check → close |
+| `ui` | explore → design → build → check → close |
+| 未知 | explore → build → check → close |
