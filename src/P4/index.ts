@@ -248,8 +248,14 @@ export default async function (pi: ExtensionAPI) {
 		return result.output || "(empty)";
 	});
 
-	// 2. sessionModel 同步读：model_select 事件触发时更新闭包。
+	// 2. sessionModel 同步读：session_start 和 model_select 事件触发时更新闭包。
 	//    默认 executor 调 spawnAgent 时通过 getSessionModel() 同步读。
+	pi.on("session_start", (_event, ctx) => {
+		if (ctx.model) {
+			setSessionModel(`${ctx.model.provider}/${ctx.model.id}`);
+		}
+	});
+
 	pi.on("model_select", (event) => {
 		if (event.model) {
 			setSessionModel(`${event.model.provider}/${event.model.id}`);
