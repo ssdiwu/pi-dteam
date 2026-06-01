@@ -14,6 +14,7 @@ import type {
 import { existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import pkg from "../../package.json" with { type: "json" };
 
 // ── Wrapper: tool handler → agent-tool-result shape ────────────
 // tools return { content: string }. This helper wraps
@@ -68,12 +69,6 @@ function wrapWorker(
 					case "start":
 						status = "running";
 						task = "Executing...";
-						// 使用 emitWorkerProgress 更新 TUI 状态栏
-						emitWorkerProgress(extensionApi, workerId, "running", task);
-						// 执行完成后更新状态
-						setTimeout(() => {
-							emitWorkerProgress(extensionApi, workerId, "done", task);
-						}, 100);
 						break;
 					case "signal":
 						status = "running";
@@ -93,7 +88,8 @@ function wrapWorker(
 				emitWorkerProgress(extensionApi, workerId, status as "pending" | "running" | "done" | "failed", task);
 			}
 		} catch (e) {
-			// 解析失败，忽略TUI消息
+			// 解析失败，记录错误但不影响主流程
+			console.error("[dteam] Failed to update TUI progress:", e);
 		}
 		
 		// 生成简洁报告
@@ -166,7 +162,13 @@ import {
 	workerSaveMemory,
 	workerLoadMemory,
 	workerGetMemory,
+	registerExecutor,
+	loadAgentRole,
+	getSessionModel,
+	setSessionModel,
+	getConfigForContext,
 } from "../P2/worker.js";
+import { spawnAgent } from "../P1/spawn.js";
 
 import { registerRenderers, emitWorkerProgress } from "./renderers.js";
 import { registerCompactionI18n } from "../P1/compaction.js";
@@ -192,9 +194,46 @@ import {
 export default async function (pi: ExtensionAPI) {
 	// 注册渲染器
 	registerRenderers(pi);
-	
+
 	// 注册 compaction i18n
 	registerCompactionI18n(pi);
+
+	// ═══════════════════════════════════════════════════════════
+	// LLM executor 注册 + sessionModel 同步读（步骤 3 + 4）
+	// ═══════════════════════════════════════════════════════════
+
+	// 1. 显式“llm” executor：保留语义入口（与默认 executor 等价）
+	//    默认 executor 已走真路径（步骤 2 改造 P2/worker.ts）；
+	//    显式注册“llm”仅为“明确用 LLM executor”的语义。
+	registerExecutor("llm", async (context) => {
+		const r = await loadAgentRole(context.role);
+		if (!r) return "[ERROR] agents/<role>.md not found";
+		const sessionModel = getSessionModel();
+		const config = getConfigForContext(context);
+		const result = await spawnAgent({
+			systemPrompt: r.systemPrompt,
+			task: context.task,
+			model: config?.model,
+			fallbackModels: config?.fallbackModels,
+			sessionModel,
+			tools: r.tools,
+			cwd: context.cwd,
+		});
+		if (result.exitCode !== 0 || result.errorMessage) {
+			const prefix = result.isModelError ? "[MODEL_ERROR]" : "[ERROR]";
+			return `${prefix} ${result.errorMessage || "spawn failed"}\n\n[Partial]:\n${result.output || "(empty)"}`;
+		}
+		return result.output || "(empty)";
+	});
+
+	// 2. sessionModel 同步读：model_select 事件触发时更新闭包。
+	//    默认 executor 调 spawnAgent 时通过 getSessionModel() 同步读。
+	pi.on("model_select", (event) => {
+		if (event.model) {
+			setSessionModel(`${event.model.provider}/${event.model.id}`);
+		}
+	});
+
 	// ═══════════════════════════════════════════════════════════
 	// task 工具
 	// ═══════════════════════════════════════════════════════════
@@ -710,7 +749,7 @@ export default async function (pi: ExtensionAPI) {
 	pi.registerCommand("dteam", {
 		description: "显示 dteam 状态",
 		async handler(_args: string, ctx) {
-			ctx.ui.notify("dteam v0.1.0 active", "info");
+			ctx.ui.notify(`dteam v${pkg.version} active`, "info");
 		},
 	});
 }

@@ -16,8 +16,93 @@ import { EnhancedSharedMemory, createEnhancedSharedMemory } from "../P1/enhanced
 import { ContextBuilder, createContextBuilder, ExecutionContext, Executor } from "../P2/contextBuilder.js";
 import { runWorker } from "../P3/worker.js";
 import { resolveDteamMemoryPath } from "../P0/pathSafety.js";
+import { spawnAgent, type SpawnResult } from "../P1/spawn.js";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
+import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+
+// ── dteam package 根路径(用于加载 agents/*.md)─────────────────
+// worker.ts 编译后位于 dist/P2/worker.js，源码位于 src/P2/worker.ts。
+// 两者都从 dist/src 同名目录出发，../.. 都指向 package 根。
+const __worker_filename = fileURLToPath(import.meta.url);
+const __worker_dirname = dirname(__worker_filename);
+export const DTEAM_PACKAGE_ROOT = join(__worker_dirname, "../..");
+
+/**
+ * 读当前 sessionModel（由 P4 入口的 model_select 事件更新）。
+ * 任何时候被 P4 调 setSessionModel() 都会更新。
+ */
+export function getSessionModel(): string | undefined {
+  return _sessionModelHolder.current;
+}
+
+/**
+ * P4 入口在 model_select 事件中调用。
+ */
+export function setSessionModel(model: string | undefined): void {
+  _sessionModelHolder.current = model;
+}
+
+/**
+ * 读 context 对应的 WorkerConfig（P2/worker.ts 的 wrappedExecutor set）。
+ * 用于 P4 注册的“llm” executor 复用。
+ */
+export function getConfigForContext(
+  context: ExecutionContext,
+): WorkerConfig | undefined {
+  return _configByContext.get(context);
+}
+
+/**
+ * 加载 dteam 内置 agents/<role>.md，解析 frontmatter 拿 systemPrompt + tools + model。
+ * 文件不存在时返回 null，调用方需降级。
+ */
+export async function loadAgentRole(
+  role: string,
+): Promise<{ systemPrompt: string; tools?: string[]; model?: string; fallbackModels?: string[] } | null> {
+  const filePath = join(DTEAM_PACKAGE_ROOT, "agents", `${role}.md`);
+  try {
+    const content = await readFile(filePath, "utf-8");
+    const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
+    const tools = frontmatter.tools
+      ?.split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    // fallbackModels 在 frontmatter 中可能是多行 YAML 数组或逗号分隔字符串
+    let fallbackModels: string[] | undefined;
+    const fbRaw = frontmatter.fallbackModels;
+    if (fbRaw) {
+      // YAML 数组：'  - "a/1"\n  - "b/2"' → 简单 split
+      fallbackModels = fbRaw
+        .split(/[\n,]/)
+        .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+        .filter((s) => s.startsWith("/") === false && s.includes("/"));
+    }
+    return {
+      systemPrompt: body || content,
+      tools: tools && tools.length > 0 ? tools : undefined,
+      model: frontmatter.model || undefined,
+      fallbackModels,
+    };
+  } catch {
+    return null;
+  }
+}
 
 // ── 全局状态 ──────────────────────────────────────────────────
+
+/**
+ * 临时映射：worker 执行时，在 wrappedExecutor 里把 WorkerConfig 存到这里，
+ * 供默认 executor 闭包读取。WeakMap 让 ExecutionContext GC 后自动清理。
+ */
+const _configByContext = new WeakMap<ExecutionContext, WorkerConfig>();
+/**
+ * sessionModel 闭包（P4 入口在 model_select 事件中更新）。
+ * 实际不从 _sessionModelByContext 读——由 P4 入口注册“llm” executor 时闭包持证。
+ * 这里预留为占位。
+ */
+const _sessionModelHolder: { current: string | undefined } = { current: undefined };
 
 const workers = new Map<string, {
   config: WorkerConfig;
@@ -54,33 +139,78 @@ export function registerExecutor(
 
 /**
  * 获取执行器
+ *
+ * 三层查找：
+ * 1. name 指定且已注册 → 用注册的（步骤 3 由 P4 入口注入"llm"）
+ * 2. 名称为"llm"但未注册 → 走真路径作为 fallback（与 P4 注入等价）
+ * 3. 其他（undefined / 未注册） → 走真路径（默认走真 LLM）
  */
 function getExecutor(name?: string): (context: ExecutionContext) => Promise<string> {
   if (name && executorRegistry.has(name)) {
     return executorRegistry.get(name)!;
   }
-  
-  // 默认执行器：使用上下文构建器创建
-  return async (context: ExecutionContext) => {
-    const { role, task, style, taskContext, projectContext } = context;
-    
-    // 构建执行提示
-    const prompt = buildExecutionPrompt(context);
-    
-    // 这里应该调用真实的 LLM 或执行器
-    // 目前返回模拟结果
-    return `[${role}] 执行任务: ${task}
-    
-任务详情:
-- 目标: ${taskContext.goal}
-- 类型: ${taskContext.type}
-- 状态: ${taskContext.status}
 
-项目信息:
-- 根目录: ${projectContext.root}
-- 依赖: ${projectContext.dependencies.slice(0, 5).join(', ')}
+  // 名称为"llm"或未提供名称 → 走真路径（调 spawnAgent）
+  return async (context: ExecutionContext): Promise<string> => {
+    const { role, task, cwd, taskContext, projectContext, executionHistory } = context;
+    const config = _configByContext.get(context);
 
-执行风格: ${style}`;
+    // 加载 role 对应的 agents/<role>.md
+    const roleData = await loadAgentRole(role);
+    let systemPrompt: string;
+    let tools: string[] | undefined;
+    let modelFromRole: string | undefined;
+    let fallbackModelsFromRole: string[] | undefined;
+    if (roleData) {
+      systemPrompt = roleData.systemPrompt;
+      tools = roleData.tools;
+      modelFromRole = roleData.model;
+      fallbackModelsFromRole = roleData.fallbackModels;
+    } else {
+      // 降级：用 contextBuilder 构建的 prompt
+      systemPrompt = buildExecutionPrompt(context);
+    }
+
+    // 拼装最终 task（带历史 + 阶段记录作为 context 注入）
+    const stageRecord = taskContext.sections?.["阶段记录"] || "";
+    const hasStageContent = stageRecord && !stageRecord.includes("（待填写）");
+    let finalTask = task;
+    if (hasStageContent) {
+      finalTask = `${task}\n\n## 任务背景\n${stageRecord}`;
+    }
+    if (executionHistory?.previousResults?.length) {
+      finalTask += `\n\n## 历史执行结果\n${executionHistory.previousResults
+        .slice(-3)
+        .map((r: { role: string; task: string; success: boolean; duration: number }) =>
+          `- [${r.role}] ${r.task}: ${r.success ? "成功" : "失败"} (${r.duration}ms)`,
+        )
+        .join("\n")}`;
+    }
+
+    // 拿 sessionModel（由 P4 入口的 model_select 事件更新 _sessionModelHolder）
+    const sessionModel = _sessionModelHolder.current;
+
+    // 优先级：config.model (WorkerConfig 用户显式) > role model (frontmatter 默认) > sessionModel (兜底)
+    const finalModel = config?.model ?? modelFromRole;
+    const finalFallbacks = config?.fallbackModels ?? fallbackModelsFromRole;
+
+    // 调 spawnAgent
+    const result: SpawnResult = await spawnAgent({
+      systemPrompt,
+      task: finalTask,
+      model: finalModel,
+      fallbackModels: finalFallbacks,
+      sessionModel,
+      tools,
+      cwd,
+    });
+
+    if (result.exitCode !== 0 || result.errorMessage) {
+      const prefix = result.isModelError ? "[MODEL_ERROR]" : "[ERROR]";
+      const errText = result.errorMessage || "spawn failed";
+      return `${prefix} ${errText}\n\n[Partial output]:\n${result.output || "(empty)"}`;
+    }
+    return result.output || "(empty)";
   };
 }
 
@@ -212,6 +342,8 @@ export async function workerStart(
       const executorFn = getExecutor(executorName);
       
       // 3. 创建包装执行器（适配原有接口）
+      //    把 config 存入 WeakMap，让默认 executor 闭包可读
+      _configByContext.set(context, worker.config);
       const wrappedExecutor = async (role: string, task: string, style: string) => {
         if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
         // 使用构建的上下文
@@ -224,6 +356,12 @@ export async function workerStart(
       const result = await runWorker(worker.config, worker.bus, worker.memory, wrappedExecutor);
       if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
       worker.status = "done";
+      // 终态清理:仅后台模式清理大引用(避免 Map 长期持有 ExecutionContext)
+      // 前台模式保留 context——workerStart 同步 return 要拼 JSON 给调用方
+      if (worker.background) {
+        worker.context = undefined;
+        worker.abortController = undefined;
+      }
 
       // 5. 保存执行结果到共享内存
       const executionResult = {
@@ -256,6 +394,12 @@ export async function workerStart(
       memory.set('worker', 'results', results, 'worker-manager');
 
       throw error;
+    } finally {
+      // 失败路径终态清理：同样仅后台模式（前台可能需要 context 用于调试）
+      if (worker.background) {
+        worker.context = undefined;
+        worker.abortController = undefined;
+      }
     }
   };
 
@@ -298,6 +442,9 @@ export async function workerStart(
     };
   } catch (error) {
     worker.status = "failed";
+    // 终态清理
+    worker.context = undefined;
+    worker.abortController = undefined;
 
     return {
       content: JSON.stringify({
@@ -306,6 +453,15 @@ export async function workerStart(
         message: `Worker failed: ${workerId}`,
       }),
     };
+  } finally {
+    // 前台路径最后清理：return JSON 已拼完，context 可释放
+    // 注：executeInBackground 内部已保留 context 给前台 return 用，
+    // 这里 finally 统一释放避免 Map 长期持有。
+    // 失败路径的清理已在 catch 块中做了，此 finally 主要是正常完成路径的清理。
+    if (worker.status === "done") {
+      worker.context = undefined;
+      worker.abortController = undefined;
+    }
   }
 }
 
@@ -433,6 +589,9 @@ export async function workerCancel(
   }
 
   worker.status = "failed";
+  // 终态清理
+  worker.context = undefined;
+  worker.abortController = undefined;
 
   return {
     content: JSON.stringify({

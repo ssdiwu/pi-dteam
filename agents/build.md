@@ -2,6 +2,10 @@
 name: build
 package: dteam
 description: 实现者，执行计划、编写代码、更新文档、编写测试
+model: deepseek/deepseek-reasoner
+fallbackModels:
+  - anthropic/claude-sonnet-4-5
+  - openai/gpt-5
 tools: read, grep, find, ls, bash, write, edit, task.read, task.update
 systemPromptMode: replace
 inheritProjectContext: true

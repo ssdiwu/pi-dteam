@@ -11,7 +11,7 @@
 | `team.ts` | Team 模式：并行执行多个 worker，支持并发控制和超时 |
 | `contextBuilder.ts` | 上下文构建器：构建 task/project/execution 三维执行上下文 |
 | `authModule.ts` | 认证模块：封装 AuthService 为高层接口 |
-| `worker.ts` | worker 管理工具：create/start/sendSignal/cancel/status/saveMemory/loadMemory/getMemory |
+| `worker.ts` | worker 管理工具：create/start/sendSignal/cancel/status/saveMemory/loadMemory/getMemory；默认 executor 调真 LLM（加载 `agents/<role>.md` + 调 `spawnAgent`），不再走 mock 模板 |
 
 ## 依赖关系
 
@@ -35,3 +35,12 @@ ContextBuilder.build() 做三件事：
 3. **buildExecutionHistory** — 从共享内存读取历史执行结果
 
 最终拼成 `ExecutionContext` 传给 executor。
+
+## Executor 优先级
+
+默认 executor 调真 LLM，参数优先级：
+1. `WorkerConfig.model`（用户显式传） — 最高
+2. `agents/<role>.md` frontmatter `model`（role 默认）
+3. `sessionModel`（当前会话模型，P4 入口在 `model_select` 事件中更新）— 兜底
+
+`fallbackModels` 同上优先级链。worker 终态（done/failed/cancelled）会释放大引用（context + abortController）避免内存泄漏。

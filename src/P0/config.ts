@@ -7,6 +7,15 @@ export interface WorkerConfig {
   task: string;
   style: string;
   options?: WorkerOption[];
+  /**
+   * LLM 模型字符串，格式 "provider/id"（如 "deepseek/deepseek-chat"）。
+   * 留空时 fallback 到 sessionModel，再不行则 fallback 到 dteam 配置默认。
+   */
+  model?: string;
+  /**
+   * Fallback 模型链。超过 5 个会被 spawn.ts 截断并 warn。
+   */
+  fallbackModels?: string[];
 }
 
 export type WorkerOption = 
