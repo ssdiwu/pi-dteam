@@ -88,7 +88,8 @@ function wrapWorker(
 				emitWorkerProgress(extensionApi, workerId, status as "pending" | "running" | "done" | "failed", task);
 
 				// 更新 worker widget
-				if (workerAction === "start" && status === "running") {
+				if (workerAction === "start" && parsed.background) {
+					// 后台 worker：显示 widget
 					showWorkerStatus(ctx, {
 						status: "running",
 						agent: params.executorName ?? "default",
@@ -96,7 +97,8 @@ function wrapWorker(
 						toolCount: 0,
 						elapsedMs: 0,
 					});
-				} else if (workerAction === "start" && (status === "done" || status === "failed")) {
+				} else if (workerAction === "start" || workerAction === "cancel") {
+					// 前台 worker 完成 或 取消：清除 widget
 					clearWorkerStatus(ctx);
 				}
 			}
@@ -427,7 +429,30 @@ export default async function (pi: ExtensionAPI) {
 		parameters: {
 			type: "object",
 			properties: {
-				config: { type: "object", description: "WorkerConfig 配置" },
+				config: {
+					type: "object",
+					description: "WorkerConfig 配置",
+					properties: {
+						type: { type: "string", enum: ["solo", "chain", "team"], description: "worker 类型" },
+						task: { type: "string", description: "任务描述" },
+						style: { type: "string", description: "执行风格" },
+						options: {
+							type: "array",
+							description: "WorkerOption 数组",
+							items: {
+								type: "object",
+								properties: {
+									type: { type: "string", description: "选项类型" },
+									value: { description: "选项值" },
+								},
+								required: ["type", "value"],
+							},
+						},
+						model: { type: "string", description: "LLM 模型，格式 provider/id" },
+						fallbackModels: { type: "array", items: { type: "string" }, description: "Fallback 模型链" },
+					},
+					required: ["type", "task", "style"],
+				},
 			},
 			required: ["config"],
 			additionalProperties: false,
