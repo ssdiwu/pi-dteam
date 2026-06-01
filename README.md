@@ -12,7 +12,7 @@ dteam is a **Pi extension package** that provides lightweight multi-agent orches
 
 - **Task**: Work unit object (Markdown format)
 - **Worker**: Execution unit (solo/chain/team modes)
-- **Roles**: 5 execution roles (explore/design/build/check/close)
+- **Roles**: 6 execution roles (explore/design/build/deploy/check/close)
 - **Signals**: Real-time communication mechanism (4 signals + 5 strategies = 9 types)
 
 ## Installation
@@ -33,6 +33,7 @@ pi install /path/to/pi-dteam
 /explore task description    # Explorer: gather internal and external information
 /design task description     # Designer: evaluate requirements, create plans
 /build task description      # Builder: execute plans, write code, update docs, write tests
+/deploy task description     # Deployer: build, deploy, and verify releases
 /check task description      # Reviewer: check code quality, verify results
 /close task description      # Closer: organize, archive, record lessons, close tasks
 ```
@@ -143,8 +144,8 @@ The language is auto-detected from your environment (`PI_LOCALE` > `LC_ALL` > `L
 User Requirement
        │
        ▼
-/explore → /design → /build → /check → /close
- (explore)  (design)  (build)  (review)  (close)
+/explore → /design → /build → /deploy → /check → /close
+ (explore)  (design)  (build)  (deploy)   (review)  (close)
 ```
 
 ## Directory Structure
@@ -159,8 +160,8 @@ pi-dteam/
 │   ├── P2/             # Cellular layer: orchestration patterns
 │   ├── P3/             # Organizational layer: orchestration logic
 │   └── P4/             # User interface layer: Pi extension entry
-├── agents/             # Agent definitions (5)
-├── prompts/            # Prompt templates (5)
+├── agents/             # Agent definitions (6)
+├── prompts/            # Prompt templates (6)
 ├── reference/          # Reference data
 ├── .doc/               # Documentation
 ├── tests/              # Tests

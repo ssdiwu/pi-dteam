@@ -72,10 +72,10 @@ export function registerRenderers(pi: ExtensionAPI): void {
 		const [, workerId, status, task] = match;
 		const { icon, color } = formatStatus(status);
 
-		// 更新全局状态
+		// 更新全局状态（status 已被正则限制为合法值）
 		workerProgress.set(workerId, {
 			workerId,
-			status: status as any,
+			status: status as WorkerProgress["status"],
 			task,
 			updatedAt: Date.now(),
 		});

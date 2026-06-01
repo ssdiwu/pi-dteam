@@ -33,6 +33,29 @@ export type ChainStep = WorkerConfig;
 export type Worker = WorkerConfig;
 
 /**
+ * 归一化 WorkerConfig.options。
+ *
+ * Pi 工具 JSON 序列化层可能把数组变成 { item: ... } 或普通对象，
+ * 这里统一收敛成 WorkerOption[]，供 P2 入口复用。
+ */
+export function normalizeOptions(raw: unknown): WorkerOption[] {
+  if (raw === undefined || raw === null) return [];
+  if (Array.isArray(raw)) return raw as WorkerOption[];
+  if (typeof raw !== "object") return [];
+
+  const record = raw as Record<string, unknown>;
+  if ("item" in record) {
+    const item = record.item;
+    if (item === undefined || item === null) return [];
+    return Array.isArray(item) ? (item as WorkerOption[]) : [item as WorkerOption];
+  }
+
+  return Object.values(record).filter(
+    (value): value is WorkerOption => value !== undefined && value !== null,
+  );
+}
+
+/**
  * 从 options 中获取指定类型的值
  */
 export function getOption<T>(options: WorkerOption[] | undefined, type: string): T | undefined {

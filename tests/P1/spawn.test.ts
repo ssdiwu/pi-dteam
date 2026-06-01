@@ -7,6 +7,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ── Mock Pi SDK ──────────────────────────────────────────────────
 // vitest 顶层 mock：必须在 import spawn 之前执行。
@@ -42,6 +45,8 @@ function makeFakeSession(
 		stopReason?: string;
 		errorMessage?: string;
 		throwOnPrompt?: Error;
+		toolName?: string;
+		onDispose?: () => void;
 	} = {},
 ) {
 	const listeners: any[] = [];
@@ -55,6 +60,14 @@ function makeFakeSession(
 						fn({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta } }),
 					);
 				}
+			}
+			if (opts.toolName) {
+				listeners.forEach((fn) =>
+					fn({ type: "tool_execution_start", toolName: opts.toolName }),
+				);
+				listeners.forEach((fn) =>
+					fn({ type: "tool_execution_end", toolName: opts.toolName }),
+				);
 			}
 			if (opts.usage) {
 				listeners.forEach((fn) =>
@@ -72,7 +85,7 @@ function makeFakeSession(
 			if (opts.throwOnPrompt) throw opts.throwOnPrompt;
 		},
 		abort() { return Promise.resolve(); },
-		dispose() { /* ignore */ },
+		dispose() { opts.onDispose?.(); },
 	};
 }
 
@@ -124,6 +137,42 @@ describe("spawnAgent - 模型解析", () => {
 		});
 
 		expect(findMock).toHaveBeenCalledWith("deepseek", "deepseek-chat");
+	});
+
+	it("用 MODEL_PARSE_PATTERNS 解析 bare model name", async () => {
+		const findMock = vi.fn((provider: string, id: string) => {
+			if (provider === "openai" && id === "gpt-5") return makeFakeModel(provider, id);
+			return undefined;
+		});
+		mockModelRegistryCreate.mockReturnValue({ find: findMock });
+
+		const result = await spawnAgent({
+			systemPrompt: "test",
+			task: "test",
+			model: "gpt-5",
+		});
+
+		expect(findMock).toHaveBeenCalledWith("openai", "gpt-5");
+		expect(result.exitCode).toBe(0);
+	});
+
+	it("MODEL_PARSE_PATTERNS 支持 Bedrock Claude 命名", async () => {
+		const findMock = vi.fn((provider: string, id: string) => {
+			if (provider === "bedrock" && id === "anthropic.claude-3-5-sonnet") {
+				return makeFakeModel(provider, id);
+			}
+			return undefined;
+		});
+		mockModelRegistryCreate.mockReturnValue({ find: findMock });
+
+		const result = await spawnAgent({
+			systemPrompt: "test",
+			task: "test",
+			model: "anthropic.claude-3-5-sonnet",
+		});
+
+		expect(findMock).toHaveBeenCalledWith("bedrock", "anthropic.claude-3-5-sonnet");
+		expect(result.exitCode).toBe(0);
 	});
 });
 
@@ -243,6 +292,52 @@ describe("spawnAgent - 流式响应", () => {
 		expect(updates[1].output).toBe("Hello world");
 		expect(updates[2].output).toBe("Hello world!");
 		expect(result.output).toBe("Hello world!");
+		expect(updates[0].progress?.status).toBe("running");
+	});
+
+	it("onUpdate 在 turn_end 和 message_end 推送完整 AgentProgress", async () => {
+		const updates: Array<{ output: string; progress?: any }> = [];
+		mockCreateAgentSession.mockResolvedValue({
+			session: makeFakeSession({
+				textDeltas: ["ok"],
+				usage: { input: 10, output: 4, cacheRead: 0, cacheWrite: 0, cost: { total: 0 }, totalTokens: 14 },
+				stopReason: "stop",
+			}),
+		});
+
+		await spawnAgent({
+			systemPrompt: "test",
+			task: "test",
+			model: "deepseek/deepseek-chat",
+			onUpdate: (partial) => updates.push(partial),
+		});
+
+		expect(updates.some((u) => u.progress?.tokenCount === 14)).toBe(true);
+		expect(updates.at(-1)?.progress?.status).toBe("done");
+	});
+
+	it("tool 事件通过 AgentProgress 兼容字段暴露", async () => {
+		const toolEvents: any[] = [];
+		mockCreateAgentSession.mockResolvedValue({
+			session: makeFakeSession({ textDeltas: ["reading"], toolName: "read" }),
+		});
+
+		await spawnAgent({
+			systemPrompt: "test",
+			task: "test",
+			model: "deepseek/deepseek-chat",
+			onToolEvent: (event) => toolEvents.push(event),
+		});
+
+		expect(toolEvents[0]).toMatchObject({
+			type: "start",
+			toolName: "read",
+			progress: { currentTool: "read", status: "tool" },
+		});
+		expect(toolEvents[1]).toMatchObject({
+			type: "end",
+			progress: { status: "running" },
+		});
 	});
 });
 
@@ -319,6 +414,66 @@ describe("spawnAgent - session.prompt 异常处理", () => {
 		expect(result.exitCode).toBe(1);
 		expect(result.isModelError).toBe(false); // ECONNRESET 不在 MODEL_ERROR_PATTERNS
 		expect(result.errorMessage).toContain("TypeError");
+	});
+
+	it("session.prompt 抛错时仍 dispose session", async () => {
+		const dispose = vi.fn();
+		mockCreateAgentSession.mockResolvedValue({
+			session: makeFakeSession({
+				throwOnPrompt: new TypeError("ECONNRESET connection reset by peer"),
+				onDispose: dispose,
+			}),
+		});
+
+		await spawnAgent({
+			systemPrompt: "test",
+			task: "test",
+			model: "deepseek/deepseek-chat",
+		});
+
+		expect(dispose).toHaveBeenCalledTimes(1);
+	});
+
+	it("传入 cwd 时落盘 spawn input/output artifacts", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "spawn-artifacts-"));
+		try {
+			mockCreateAgentSession.mockResolvedValue({
+				session: makeFakeSession({ textDeltas: ["artifact ok"] }),
+			});
+
+			await spawnAgent({
+				systemPrompt: "system",
+				task: "task body",
+				model: "deepseek/deepseek-chat",
+				cwd,
+			});
+
+			const spawnRoot = join(cwd, ".dteam", "spawn");
+			const dirs = await readdir(spawnRoot);
+			expect(dirs).toHaveLength(1);
+			const dir = join(spawnRoot, dirs[0]);
+			expect(await readFile(join(dir, "input.md"), "utf-8")).toContain("task body");
+			expect(await readFile(join(dir, "output.md"), "utf-8")).toContain("artifact ok");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("失败时落盘 error artifact", async () => {
+		const cwd = await mkdtemp(join(tmpdir(), "spawn-error-artifact-"));
+		try {
+			mockCreateAgentSession.mockResolvedValue({
+				session: makeFakeSession({ throwOnPrompt: new Error("rate limit hit") }),
+			});
+
+			await spawnAgent({ systemPrompt: "system", task: "task body", model: "deepseek/deepseek-chat", cwd });
+
+			const dirs = await readdir(join(cwd, ".dteam", "spawn"));
+			const error = await readFile(join(cwd, ".dteam", "spawn", dirs[0], "error.md"), "utf-8");
+			expect(error).toContain("rate limit hit");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
 	});
 });
 

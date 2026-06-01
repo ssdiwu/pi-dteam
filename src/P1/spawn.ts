@@ -2,16 +2,6 @@
  * P1-分子层：spawn 子代理运行
  *
  * 使用 Pi SDK createAgentSession 启动子 session 调真实 LLM。
- * 7 步模式（抄自 pi-dflow 的 src/core/spawn.ts，dteam 独立实现）：
- *   1. 准备 auth/registry
- *   2. 解析 model + fallback 链
- *   3. 构造 resourceLoader（注入 systemPrompt）
- *   4. 创建 session
- *   5. 订阅事件流（累加 text_delta / 收集 usage）
- *   6. 发 prompt
- *   7. 返回 result
- *
- * 字段对齐见 task 文档"dflow vs dteam SpawnOptions 接口 diff"表。
  */
 
 import {
@@ -24,8 +14,19 @@ import {
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { mkdir, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { join } from "node:path";
 
 // ── 类型定义 ──────────────────────────────────────────────────
+
+export interface AgentProgress {
+	startTime: number;
+	currentTool?: string;
+	recentOutput: string;
+	tokenCount: number;
+	status: "running" | "tool" | "done" | "error" | "aborted";
+}
 
 export interface SpawnOptions {
 	systemPrompt: string;
@@ -38,11 +39,11 @@ export interface SpawnOptions {
 	sessionModel?: string;
 	tools?: string[];
 	signal?: AbortSignal;
-	/** 流式回调，每次 text_delta 触发 */
-	onUpdate?: (partial: { output: string }) => void;
+	/** 流式回调，每次 text_delta 触发；progress 为兼容扩展字段 */
+	onUpdate?: (partial: { output: string; progress?: AgentProgress }) => void;
 	cwd?: string;
-	/** Tool 事件回调（用于 widget 更新等） */
-	onToolEvent?: (event: { type: "start" | "end"; toolName?: string }) => void;
+	/** Tool 事件回调（用于 widget 更新等），progress 为兼容扩展字段 */
+	onToolEvent?: (event: { type: "start" | "end"; toolName?: string; progress?: AgentProgress }) => void;
 }
 
 export interface SpawnUsageStats {
@@ -68,19 +69,48 @@ export interface SpawnResult {
 
 // ── 常量 ──────────────────────────────────────────────────
 
-/** Fallback 链最大长度（对齐 task 风险表 #7 缓解措施） */
 const MAX_FALLBACK_LENGTH = 5;
+const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
 
-/** 错误分类正则（对齐 dflow MODEL_ERROR_PATTERNS） */
 const MODEL_ERROR_PATTERNS = [
 	/429/,
 	/rate.?limit/i,
-	/auth/i,
+	/\b(?:un)?authorized\b|\bauthentication\b|\bauthorization\b/i,
 	/timeout/i,
 	/model.?not.?found/i,
 	/invalid.?api.?key/i,
 	/quota.?exceeded/i,
 	/overloaded/i,
+];
+
+const MODEL_PARSE_PATTERNS: Array<[RegExp, string]> = [
+	[/^(claude-.+)$/i, "anthropic/$1"],
+	[/^(claude_.+)$/i, "anthropic/$1"],
+	[/^anthropic:(.+)$/i, "anthropic/$1"],
+	[/^(gpt-.+)$/i, "openai/$1"],
+	[/^(o[134](?:-.+)?)$/i, "openai/$1"],
+	[/^(chatgpt-.+)$/i, "openai/$1"],
+	[/^openai[.:](.+)$/i, "openai/$1"],
+	[/^(gemini-.+)$/i, "google/$1"],
+	[/^google[.:](.+)$/i, "google/$1"],
+	[/^(models\/gemini-.+)$/i, "google/$1"],
+	[/^bedrock[.:](.+)$/i, "bedrock/$1"],
+	[/^(anthropic\.claude-.+)$/i, "bedrock/$1"],
+	[/^(amazon\..+)$/i, "bedrock/$1"],
+	[/^vertex[.:](.+)$/i, "vertex/$1"],
+	[/^(publishers\/google\/models\/.+)$/i, "vertex/$1"],
+	[/^azure[.:](.+)$/i, "azure/$1"],
+	[/^azure-openai[.:](.+)$/i, "azure/$1"],
+	[/^openrouter[.:](.+)$/i, "openrouter/$1"],
+	[/^(mistral-.+)$/i, "mistral/$1"],
+	[/^(open-mistral-.+)$/i, "mistral/$1"],
+	[/^(codestral-.+)$/i, "mistral/$1"],
+	[/^(magistral-.+)$/i, "mistral/$1"],
+	[/^(deepseek-.+)$/i, "deepseek/$1"],
+	[/^deepseek[.:](.+)$/i, "deepseek/$1"],
+	[/^(grok-.+)$/i, "grok/$1"],
+	[/^xai[.:](.+)$/i, "grok/$1"],
+	[/^(sonar(?:-.+)?)$/i, "perplexity/$1"],
 ];
 
 const DEFAULT_USAGE: SpawnUsageStats = {
@@ -93,22 +123,30 @@ const DEFAULT_USAGE: SpawnUsageStats = {
 	turns: 0,
 };
 
-// ── 步骤 2：模型解析 ──────────────────────────────────────────────────
+// ── 模型解析 ──────────────────────────────────────────────────
 
 type ModelLookup = ReturnType<ModelRegistry["find"]>;
 
-/** 解析 "provider/id" 格式的模型字符串 */
-function resolveModel(
-	modelStr: string,
-	registry: ModelRegistry,
-): ModelLookup {
+function findProviderModel(modelStr: string, registry: ModelRegistry): ModelLookup {
 	const slashIdx = modelStr.indexOf("/");
-	if (slashIdx > 0) {
-		const provider = modelStr.slice(0, slashIdx);
-		const id = modelStr.slice(slashIdx + 1);
-		return registry.find(provider, id) ?? undefined;
+	if (slashIdx <= 0) return undefined;
+	return registry.find(modelStr.slice(0, slashIdx), modelStr.slice(slashIdx + 1)) ?? undefined;
+}
+
+function parseModelAlias(modelStr: string): string | undefined {
+	for (const [pattern, replacement] of MODEL_PARSE_PATTERNS) {
+		if (pattern.test(modelStr)) return modelStr.replace(pattern, replacement);
 	}
-	// 无 provider 前缀，依次尝试常见 provider
+	return undefined;
+}
+
+function resolveModel(modelStr: string, registry: ModelRegistry): ModelLookup {
+	if (modelStr.includes("/")) return findProviderModel(modelStr, registry);
+	const normalized = parseModelAlias(modelStr);
+	if (normalized && normalized !== modelStr) {
+		const mapped = findProviderModel(normalized, registry);
+		if (mapped) return mapped;
+	}
 	for (const provider of ["anthropic", "openai", "google"]) {
 		const m = registry.find(provider, modelStr);
 		if (m) return m;
@@ -116,10 +154,6 @@ function resolveModel(
 	return undefined;
 }
 
-/**
- * 走 fallback 链解析 model。
- * 返回 { resolved, used }：used 是实际使用的 model 字符串。
- */
 function resolveModelWithFallback(
 	primary: string,
 	fallbacks: string[],
@@ -127,32 +161,30 @@ function resolveModelWithFallback(
 ): { resolved: ModelLookup; used: string } {
 	const m = resolveModel(primary, registry);
 	if (m) return { resolved: m, used: primary };
-
 	for (const fb of fallbacks) {
 		const fm = resolveModel(fb, registry);
 		if (fm) return { resolved: fm, used: fb };
 	}
-
 	return { resolved: undefined, used: primary };
 }
 
-/** 截断 fallback 链到最大长度，warn 提示（对齐 task #7 缓解） */
 function truncateFallbacks(fallbacks: string[]): string[] {
-	if (fallbacks.length > MAX_FALLBACK_LENGTH) {
-		console.warn(
-			`[dteam.spawn] fallbackModels truncated to ${MAX_FALLBACK_LENGTH}`,
-		);
-		return fallbacks.slice(0, MAX_FALLBACK_LENGTH);
-	}
-	return fallbacks;
+	if (fallbacks.length <= MAX_FALLBACK_LENGTH) return fallbacks;
+	console.warn(`[dteam.spawn] fallbackModels truncated to ${MAX_FALLBACK_LENGTH}`);
+	return fallbacks.slice(0, MAX_FALLBACK_LENGTH);
 }
 
-// ── 步骤 3：构造 resourceLoader ──────────────────────────────────────────────────
+// ── 资源与事件流 ────────────────────────────────────────────────
 
-function buildResourceLoader(
-	systemPrompt: string,
-	cwd: string,
-): DefaultResourceLoader {
+interface StreamState {
+	accumulatedText: string;
+	usage: SpawnUsageStats;
+	progress: AgentProgress;
+	stopReason?: string;
+	errorMessage?: string;
+}
+
+function buildResourceLoader(systemPrompt: string, cwd: string): DefaultResourceLoader {
 	return new DefaultResourceLoader({
 		cwd,
 		agentDir: getAgentDir(),
@@ -160,229 +192,262 @@ function buildResourceLoader(
 	});
 }
 
-// ── 步骤 4+5：创建 session 并订阅事件 ──────────────────────────────────────────────────
-
-interface StreamState {
-	accumulatedText: string;
-	usage: SpawnUsageStats;
-	stopReason?: string;
-	errorMessage?: string;
-}
-
-/** 订阅 session 事件流，累加 text、收集 usage、收集错误。返回闭包式 state。 */
-function subscribeEventsWithState(
-	session: AgentSession,
-	onUpdate?: (partial: { output: string }) => void,
-	onToolEvent?: (event: { type: "start" | "end"; toolName?: string }) => void,
-): StreamState {
-	const state: StreamState = {
+function createStreamAccumulator(): StreamState {
+	return {
 		accumulatedText: "",
 		usage: { ...DEFAULT_USAGE },
+		progress: { startTime: Date.now(), recentOutput: "", tokenCount: 0, status: "running" },
 	};
-
-	session.subscribe((event: AgentSessionEvent) => {
-		if (
-			event.type === "message_update" &&
-			event.assistantMessageEvent.type === "text_delta"
-		) {
-			state.accumulatedText += event.assistantMessageEvent.delta;
-			const out = state.accumulatedText || "(running...)";
-			onUpdate?.({ output: out });
-		}
-
-		// Tool 事件回调（用于 widget 更新）
-		if (event.type === "tool_execution_start") {
-			onToolEvent?.({ type: "start", toolName: (event as { toolName?: string }).toolName });
-		}
-		if (event.type === "tool_execution_end") {
-			onToolEvent?.({ type: "end" });
-		}
-
-		if (event.type === "turn_end") {
-			state.usage.turns++;
-			const msg = event.message as { usage?: any; model?: string };
-			if (msg?.usage) {
-				state.usage.input += msg.usage.input || 0;
-				state.usage.output += msg.usage.output || 0;
-				state.usage.cacheRead += msg.usage.cacheRead || 0;
-				state.usage.cacheWrite += msg.usage.cacheWrite || 0;
-				state.usage.cost += msg.usage.cost?.total || 0;
-				state.usage.contextTokens = msg.usage.totalTokens || 0;
-			}
-		}
-
-		if (event.type === "message_end") {
-			const msg = (event as { message?: { role: string; stopReason?: string; errorMessage?: string } }).message;
-			if (msg?.stopReason) state.stopReason = msg.stopReason;
-			if (msg?.errorMessage) state.errorMessage = msg.errorMessage;
-		}
-	});
-
-	return state;
 }
 
-// ── 错误分类 ──────────────────────────────────────────────────
+function emitProgress(state: StreamState, onUpdate?: SpawnOptions["onUpdate"]): void {
+	onUpdate?.({ output: state.accumulatedText || "(running...)", progress: { ...state.progress } });
+}
+
+function wireEventHandlers(
+	session: AgentSession,
+	state: StreamState,
+	onUpdate?: SpawnOptions["onUpdate"],
+	onToolEvent?: SpawnOptions["onToolEvent"],
+): void {
+	session.subscribe((event: AgentSessionEvent) => {
+		handleTextEvent(event, state, onUpdate);
+		handleToolEvent(event, state, onToolEvent);
+		handleTurnEnd(event, state, onUpdate);
+		handleMessageEnd(event, state, onUpdate);
+	});
+}
+
+function handleTextEvent(event: AgentSessionEvent, state: StreamState, onUpdate?: SpawnOptions["onUpdate"]): void {
+	const msg = (event as { assistantMessageEvent?: { type?: string; delta?: string } }).assistantMessageEvent;
+	if (event.type !== "message_update" || msg?.type !== "text_delta") return;
+	state.accumulatedText += msg.delta ?? "";
+	state.progress.recentOutput = state.accumulatedText.slice(-500);
+	state.progress.status = "running";
+	emitProgress(state, onUpdate);
+}
+
+function handleToolEvent(event: AgentSessionEvent, state: StreamState, onToolEvent?: SpawnOptions["onToolEvent"]): void {
+	if (event.type === "tool_execution_start") {
+		const toolName = (event as { toolName?: string }).toolName;
+		state.progress.currentTool = toolName;
+		state.progress.status = "tool";
+		onToolEvent?.({ type: "start", toolName, progress: { ...state.progress } });
+	}
+	if (event.type === "tool_execution_end") {
+		state.progress.currentTool = undefined;
+		state.progress.status = "running";
+		onToolEvent?.({ type: "end", progress: { ...state.progress } });
+	}
+}
+
+function handleTurnEnd(event: AgentSessionEvent, state: StreamState, onUpdate?: SpawnOptions["onUpdate"]): void {
+	if (event.type !== "turn_end") return;
+	state.usage.turns++;
+	const usage = (event.message as { usage?: any })?.usage;
+	if (!usage) return;
+	state.usage.input += usage.input || 0;
+	state.usage.output += usage.output || 0;
+	state.usage.cacheRead += usage.cacheRead || 0;
+	state.usage.cacheWrite += usage.cacheWrite || 0;
+	state.usage.cost += usage.cost?.total || 0;
+	state.usage.contextTokens = usage.totalTokens || 0;
+	state.progress.tokenCount = state.usage.contextTokens;
+	emitProgress(state, onUpdate);
+}
+
+function handleMessageEnd(event: AgentSessionEvent, state: StreamState, onUpdate?: SpawnOptions["onUpdate"]): void {
+	if (event.type !== "message_end") return;
+	const msg = (event as { message?: { stopReason?: string; errorMessage?: string } }).message;
+	if (msg?.stopReason) state.stopReason = msg.stopReason;
+	if (msg?.errorMessage) state.errorMessage = msg.errorMessage;
+	state.progress.status = msg?.errorMessage ? "error" : msg?.stopReason === "aborted" ? "aborted" : "done";
+	emitProgress(state, onUpdate);
+}
+
+// ── 错误与产物 ──────────────────────────────────────────────────
 
 function classifyModelError(errStr: string): boolean {
 	return MODEL_ERROR_PATTERNS.some((p) => p.test(errStr));
 }
 
-// ── 步骤 6+7：发 prompt + 返回 result ──────────────────────────────────────────────────
+function formatError(e: unknown): string {
+	const err = e as { name?: string; message?: string };
+	return err?.name ? `${err.name}: ${err.message ?? String(e)}` : String(e);
+}
 
-/**
- * 创建子代理并执行任务。
- * 完整 7 步流程，详见文件头注释。
- */
-export async function spawnAgent(options: SpawnOptions): Promise<SpawnResult> {
-	const result: SpawnResult = {
-		exitCode: 0,
-		output: "",
-		usage: { ...DEFAULT_USAGE },
-	};
+function setError(result: SpawnResult, e: unknown, prefix: string, isModelError: boolean): SpawnResult {
+	result.exitCode = 1;
+	result.isModelError = isModelError;
+	result.errorMessage = `[dteam.spawn] ${prefix}: ${formatError(e)}`;
+	return result;
+}
 
-	let session: AgentSession | null = null;
-	const cwd = options.cwd ?? process.cwd();
+interface SpawnArtifacts {
+	dir: string;
+}
 
-	// 步骤 1：准备 auth + registry（AuthStorage 失败 → isModelError=true，不走 fallback）
-	let authStorage: AuthStorage;
-	let modelRegistry: ModelRegistry;
+async function initSpawnArtifacts(options: SpawnOptions, cwd: string): Promise<SpawnArtifacts | undefined> {
+	if (!options.cwd) return undefined;
+	const dir = join(cwd, ".dteam", "spawn", `spawn-${Date.now()}-${randomBytes(3).toString("hex")}`);
 	try {
-		authStorage = AuthStorage.create();
-		modelRegistry = ModelRegistry.create(authStorage);
+		await mkdir(dir, { recursive: true });
+		await writeFile(join(dir, "input.md"), renderInputArtifact(options), "utf-8");
+		return { dir };
 	} catch (e) {
-		const err = e as { name?: string; message?: string };
-		const msg = err?.name ? `${err.name}: ${err.message ?? String(e)}` : String(e);
-		result.exitCode = 1;
-		result.isModelError = true;
-		result.errorMessage = `[dteam.spawn] AuthStorage/ModelRegistry 初始化失败: ${msg}`;
-		result.usage = { ...DEFAULT_USAGE };
-		return result;
+		console.warn(`[dteam.spawn] artifact init failed: ${formatError(e)}`);
+		return undefined;
 	}
+}
 
-	// 步骤 2：解析 model + 走 fallback 链
+function renderInputArtifact(options: SpawnOptions): string {
+	return [`# spawn.input`, ``, `## model`, options.model ?? "", ``, `## task`, options.task, ``, `## systemPrompt`, options.systemPrompt].join("\n");
+}
+
+async function finalizeArtifacts(artifacts: SpawnArtifacts | undefined, result: SpawnResult): Promise<void> {
+	if (!artifacts) return;
+	const file = result.exitCode === 0 && !result.errorMessage ? "output.md" : "error.md";
+	const body = file === "output.md" ? result.output : `${result.errorMessage ?? ""}\n\n${result.output}`;
+	try {
+		await writeFile(join(artifacts.dir, file), body || "(empty)", "utf-8");
+	} catch (e) {
+		console.warn(`[dteam.spawn] artifact finalize failed: ${formatError(e)}`);
+	}
+}
+
+// ── 7 步执行 ──────────────────────────────────────────────────
+
+interface RegistryState {
+	authStorage: AuthStorage;
+	modelRegistry: ModelRegistry;
+}
+
+interface ModelState {
+	model: NonNullable<ModelLookup>;
+	actualModel: string;
+}
+
+function createResult(): SpawnResult {
+	return { exitCode: 0, output: "", usage: { ...DEFAULT_USAGE } };
+}
+
+function step1InitRegistry(result: SpawnResult): RegistryState | undefined {
+	try {
+		const authStorage = AuthStorage.create();
+		return { authStorage, modelRegistry: ModelRegistry.create(authStorage) };
+	} catch (e) {
+		setError(result, e, "AuthStorage/ModelRegistry 初始化失败", true);
+		return undefined;
+	}
+}
+
+function step2ResolveModel(options: SpawnOptions, registry: ModelRegistry, result: SpawnResult): ModelState | undefined {
 	if (!options.model && !options.sessionModel) {
-		result.exitCode = 1;
-		result.isModelError = true;
-		result.errorMessage = "[dteam.spawn] 缺少 model 和 sessionModel 至少一个";
-		result.usage = { ...DEFAULT_USAGE };
-		return result;
+		setError(result, "缺少 model 和 sessionModel 至少一个", "配置错误", true);
+		return undefined;
 	}
+	const fallbacks = [...truncateFallbacks(options.fallbackModels ?? []), ...(options.sessionModel ? [options.sessionModel] : [])];
+	const primary = options.model ?? options.sessionModel!;
+	const { resolved, used } = resolveModelWithFallback(primary, fallbacks, registry);
+	if (resolved) return { model: resolved, actualModel: used };
+	setError(result, `Model not found: ${primary}${fallbacks.length ? ` (fallbacks: ${fallbacks.join(", ")})` : ""}`, "模型解析失败", true);
+	return undefined;
+}
 
-	const truncatedFallbacks = truncateFallbacks(options.fallbackModels ?? []);
-	const allFallbacks = [
-		...truncatedFallbacks,
-		...(options.sessionModel ? [options.sessionModel] : []),
-	];
-	const primaryModel = options.model ?? options.sessionModel!;
-	const { resolved: model, used: actualModel } = resolveModelWithFallback(
-		primaryModel,
-		allFallbacks,
-		modelRegistry,
-	);
-	if (!model) {
-		result.exitCode = 1;
-		result.isModelError = true;
-		result.errorMessage = `[dteam.spawn] Model not found: ${primaryModel}${allFallbacks.length ? ` (fallbacks: ${allFallbacks.join(", ")})` : ""}`;
-		result.usage = { ...DEFAULT_USAGE };
-		return result;
-	}
-	result.model = actualModel;
-
-	// 步骤 3+4：构造 resourceLoader + 创建 session
-	let resourceLoader: DefaultResourceLoader;
+async function step3LoadResource(options: SpawnOptions, cwd: string, result: SpawnResult): Promise<DefaultResourceLoader | undefined> {
 	try {
-		resourceLoader = buildResourceLoader(options.systemPrompt, cwd);
+		const resourceLoader = buildResourceLoader(options.systemPrompt, cwd);
 		await resourceLoader.reload();
+		return resourceLoader;
 	} catch (e) {
-		const err = e as { name?: string; message?: string };
-		const msg = err?.name ? `${err.name}: ${err.message ?? String(e)}` : String(e);
-		result.exitCode = 1;
-		result.isModelError = true;
-		result.errorMessage = `[dteam.spawn] DefaultResourceLoader 构造失败: ${msg}`;
-		result.usage = { ...DEFAULT_USAGE };
-		return result;
+		setError(result, e, "DefaultResourceLoader 构造失败", true);
+		return undefined;
 	}
+}
 
-	const tools = options.tools && options.tools.length > 0
-		? options.tools
-		: ["read", "bash", "edit", "write"];
-
-	const settingsManager = SettingsManager.inMemory({
-		compaction: { enabled: false },
-		retry: { enabled: true, maxRetries: 3 },
-	});
-
+async function step4CreateSession(args: {
+	cwd: string; model: NonNullable<ModelLookup>; tools?: string[]; resourceLoader: DefaultResourceLoader;
+	authStorage: AuthStorage; modelRegistry: ModelRegistry; result: SpawnResult;
+}): Promise<AgentSession | undefined> {
 	try {
 		const created = await createAgentSession({
-			cwd,
-			model,
-			tools,
-			sessionManager: SessionManager.inMemory(),
-			resourceLoader,
-			authStorage,
-			modelRegistry,
-			settingsManager,
+			cwd: args.cwd, model: args.model, tools: args.tools?.length ? args.tools : DEFAULT_TOOLS,
+			sessionManager: SessionManager.inMemory(), resourceLoader: args.resourceLoader,
+			authStorage: args.authStorage, modelRegistry: args.modelRegistry,
+			settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: true, maxRetries: 3 } }),
 		});
-		session = created.session;
+		return created.session;
 	} catch (e) {
-		const err = e as { name?: string; message?: string };
-		const msg = err?.name ? `${err.name}: ${err.message ?? String(e)}` : String(e);
+		setError(args.result, e, "createAgentSession 失败", true);
+		return undefined;
+	}
+}
+
+async function step5AttachAbort(session: AgentSession, signal: AbortSignal | undefined, result: SpawnResult): Promise<() => void> {
+	if (!signal) return () => undefined;
+	if (signal.aborted) {
+		await session.abort();
 		result.exitCode = 1;
-		result.isModelError = true;
-		result.errorMessage = `[dteam.spawn] createAgentSession 失败: ${msg}`;
-		result.usage = { ...DEFAULT_USAGE };
-		return result;
+		result.errorMessage = "Aborted before start";
+		result.stopReason = "aborted";
+		return () => undefined;
 	}
+	const onAbort = () => void session.abort();
+	signal.addEventListener("abort", onAbort, { once: true });
+	return () => signal.removeEventListener("abort", onAbort);
+}
 
-	// 步骤 5：订阅事件流
-	const state = subscribeEventsWithState(session, options.onUpdate, options.onToolEvent);
-
-	// 处理 AbortSignal
-	let onAbort: (() => void) | undefined;
-	if (options.signal) {
-		if (options.signal.aborted) {
-			await session.abort();
-			result.exitCode = 1;
-			result.errorMessage = "Aborted before start";
-			result.stopReason = "aborted";
-			try { session.dispose(); } catch { /* ignore */ }
-			return result;
-		}
-		onAbort = () => session!.abort();
-		options.signal.addEventListener("abort", onAbort, { once: true });
-	}
-
-	// 步骤 6：发 prompt
+async function step6Prompt(session: AgentSession, task: string, cleanup: () => void): Promise<unknown> {
 	try {
-		await session.prompt(options.task);
+		await session.prompt(task);
+		return undefined;
 	} catch (e) {
-		const err = e as { name?: string; message?: string };
-		const msg = err?.name ? `${err.name}: ${err.message ?? String(e)}` : String(e);
-		result.exitCode = 1;
-		result.errorMessage = `[dteam.spawn] session.prompt 异常: ${msg}`;
-		result.isModelError = classifyModelError(msg);
-		result.output = state.accumulatedText || result.output;
-		result.usage = state.usage;
-		result.model = actualModel;
-		result.stopReason = state.stopReason;
-		return result;
+		return e;
 	} finally {
-		if (options.signal && onAbort) {
-			options.signal.removeEventListener("abort", onAbort);
-		}
+		cleanup();
+		try { session.dispose(); } catch { /* ignore dispose errors */ }
 	}
+}
 
-	// 步骤 7：返回 result
+function step7Finalize(result: SpawnResult, state: StreamState, promptError: unknown): void {
+	if (promptError) {
+		const msg = formatError(promptError);
+		setError(result, promptError, "session.prompt 异常", classifyModelError(msg));
+	}
 	result.output = state.accumulatedText || result.output;
 	result.usage = state.usage;
 	result.stopReason = state.stopReason;
-	result.errorMessage = state.errorMessage;
-	result.exitCode =
-		state.stopReason === "error" || state.stopReason === "aborted" ? 1 : 0;
-	if (state.errorMessage && !result.isModelError) {
-		result.isModelError = classifyModelError(state.errorMessage);
-	}
+	result.errorMessage = result.errorMessage ?? state.errorMessage;
+	if (state.errorMessage && !result.isModelError) result.isModelError = classifyModelError(state.errorMessage);
+	if (state.errorMessage || state.stopReason === "error" || state.stopReason === "aborted") result.exitCode = 1;
+}
 
-	try { session.dispose(); } catch { /* ignore dispose errors */ }
+async function finish(result: SpawnResult, artifacts?: SpawnArtifacts): Promise<SpawnResult> {
+	await finalizeArtifacts(artifacts, result);
 	return result;
+}
+
+/** 创建子代理并执行任务。 */
+export async function spawnAgent(options: SpawnOptions): Promise<SpawnResult> {
+	const result = createResult();
+	const cwd = options.cwd ?? process.cwd();
+	const artifacts = await initSpawnArtifacts(options, cwd);
+	const registry = step1InitRegistry(result);
+	if (!registry) return finish(result, artifacts);
+	const modelState = step2ResolveModel(options, registry.modelRegistry, result);
+	if (!modelState) return finish(result, artifacts);
+	result.model = modelState.actualModel;
+	const resourceLoader = await step3LoadResource(options, cwd, result);
+	if (!resourceLoader) return finish(result, artifacts);
+	const session = await step4CreateSession({ cwd, model: modelState.model, tools: options.tools, resourceLoader, ...registry, result });
+	if (!session) return finish(result, artifacts);
+	const state = createStreamAccumulator();
+	wireEventHandlers(session, state, options.onUpdate, options.onToolEvent);
+	const cleanup = await step5AttachAbort(session, options.signal, result);
+	if (result.stopReason === "aborted") {
+		try { session.dispose(); } catch { /* ignore */ }
+		return finish(result, artifacts);
+	}
+	step7Finalize(result, state, await step6Prompt(session, options.task, cleanup));
+	return finish(result, artifacts);
 }

@@ -6,8 +6,9 @@
 
 | 文件 | 职责 |
 |------|------|
-| `config.ts` | WorkerConfig 定义、options 读取工具 |
+| `config.ts` | WorkerConfig 定义、options 读取与归一化工具 |
 | `signal.ts` | 信号类型（progress/blocked/found/help）和策略类型定义 |
+| `signalEvent.ts` | 信号事件类型 + TTL 工具（信息素层 P0 类型层） |
 | `status.ts` | WorkerStatus 和 TaskStatus 类型定义 |
 | `stateMachine.ts` | 任务状态转换验证（终态、合法转换） |
 | `memory.ts` | MemoryAdapter 接口定义 |

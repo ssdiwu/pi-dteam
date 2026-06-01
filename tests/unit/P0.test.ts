@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { getOption, getRequiredOption } from "../../src/P0/config.js";
+import { getOption, getRequiredOption, normalizeOptions } from "../../src/P0/config.js";
 
 describe("P0-原子层", () => {
   describe("config", () => {
@@ -36,6 +36,34 @@ describe("P0-原子层", () => {
       ];
 
       expect(() => getRequiredOption<string>(options, "rounds")).toThrow();
+    });
+
+    it("normalizeOptions 保留数组形态", () => {
+      const options = [{ type: "role" as const, value: "build" }];
+      expect(normalizeOptions(options)).toEqual(options);
+    });
+
+    it("normalizeOptions 支持 { item: option } 形态", () => {
+      expect(normalizeOptions({ item: { type: "role", value: "check" } })).toEqual([
+        { type: "role", value: "check" },
+      ]);
+    });
+
+    it("normalizeOptions 支持 { item: option[] } 形态", () => {
+      const options = [{ type: "rounds" as const, value: 2 }];
+      expect(normalizeOptions({ item: options })).toEqual(options);
+    });
+
+    it("normalizeOptions 支持普通对象 values 形态", () => {
+      expect(normalizeOptions({ 0: { type: "debug", value: true } })).toEqual([
+        { type: "debug", value: true },
+      ]);
+    });
+
+    it("normalizeOptions 对空值和非法值返回空数组", () => {
+      expect(normalizeOptions(undefined)).toEqual([]);
+      expect(normalizeOptions(null)).toEqual([]);
+      expect(normalizeOptions("role")).toEqual([]);
     });
   });
 });

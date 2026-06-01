@@ -12,6 +12,7 @@
 | `contextBuilder.ts` | 上下文构建器：构建 task/project/execution 三维执行上下文 |
 | `authModule.ts` | 认证模块：封装 AuthService 为高层接口 |
 | `worker.ts` | worker 管理工具：create/start/sendSignal/cancel/status/saveMemory/loadMemory/getMemory；默认 executor 调真 LLM（加载 `agents/<role>.md` + 调 `spawnAgent`），不再走 mock 模板 |
+| `eventStream.ts` | 事件流桥接器：SignalBus ↔ SignalLog（订阅 bus 4 类信号自动 append 到 log，view 合并内存+文件去重，seal 收口归档）（信息素层 P2 桥接层） |
 
 ## 依赖关系
 
@@ -23,7 +24,7 @@ P2 → P1 → P0
 
 ```
 solo:  role → executor → result
-chain: step1 → step2 → ... → stepN（顺序）
+chain: step1 → step2 → ... → stepN（顺序，后续 step 会收到上一 step 输出）
 team:  worker1 ‖ worker2 ‖ ... ‖ workerN（并行）
 ```
 

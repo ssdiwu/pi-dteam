@@ -9,7 +9,7 @@
  * 3. 支持真实的执行器
  */
 
-import { WorkerConfig } from "../P0/config.js";
+import { WorkerConfig, normalizeOptions } from "../P0/config.js";
 import { SignalType } from "../P0/signal.js";
 import { SignalBus } from "../P1/signalBus.js";
 import { EnhancedSharedMemory, createEnhancedSharedMemory } from "../P1/enhancedSharedMemory.js";
@@ -77,7 +77,7 @@ export async function loadAgentRole(
       fallbackModels = fbRaw
         .split(/[\n,]/)
         .map((s) => s.trim().replace(/^["']|["']$/g, ""))
-        .filter((s) => s.startsWith("/") === false && s.includes("/"));
+        .filter((s) => s.length > 0 && !s.startsWith("/"));
     }
     return {
       systemPrompt: body || content,
@@ -140,10 +140,9 @@ export function registerExecutor(
 /**
  * 获取执行器
  *
- * 三层查找：
+ * 两层查找：
  * 1. name 指定且已注册 → 用注册的（步骤 3 由 P4 入口注入"llm"）
- * 2. 名称为"llm"但未注册 → 走真路径作为 fallback（与 P4 注入等价）
- * 3. 其他（undefined / 未注册） → 走真路径（默认走真 LLM）
+ * 2. 其他（undefined / 未注册名称） → 走真路径（调 spawnAgent）
  */
 function getExecutor(name?: string): (context: ExecutionContext) => Promise<string> {
   if (name && executorRegistry.has(name)) {
@@ -208,6 +207,12 @@ function getExecutor(name?: string): (context: ExecutionContext) => Promise<stri
     if (result.exitCode !== 0 || result.errorMessage) {
       const prefix = result.isModelError ? "[MODEL_ERROR]" : "[ERROR]";
       const errText = result.errorMessage || "spawn failed";
+      context.bus.emit("blocked", context.role, {
+        status: result.isModelError ? "model_error" : "spawn_error",
+        error: errText,
+        model: result.model,
+        isModelError: result.isModelError ?? false,
+      });
       return `${prefix} ${errText}\n\n[Partial output]:\n${result.output || "(empty)"}`;
     }
     return result.output || "(empty)";
@@ -282,6 +287,10 @@ export async function workerCreate(
   params: { config: WorkerConfig },
 ): Promise<{ content: string }> {
   const { config } = params;
+
+  // 防御性修复：Pi 工具的 JSON 序列化层可能把 options 数组错误转成对象。
+  config.options = normalizeOptions(config.options);
+
   const workerId = `worker-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
   // 创建上下文构建器

@@ -12,7 +12,7 @@ dteam 是一个 **Pi 扩展包**，提供轻量级的多代理编排能力。通
 
 - **task**：工作主语对象（Markdown格式）
 - **worker**：执行单元（solo/chain/team三种模式）
-- **角色**：5个执行角色（explore/design/build/check/close）
+- **角色**：6个执行角色（explore/design/build/deploy/check/close）
 - **信号**：即时通信机制（4个信号 + 5个策略 = 9种）
 
 ## 安装
@@ -33,6 +33,7 @@ pi install /path/to/pi-dteam
 /explore 任务描述    # 探索者：搜集内部和外部信息
 /design 任务描述     # 方案制定者：评估需求、制定方案
 /build 任务描述      # 实现者：执行计划、编写代码、更新文档、编写测试
+/deploy 任务描述     # 部署者：执行构建、部署上线、验证结果
 /check 任务描述      # 验收者：检查代码质量、验证结果
 /close 任务描述      # 收口者：整理归档、记录经验、关闭任务
 ```
@@ -143,8 +144,8 @@ dteam 内置了 Pi compaction 和 branch summary 输出的本地化功能。这�
 用户需求
     │
     ▼
-/explore → /design → /build → /check → /close
-（探索）   （设计）   （实现）   （验收）   （收口）
+/explore → /design → /build → /deploy → /check → /close
+（探索）   （设计）   （实现）   （部署）    （验收）   （收口）
 ```
 
 ## 目录结构
@@ -159,8 +160,8 @@ pi-dteam/
 │   ├── P2/             # 细胞层：编排模式
 │   ├── P3/             # 组织层：编排逻辑
 │   └── P4/             # 用户接口层：Pi扩展入口
-├── agents/             # agent 定义（5个）
-├── prompts/            # prompt 模板（5个）
+├── agents/             # agent 定义（6个）
+├── prompts/            # prompt 模板（6个）
 ├── reference/          # 参考数据
 ├── .doc/               # 文档
 ├── tests/              # 测试

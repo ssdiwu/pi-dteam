@@ -237,6 +237,12 @@ export default async function (pi: ExtensionAPI) {
 		});
 		if (result.exitCode !== 0 || result.errorMessage) {
 			const prefix = result.isModelError ? "[MODEL_ERROR]" : "[ERROR]";
+			context.bus.emit("blocked", context.role, {
+				status: result.isModelError ? "model_error" : "spawn_error",
+				error: result.errorMessage || "spawn failed",
+				model: result.model,
+				isModelError: result.isModelError ?? false,
+			});
 			return `${prefix} ${result.errorMessage || "spawn failed"}\n\n[Partial]:\n${result.output || "(empty)"}`;
 		}
 		return result.output || "(empty)";

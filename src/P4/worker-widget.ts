@@ -129,14 +129,7 @@ export function showWorkerStatus(ctx: ExtensionContext, state: WorkerWidgetState
 export function clearWorkerStatus(ctx: ExtensionContext): void {
 	if (!ctx.hasUI) return;
 
-	// 清除节流定时器
-	if (throttleTimer) {
-		clearTimeout(throttleTimer);
-		throttleTimer = null;
-	}
-	pendingUpdate = null;
-	lastUpdateTime = 0;
-
+	resetThrottleState();
 	ctx.ui.setWidget(WIDGET_KEY, undefined);
 }
 

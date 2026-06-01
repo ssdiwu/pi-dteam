@@ -7,6 +7,7 @@
 | 文件 | 职责 |
 |------|------|
 | `signalBus.ts` | 信号总线：emit/on/getHistory，进程内实时通信 |
+| `signalLog.ts` | 信号日志：POSIX O_APPEND 追加 JSONL，单行 4096 字节保护，流式 tail，TTL 软过期，文件滚动和收口归档（信息素层 P1 服务层） |
 | `sharedMemory.ts` | 基础共享内存：namespace 隔离的 key-value 存储 |
 | `enhancedSharedMemory.ts` | 增强共享内存：持久化、批量操作、历史追踪、快照 |
 | `authService.ts` | 认证服务：注册、登录、token 签发与验证、refresh token |
@@ -30,4 +31,4 @@ P1 → P0
 - **SignalBus** 是进程内单例，所有 worker 共享同一个实例
 - **EnhancedSharedMemory** 是进程内单例，支持 save/load 持久化到 `.dteam/memory/`
 - **AuthService** 使用 scrypt 哈希密码、HMAC-SHA256 签名 token
-- **spawnAgent**（`spawn.ts`）导出 9 字段 `SpawnOptions`（含 `cwd`/`fallbackModels`/`sessionModel`），走 7 步模式；fallback 链超过 5 个会被截断并 warn；错误分类用 `MODEL_ERROR_PATTERNS` 正则匹配 429/rate limit/auth/timeout；maxRetries=3
+- **spawnAgent**（`spawn.ts`）导出 9 字段 `SpawnOptions`（含 `cwd`/`fallbackModels`/`sessionModel`），走 7 步模式；fallback 链超过 5 个会被截断并 warn；错误分类用 `MODEL_ERROR_PATTERNS` 正则匹配 429/rate limit/auth/timeout；maxRetries=3；传入 `cwd` 时会落盘 `.dteam/spawn/<runId>/input.md` 与 `output.md`/`error.md`

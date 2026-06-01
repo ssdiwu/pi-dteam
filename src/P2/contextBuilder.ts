@@ -10,7 +10,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, relative, dirname } from "node:path";
-import { WorkerConfig, getRequiredOption } from "../P0/config.js";
+import { WorkerConfig, getRequiredOption, normalizeOptions } from "../P0/config.js";
 import { EnhancedSharedMemory } from "../P1/enhancedSharedMemory.js";
 import { SignalBus } from "../P1/signalBus.js";
 
@@ -152,6 +152,10 @@ export class ContextBuilder {
    * 构建完整的执行上下文
    */
   async build(config: WorkerConfig): Promise<ExecutionContext> {
+    // 下游兜底：即使上游 workerCreate 修复漏掉边角 case，
+    // 也在 build 入口归一化 config.options，保证 find() 可调用。
+    config.options = normalizeOptions(config.options);
+
     // 1. 构建上下文；project 相关文件依赖 task 关键词，需先得到 taskContext
     const taskContext = await this.buildTaskContext(config.task);
     const [projectContext, executionHistory] = await Promise.all([
