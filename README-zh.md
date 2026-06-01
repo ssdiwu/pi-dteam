@@ -102,6 +102,46 @@ worker 运行时在 TUI 中显示 bordered box widget（借鉴 pi-tldr 设计）
 | `memory_save` | 保存共享内存到文件 |
 | `memory_load` | 从文件加载共享内存 |
 
+#### 自适应并发控制
+
+team 模式支持自适应并发控制，根据系统资源（CPU、内存）和任务吞吐动态调节并发度。
+
+**工作模式：**
+- **静态模式**：显式传入 `concurrency` 参数，使用固定并发数
+- **自适应模式**（默认）：根据系统负载自动调节并发度
+
+**状态机：**
+```
+coldStart → exploring → steady → overload
+    ↑           ↓          ↑        ↓
+    └───────────┘          └────────┘
+```
+
+**配置选项：**
+- `concurrencyMode`: `"static"` | `"adaptive"`（默认 "adaptive"）
+- `minConcurrency`: 最小并发数（默认 1）
+- `maxConcurrency`: 最大并发数（默认 8）
+- `concurrency`: 静态并发数（显式传入时使用静态模式）
+
+**过载保护：**
+- CPU > 85% 或内存 < 500MB 时自动降级
+- CPU < 70% 且内存 > 1GB 时自动恢复
+
+**示例：**
+```json
+{
+  "type": "team",
+  "task": "并行执行多个子任务",
+  "style": "explore",
+  "options": [
+    { "type": "concurrencyMode", "value": "adaptive" },
+    { "type": "minConcurrency", "value": 2 },
+    { "type": "maxConcurrency", "value": 6 },
+    { "type": "workers", "value": [/* workers */] }
+  ]
+}
+```
+
 #### 其他工具
 
 | 工具 | 功能 |

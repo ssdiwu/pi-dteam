@@ -62,6 +62,28 @@ pi install /path/to/pi-dteam
 | `worker_cancel` | Cancel a background worker |
 | `worker_status` | Get worker status |
 
+#### Dteam Scheduler Tool
+
+| Tool | Description |
+|------|-------------|
+| `dteam` | dteam 调度入口，支持 list/plan/run/status 4 个 action |
+
+**Action 说明：**
+
+| Action | 说明 | 输入 | 输出 |
+|--------|------|------|------|
+| `list` | 列出所有角色 | 无 | 角色列表（name, description, tools） |
+| `plan` | 生成执行计划 | goal, agents?, mode? | 执行计划（mode, steps, 角色串接方式） |
+| `run` | 创建 worker 并后台启动 | goal, agents?, mode?, style? | workerId, plan |
+| `status` | 查询 worker 状态 | workerId | worker 运行状态 |
+
+**执行模式：**
+- **solo**：单角色执行（1 个 agent）
+- **chain**：串行执行（多 agent，按顺序）
+- **team**：并行执行（多 agent，同时进行）
+
+**默认链：** explore → design → build → check → close
+
 ##### LLM Executor (since v0.4.0)
 
 By default, `worker_start` calls real LLM via Pi SDK (`createAgentSession`). The worker:
@@ -101,6 +123,46 @@ Automatically shown on `worker_start` and cleared on completion/failure. Throttl
 | `memory_clear` | Clear a namespace |
 | `memory_save` | Save shared memory to a file |
 | `memory_load` | Load shared memory from a file |
+
+#### Adaptive Concurrency Control
+
+The team mode supports adaptive concurrency control, which dynamically adjusts concurrency based on system resources (CPU, memory) and task throughput.
+
+**Modes:**
+- **Static mode**: Explicitly pass `concurrency` parameter to use a fixed concurrency
+- **Adaptive mode** (default): Automatically adjusts concurrency based on system load
+
+**State Machine:**
+```
+coldStart → exploring → steady → overload
+    ↑           ↓          ↑        ↓
+    └───────────┘          └────────┘
+```
+
+**Configuration Options:**
+- `concurrencyMode`: `"static"` | `"adaptive"` (default "adaptive")
+- `minConcurrency`: Minimum concurrency (default 1)
+- `maxConcurrency`: Maximum concurrency (default 8)
+- `concurrency`: Static concurrency (uses static mode when explicitly passed)
+
+**Overload Protection:**
+- Auto-degrades when CPU > 85% or memory < 500MB
+- Auto-recovers when CPU < 70% and memory > 1GB
+
+**Example:**
+```json
+{
+  "type": "team",
+  "task": "Run multiple subtasks in parallel",
+  "style": "explore",
+  "options": [
+    { "type": "concurrencyMode", "value": "adaptive" },
+    { "type": "minConcurrency", "value": 2 },
+    { "type": "maxConcurrency", "value": 6 },
+    { "type": "workers", "value": [/* workers */] }
+  ]
+}
+```
 
 #### Other Tools
 
