@@ -12,12 +12,6 @@ dist/
 .DS_Store
 Thumbs.db
 
-# dteam data (optional)
-.dteam/task/
-.dteam/archive/
-.dteam/memory/
-.dteam/pitfalls/
-
 # Internal docs
 .doc/
 
