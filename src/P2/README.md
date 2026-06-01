@@ -11,7 +11,7 @@
 | `team.ts` | Team 模式：并行执行多个 worker，支持并发控制和超时 |
 | `contextBuilder.ts` | 上下文构建器：构建 task/project/execution 三维执行上下文 |
 | `authModule.ts` | 认证模块：封装 AuthService 为高层接口 |
-| `worker.ts` | worker 管理工具：create/start/sendSignal/cancel/status/saveMemory/loadMemory/getMemory；默认 executor 调真 LLM（加载 `agents/<role>.md` + 调 `spawnAgent`），不再走 mock 模板 |
+| `worker.ts` | worker 管理工具：create/start/sendSignal/cancel/status/saveMemory/loadMemory/getMemory；默认 executor 调真 LLM（加载 `agents/<role>.md` + 调 `spawnAgent`），不再走 mock 模板；支持 worktree 隔离和 AgentProgress 数据通路 |
 | `eventStream.ts` | 事件流桥接器：SignalBus ↔ SignalLog（订阅 bus 4 类信号自动 append 到 log，view 合并内存+文件去重，seal 收口归档）（信息素层 P2 桥接层） |
 
 ## 依赖关系

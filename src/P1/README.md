@@ -13,6 +13,7 @@
 | `authService.ts` | 认证服务：注册、登录、token 签发与验证、refresh token |
 | `backgroundWorker.ts` | 后台 Worker：不阻塞主进程的异步执行 |
 | `spawn.ts` | 子代理运行：调 Pi SDK `createAgentSession` 启子 session 调真 LLM（7 步：auth/registry → model+fallback → resourceLoader → createSession → 订阅事件 → 发 prompt → 返回 result） |
+| `worktree.ts` | Git Worktree 隔离：为并行 worker 提供文件级隔离，避免冲突 |
 | `i18n.ts` | 国际化翻译表：中英文工具名和状态翻译 |
 | `compaction.ts` | 消息压缩：历史消息压缩和摘要 |
 | `task.ts` | task CRUD 工具：create/read/update/complete/archive/list/search |
