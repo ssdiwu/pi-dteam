@@ -50,15 +50,28 @@ function wrapWorker(
 		_onUpdate: unknown,
 		ctx: ExtensionContext,
 	) => {
-		// 当用户没指定 model 时，自动注入当前会话的 model（参考 dflow 模式）
-		if (workerAction === "create" && params.config && !params.config.model && ctx.model) {
-			params = {
-				...params,
-				config: {
-					...params.config,
-					model: `${ctx.model.provider}/${ctx.model.id}`,
-				},
-			};
+		// 当用户没指定 model 时，按优先级注入：dconfig 角色模型 > ctx.model
+		if (workerAction === "create" && params.config && !params.config.model) {
+			const role = params.config.options?.find((o: any) => o.type === "role")?.value;
+			let model: string | undefined;
+
+			// 1. dconfig 角色模型
+			if (role) {
+				try {
+					const { loadDteamConfig } = await import("../P0/dteamConfig.js");
+					const config = await loadDteamConfig(ctx.cwd);
+					model = config.models[role];
+				} catch { /* 配置加载失败，继续 */ }
+			}
+
+			// 2. ctx.model 兜底
+			if (!model && ctx.model) {
+				model = `${ctx.model.provider}/${ctx.model.id}`;
+			}
+
+			if (model) {
+				params = { ...params, config: { ...params.config, model } };
+			}
 		}
 
 		const result = await fn(ctx, params);
