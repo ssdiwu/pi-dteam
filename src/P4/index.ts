@@ -50,6 +50,17 @@ function wrapWorker(
 		_onUpdate: unknown,
 		ctx: ExtensionContext,
 	) => {
+		// 当用户没指定 model 时，自动注入当前会话的 model（参考 dflow 模式）
+		if (workerAction === "create" && params.config && !params.config.model && ctx.model) {
+			params = {
+				...params,
+				config: {
+					...params.config,
+					model: `${ctx.model.provider}/${ctx.model.id}`,
+				},
+			};
+		}
+
 		const result = await fn(ctx, params);
 		
 		// 解析结果，发送TUI消息
