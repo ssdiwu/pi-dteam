@@ -12,6 +12,9 @@ import {
 	generateSummary,
 } from "@earendil-works/pi-coding-agent";
 import { detectLocale, languageForLocale, languageInstructionForLocale, type SupportedLanguage } from "../P0/i18n.js";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
 
 // ── 本地化标签 ──────────────────────────────────────────────
 
@@ -285,6 +288,57 @@ function serializeSessionEntries(entries: any[]): string {
 	return serializeAgentMessages(messages);
 }
 
+/**
+ * 解析模型 API Key，采用多层 fallback 策略。
+ *
+ * 策略顺序：
+ *   1. ctx.modelRegistry.getApiKeyAndHeaders() — 首选，session 感知
+ *   2. 直接读取 auth.json — 绕过扩展上下文的潜在问题
+ *   3. 环境变量 — 兜底
+ */
+async function resolveModelAuth(
+	ctx: ExtensionContext,
+	model: any,
+): Promise<{ apiKey: string | undefined; headers: Record<string, string> | undefined }> {
+	// 策略 1：Session 的 modelRegistry（正常路径）
+	try {
+		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+		if (auth?.ok && auth?.apiKey) {
+			return { apiKey: auth.apiKey, headers: auth.headers };
+		}
+	} catch {
+		// 策略 1 失败，继续 fallback
+	}
+
+	// 策略 2：直接读 auth.json（绕过扩展上下文问题）
+	try {
+		const authPath = join(homedir(), ".pi", "agent", "auth.json");
+		if (existsSync(authPath)) {
+			const raw = readFileSync(authPath, "utf-8");
+			const authData = JSON.parse(raw);
+			const cred = authData[model.provider];
+			if (cred?.type === "api_key" && cred?.key) {
+				return { apiKey: cred.key, headers: undefined };
+			}
+		}
+	} catch {
+		// 策略 2 失败，继续 fallback
+	}
+
+	// 策略 3：环境变量（常见命名约定）
+	try {
+		const envVarName = `${model.provider.toUpperCase().replace(/-/g, '_')}_API_KEY`;
+		const envKey = process.env[envVarName] || process.env.API_KEY;
+		if (envKey) {
+			return { apiKey: envKey, headers: undefined };
+		}
+	} catch {
+		// 策略 3 也失败
+	}
+
+	return { apiKey: undefined, headers: undefined };
+}
+
 // ── 注册事件处理器 ──────────────────────────────────────────────
 
 export function registerCompactionI18n(pi: ExtensionAPI): void {
@@ -315,12 +369,22 @@ export function registerCompactionI18n(pi: ExtensionAPI): void {
 				...event.preparation.turnPrefixMessages,
 			];
 
+			// 通过多层 fallback 获取 API Key
+			const { apiKey, headers } = await resolveModelAuth(ctx, ctx.model);
+			if (!apiKey) {
+				ctx.ui.notify(
+					`dteam compaction i18n: 无法获取 provider "${ctx.model.provider}" 的 API Key，回退到 pi 默认 compaction`,
+					"warning",
+				);
+				return undefined;
+			}
+
 			const summary = await generateSummary(
 				messagesToSummarize,
 				ctx.model,
 				event.preparation.settings.reserveTokens,
-				undefined, // apiKey - 由 modelRegistry 处理
-				undefined, // headers
+				apiKey,
+				headers,
 				event.signal,
 				prompt,
 				event.preparation.previousSummary,
@@ -371,12 +435,22 @@ export function registerCompactionI18n(pi: ExtensionAPI): void {
 				.map((entry: any) => entryToAgentMessage(entry))
 				.filter((msg: any) => msg !== undefined);
 
+			// 通过多层 fallback 获取 API Key
+			const { apiKey: treeApiKey, headers: treeHeaders } = await resolveModelAuth(ctx, ctx.model);
+			if (!treeApiKey) {
+				ctx.ui.notify(
+					`dteam tree summary i18n: 无法获取 provider "${ctx.model.provider}" 的 API Key`,
+					"warning",
+				);
+				return undefined;
+			}
+
 			const summary = await generateSummary(
 				agentMessages,
 				ctx.model,
 				16384, // reserveTokens
-				undefined, // apiKey
-				undefined, // headers
+				treeApiKey,
+				treeHeaders,
 				event.signal,
 				prompt,
 			);
