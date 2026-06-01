@@ -209,6 +209,69 @@ pi-dteam/
 └── README.md           # 本文件
 ```
 
+## 功能特性
+
+### Dteam 调度入口工具
+
+自然语言驱动的 agent 编排。`dteam` 工具让主 LLM 自动选择 agent、组装 worker、决定执行模式。
+
+```typescript
+// 列出可用 agent
+dteam({ action: "list" })
+
+// 生成执行计划
+dteam({ action: "plan", goal: "实现用户登录功能" })
+
+// 执行计划
+dteam({ action: "run", goal: "实现用户登录功能" })
+
+// 查询 worker 状态
+dteam({ action: "status", workerId: "worker-123" })
+```
+
+### 自适应并发控制
+
+基于系统负载的动态并发调整。
+
+```typescript
+// 启用自适应模式（默认）
+worker_create({ config: { type: "team", concurrencyMode: "adaptive" } })
+
+// 静态模式（旧行为）
+worker_create({ config: { type: "team", concurrencyMode: "static", concurrency: 4 } })
+```
+
+状态机：`coldStart` → `exploring` → `steady` → `overload`
+
+### 自动编排
+
+从 Markdown 到执行计划的自动任务分解。
+
+```typescript
+// 从 task ID 生成计划
+dteam({ action: "plan", taskId: "20260601182644-bh4r" })
+```
+
+支持 5 种 task 类型：`refactor`、`bugfix`、`infra`、`functional`、`ui`
+
+### Worktree 隔离
+
+并行 worker 的 git worktree 文件级隔离。
+
+```typescript
+// 启用 worktree 隔离
+worker_create({ config: { type: "team", worktree: true } })
+
+// 完成后自动清理
+worker_create({ config: { type: "team", worktree: true, worktreeAutoCleanup: true } })
+```
+
+### 全屏进度流
+
+按 `Ctrl+O` 切换 worker 全屏进度视图。
+
+字段：`currentTool`、`recentOutput`、`tokenCount`、`duration`、`activityFreshness`、`currentToolDuration`
+
 ## 文档
 
 - [文档导航](.doc/README.md)

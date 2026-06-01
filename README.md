@@ -231,6 +231,69 @@ pi-dteam/
 └── README.md           # This file
 ```
 
+## Features
+
+### Dteam Scheduler Tool
+
+Natural language driven agent orchestration. The `dteam` tool lets the main LLM automatically select agents, assemble workers, and decide execution mode.
+
+```typescript
+// List available agents
+dteam({ action: "list" })
+
+// Generate execution plan
+dteam({ action: "plan", goal: "Implement user login" })
+
+// Execute plan
+dteam({ action: "run", goal: "Implement user login" })
+
+// Query worker status
+dteam({ action: "status", workerId: "worker-123" })
+```
+
+### Adaptive Concurrency Control
+
+Dynamic concurrency adjustment based on system load.
+
+```typescript
+// Enable adaptive mode (default)
+worker_create({ config: { type: "team", concurrencyMode: "adaptive" } })
+
+// Static mode (legacy behavior)
+worker_create({ config: { type: "team", concurrencyMode: "static", concurrency: 4 } })
+```
+
+States: `coldStart` → `exploring` → `steady` → `overload`
+
+### Chain Planner
+
+Automatic task decomposition from Markdown to execution plan.
+
+```typescript
+// Generate plan from task ID
+dteam({ action: "plan", taskId: "20260601182644-bh4r" })
+```
+
+Supports 5 task types: `refactor`, `bugfix`, `infra`, `functional`, `ui`
+
+### Worktree Isolation
+
+Git worktree isolation for parallel workers.
+
+```typescript
+// Enable worktree isolation
+worker_create({ config: { type: "team", worktree: true } })
+
+// Auto-cleanup on completion
+worker_create({ config: { type: "team", worktree: true, worktreeAutoCleanup: true } })
+```
+
+### Full-screen Progress View
+
+Press `Ctrl+O` to toggle full-screen progress view for workers.
+
+Fields: `currentTool`, `recentOutput`, `tokenCount`, `duration`, `activityFreshness`, `currentToolDuration`
+
 ## Documentation
 
 - [Documentation Navigation](.doc/README.md)
