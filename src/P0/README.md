@@ -7,7 +7,7 @@
 | 文件 | 职责 |
 |------|------|
 | `config.ts` | WorkerConfig 定义、options 读取与归一化工具 |
-| `dteamConfig.ts` | dteam 三层配置加载（内置 → 全域 → 项目） |
+| `dteamConfig.ts` | dteam 三层配置加载（内置 → 全域 → 项目），支持 useCurrentModel |
 | `signal.ts` | 信号类型（progress/blocked/found/help）和策略类型定义 |
 | `signalEvent.ts` | 信号事件类型 + TTL 工具（信息素层 P0 类型层） |
 | `status.ts` | WorkerStatus 和 TaskStatus 类型定义 |

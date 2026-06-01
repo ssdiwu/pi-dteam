@@ -50,27 +50,35 @@ function wrapWorker(
 		_onUpdate: unknown,
 		ctx: ExtensionContext,
 	) => {
-		// 当用户没指定 model 时，按优先级注入：dconfig 角色模型 > ctx.model
+		// 当用户没指定 model 时，按优先级注入
 		if (workerAction === "create" && params.config && !params.config.model) {
 			const role = params.config.options?.find((o: any) => o.type === "role")?.value;
 			let model: string | undefined;
 
-			// 1. dconfig 角色模型
-			if (role) {
-				try {
-					const { loadDteamConfig } = await import("../P0/dteamConfig.js");
-					const config = await loadDteamConfig(ctx.cwd);
-					model = config.models[role];
-				} catch { /* 配置加载失败，继续 */ }
+			let fallbackModels: string[] | undefined;
+
+			try {
+				const { loadDteamConfig } = await import("../P0/dteamConfig.js");
+				const config = await loadDteamConfig(ctx.cwd);
+
+				if (config.useCurrentModel) {
+					// useCurrentModel=true：直接用 ctx.model
+					model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+				} else {
+					// useCurrentModel=false：dconfig models → fallbackModels → ctx.model
+					if (role) {
+						model = config.models[role];
+						fallbackModels = config.fallbackModels[role];
+					}
+					if (!model && ctx.model) model = `${ctx.model.provider}/${ctx.model.id}`;
+				}
+			} catch {
+				// 配置加载失败，fallback 到 ctx.model
+				if (ctx.model) model = `${ctx.model.provider}/${ctx.model.id}`;
 			}
 
-			// 2. ctx.model 兜底
-			if (!model && ctx.model) {
-				model = `${ctx.model.provider}/${ctx.model.id}`;
-			}
-
-			if (model) {
-				params = { ...params, config: { ...params.config, model } };
+			if (model || fallbackModels) {
+				params = { ...params, config: { ...params.config, ...(model && { model }), ...(fallbackModels && { fallbackModels }) } };
 			}
 		}
 

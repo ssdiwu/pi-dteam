@@ -13,6 +13,8 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
 export interface DteamConfig {
+  /** 是否直接使用当前会话模型（跳过 models/fallbackModels） */
+  useCurrentModel: boolean;
   /** 角色→模型映射 */
   models: Record<string, string>;
   /** 角色→回退模型列表 */
@@ -20,6 +22,7 @@ export interface DteamConfig {
 }
 
 const DEFAULT_CONFIG: DteamConfig = {
+  useCurrentModel: false,
   models: {},
   fallbackModels: {},
 };
@@ -73,6 +76,7 @@ export async function ensureDteamGlobalConfig(): Promise<void> {
 
 function mergeConfig(base: DteamConfig, partial: Partial<DteamConfig>): DteamConfig {
   return {
+    useCurrentModel: partial.useCurrentModel ?? base.useCurrentModel,
     models: { ...base.models, ...partial.models },
     fallbackModels: { ...base.fallbackModels, ...partial.fallbackModels },
   };
