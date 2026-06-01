@@ -82,7 +82,9 @@ function wrapWorker(
 			}
 		}
 
-		const result = await fn(ctx, params);
+		// 为 worker start 注入进度回调（供 TUI 实时显示）
+		const effectiveParams = workerAction === "start" ? { ...params, onProgress: updateAgentProgress } : params;
+		const result = await fn(ctx, effectiveParams);
 		
 		// 解析结果，发送TUI消息
 		try {
@@ -218,7 +220,7 @@ import {
 import { spawnAgent } from "../P1/spawn.js";
 
 import { registerRenderers, emitWorkerProgress } from "./renderers.js";
-import { showWorkerStatus, clearWorkerStatus } from "./worker-widget.js";
+import { showWorkerStatus, clearWorkerStatus, updateAgentProgress, toggleWorkerExpanded } from "./worker-widget.js";
 import { registerCompactionI18n } from "../P1/compaction.js";
 
 import {
@@ -249,6 +251,12 @@ export default async function (pi: ExtensionAPI) {
 
 	// 注册 compaction i18n
 	registerCompactionI18n(pi);
+
+	// Ctrl+O 切换 worker widget 折叠/展开
+	pi.registerShortcut("ctrl+o", {
+		description: "Toggle worker progress fullscreen",
+		handler: (ctx) => toggleWorkerExpanded(ctx),
+	});
 
 	// ═══════════════════════════════════════════════════════════
 	// LLM executor 注册 + sessionModel 同步读（步骤 3 + 4）

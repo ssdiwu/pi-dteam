@@ -9,6 +9,7 @@
 | `index.ts` | 扩展入口：注册 21+ 工具、`/dteam` 命令 |
 | `dteamTool.ts` | dteam 调度入口工具：list/plan/run/status 4 个 action |
 | `renderers.ts` | TUI 渲染：worker 进度消息渲染、底部状态栏 |
+| `worker-widget.ts` | Worker 状态 Widget：折叠态（bordered box）+ 展开态（全屏覆盖层，Ctrl+O 切换） |
 
 ## 注册的工具
 

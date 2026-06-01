@@ -40,6 +40,9 @@ export interface ExecutionContext {
   
   // ── 执行历史 ────────────────────────────────────────────────
   executionHistory: ExecutionHistory;
+
+  // ── 进度回调（可选，用于 TUI 实时显示） ──────────────────────
+  onProgress?: (progress: import("../P1/spawn.js").AgentProgress) => void;
 }
 
 /**

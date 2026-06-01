@@ -194,7 +194,7 @@ function getExecutor(name?: string): (context: ExecutionContext) => Promise<stri
     const finalModel = config?.model ?? modelFromRole;
     const finalFallbacks = config?.fallbackModels ?? fallbackModelsFromRole;
 
-    // 调 spawnAgent
+    // 调 spawnAgent（接入 onProgress 回调以支持 TUI 实时进度）
     const result: SpawnResult = await spawnAgent({
       systemPrompt,
       task: finalTask,
@@ -203,6 +203,12 @@ function getExecutor(name?: string): (context: ExecutionContext) => Promise<stri
       sessionModel,
       tools,
       cwd,
+      onUpdate: context.onProgress
+        ? (partial) => { if (partial.progress) context.onProgress!(partial.progress); }
+        : undefined,
+      onToolEvent: context.onProgress
+        ? (event) => { if (event.progress) context.onProgress!(event.progress); }
+        : undefined,
     });
 
     if (result.exitCode !== 0 || result.errorMessage) {
@@ -319,9 +325,9 @@ export async function workerCreate(
  */
 export async function workerStart(
   ctx: { cwd: string },
-  params: { workerId: string; executorName?: string; background?: boolean },
+  params: { workerId: string; executorName?: string; background?: boolean; onProgress?: (progress: import("../P1/spawn.js").AgentProgress) => void },
 ): Promise<{ content: string }> {
-  const { workerId, executorName, background = false } = params;
+  const { workerId, executorName, background = false, onProgress } = params;
   const worker = workers.get(workerId);
 
   if (!worker) {
@@ -364,6 +370,10 @@ export async function workerStart(
       // 如果使用 worktree，覆盖 context 的 cwd
       if (worktreePath) {
         context.cwd = worktreePath;
+      }
+      // 注入进度回调（供 TUI 实时显示）
+      if (onProgress) {
+        context.onProgress = onProgress;
       }
       worker.context = context;
       
