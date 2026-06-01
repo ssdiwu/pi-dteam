@@ -237,6 +237,10 @@ import {
 	signalHistory,
 } from "../P1/signal.js";
 
+import {
+	handleDteamAction,
+} from "./dteamTool.js";
+
 // ── 扩展入口 ──────────────────────────────────────────────────
 
 export default async function (pi: ExtensionAPI) {
@@ -828,6 +832,63 @@ export default async function (pi: ExtensionAPI) {
 	// ═══════════════════════════════════════════════════════════
 	// 命令注册
 	// ═══════════════════════════════════════════════════════════
+
+	// ═══════════════════════════════════════════════════════════
+	// dteam 调度入口工具
+	// ═══════════════════════════════════════════════════════════
+
+	pi.registerTool({
+		name: "dteam",
+		label: "Dteam Scheduler",
+		description: "dteam 调度入口工具。让主 LLM 自动选角色、组装 worker、决定执行模式。",
+		promptSnippet: "- dteam: dteam 调度入口，支持 list/plan/run/status 4 个 action",
+		promptGuidelines: [
+			"action=list：列出所有 dteam 角色及其能力",
+			"action=plan：根据目标推断执行计划（solo/chain/team）",
+			"action=run：创建 worker 并后台启动执行",
+			"action=status：查询 worker 运行状态",
+			"run 后用 status 查询进度，用 workerId 标识",
+		],
+		parameters: {
+			type: "object",
+			properties: {
+				action: {
+					type: "string",
+					enum: ["list", "plan", "run", "status"],
+					description: "要执行的操作",
+				},
+				goal: {
+					type: "string",
+					description: "目标描述（plan/run 必填）",
+				},
+				agents: {
+					type: "array",
+					items: { type: "string" },
+					description: "指定角色列表（可选，默认使用全链）",
+				},
+				mode: {
+					type: "string",
+					enum: ["solo", "chain", "team"],
+					description: "执行模式（可选，默认自动推断）",
+				},
+				style: {
+					type: "string",
+					description: "执行风格（可选，默认 pragmatist）",
+				},
+				plan: {
+					type: "object",
+					description: "已有执行计划（run 可选，跳过推断）",
+				},
+				workerId: {
+					type: "string",
+					description: "Worker ID（status 必填）",
+				},
+			},
+			required: ["action"],
+			additionalProperties: false,
+		} as const,
+		execute: wrap(handleDteamAction),
+	});
 
 	pi.registerCommand("dteam", {
 		description: "显示 dteam 状态",

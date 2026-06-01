@@ -27,7 +27,10 @@ export type WorkerOption =
   | { type: "maxDepth"; value: number }
   | { type: "debug"; value: boolean }
   | { type: "concurrency"; value: number }
-  | { type: "timeoutMs"; value: number };
+  | { type: "timeoutMs"; value: number }
+  | { type: "concurrencyMode"; value: "static" | "adaptive" }
+  | { type: "maxConcurrency"; value: number }
+  | { type: "minConcurrency"; value: number };
 
 export type ChainStep = WorkerConfig;
 export type Worker = WorkerConfig;
