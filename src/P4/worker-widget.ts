@@ -80,16 +80,16 @@ export interface ExtendedProgressData {
 
 /** 当前展开态是否激活 */
 let expandedActive = false;
-/** 全屏覆盖层句柄 */
-let fullscreenHandle: OverlayHandle | null = null;
-/** 当前活跃的全屏组件（用于 invalidate 触发重绘） */
-let activeFullscreenComponent: (Component & { dispose?(): void }) | null = null;
+/** Tab Panel 覆盖层句柄 */
+let panelHandle: OverlayHandle | null = null;
 /** 最新 AgentProgress 数据（按 workerId 索引） */
 const latestProgressByWorker = new Map<string, ExtendedProgressData>();
 /** 最新 ExtensionContext */
 let latestCtx: ExtensionContext | null = null;
-/** 全屏刷新定时器 */
-let fullscreenRefreshTimer: ReturnType<typeof setInterval> | null = null;
+/** Panel 刷新定时器（模块级单例，多 panel 不重复创建） */
+let panelRefreshTimer: ReturnType<typeof setInterval> | null = null;
+/** Panel 内部缓存的 Container 引用（rebuild 时更新） */
+let panelContainer: Container | null = null;
 /** 折叠 widget 的全局 tick（1s 跳秒） */
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 /** 当前活跃的 TUI（用于 requestRender） */
@@ -390,7 +390,7 @@ export class WorkerStatusList implements Component {
 			}
 		}
 
-		// 展开提示：引导用户用 /dteam command 触发 toggleWorkerExpanded
+		// 展开提示：引导用户用 /dteam command 触发 showWorkerPanel
 		// 不用快捷键——避免冲突 + 用户输入 / 时能看到 command 列表（可发现性）
 		lines.push(this.theme.fg("muted", "Type /dteam to expand"));
 
@@ -407,7 +407,7 @@ export class WorkerStatusList implements Component {
 	}
 }
 
-// ── 展开态 Component ─────────────────────────────────────────
+// ── 展开态辅助函数（与 buildTabContent 配合使用） ─────────────────────
 
 /** 格式化持续时间 */
 function formatDuration(ms: number): string {
@@ -423,123 +423,6 @@ function formatFreshness(ts: number): string {
 	if (diff < 1000) return "just now";
 	if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
 	return `${Math.floor(diff / 60_000)}m ago`;
-}
-
-export class WorkerFullscreenView implements Component {
-	private cachedWidth?: number;
-	private cachedLines?: string[];
-
-	constructor(
-		private theme: Theme,
-		private workerId: string,
-	) {}
-
-	invalidate(): void {
-		this.cachedWidth = undefined;
-		this.cachedLines = undefined;
-	}
-
-	/** 从 store 读最新数据并渲染 */
-	private buildLines(width: number): string[] {
-		const progress = getStore().get(this.workerId);
-		const extended = latestProgressByWorker.get(this.workerId);
-
-		if (!progress) {
-			return [this.theme.fg("muted", `(worker ${this.workerId} not found)`)];
-		}
-
-		const { status, role, task, toolCount, elapsedMs, lastSignal, signalCount, finalError } = progress;
-		const toolCountFromExtended = extended?.tokenCount !== undefined
-			? toolCount
-			: toolCount;
-
-		const statusIcon: Record<typeof status, string> = {
-			pending: "⏳",
-			running: "●",
-			done: "✓",
-			failed: "✗",
-		};
-		const icon = statusIcon[status] ?? "?";
-
-		const lines: string[] = [];
-		const divider = "─".repeat(Math.max(1, width - 2));
-
-		// 标题行
-		const signalSuffix = lastSignal
-			? ` │ ${SIGNAL_ICON[lastSignal.type]}${signalCount > 1 ? `×${signalCount}` : ""}`
-			: "";
-		const title = ` ${icon} ${role} │ ${status} │ ${formatDuration(elapsedMs)}${signalSuffix} `;
-		lines.push(this.theme.fg("accent", truncateToWidth(title, width)));
-		lines.push(this.theme.fg("borderMuted", divider));
-
-		// Task
-		lines.push(this.theme.fg("text", `Task: ${truncateToWidth(task ?? "(no task)", Math.max(1, width - 6))}`));
-		lines.push("");
-
-		// Current Tool
-		const currentTool = extended?.currentTool ?? progress.currentTool;
-		if (currentTool) {
-			const toolLine = extended?.currentToolDuration
-				? `Current Tool: ${currentTool} (${formatDuration(extended.currentToolDuration)})`
-				: `Current Tool: ${currentTool}`;
-			lines.push(this.theme.fg("warning", truncateToWidth(toolLine, width)));
-		} else {
-			lines.push(this.theme.fg("muted", "Current Tool: (none)"));
-		}
-		lines.push(this.theme.fg("borderMuted", divider));
-
-		// Recent Output
-		lines.push(this.theme.fg("text", `Recent Output (${toolCountFromExtended} tools):`));
-		if (extended?.recentOutput) {
-			const outputLines = extended.recentOutput.split("\n").slice(-8);
-			for (const line of outputLines) {
-				lines.push(this.theme.fg("muted", `  > ${truncateToWidth(line, Math.max(1, width - 4))}`));
-			}
-		} else {
-			lines.push(this.theme.fg("muted", "  (no output yet)"));
-		}
-		lines.push(this.theme.fg("borderMuted", divider));
-
-		// Token Count
-		const tokenStr = extended?.tokenCount?.toLocaleString() ?? "—";
-		lines.push(this.theme.fg("text", `Token Count: ${tokenStr}`));
-
-		// Activity Freshness
-		if (extended?.activityFreshness) {
-			lines.push(this.theme.fg("text", `Activity: ${formatFreshness(extended.activityFreshness)}`));
-		}
-
-		// Final error (if failed)
-		if (status === "failed" && finalError) {
-			lines.push("");
-			lines.push(this.theme.fg("error", `Error: ${truncateToWidth(finalError, Math.max(1, width - 8))}`));
-		}
-
-		lines.push("");
-		lines.push(this.theme.fg("borderMuted", "[Ctrl+O] collapse"));
-
-		return lines;
-	}
-
-	render(width: number): string[] {
-		if (this.cachedLines && this.cachedWidth === width) {
-			return this.cachedLines;
-		}
-
-		const lines = this.buildLines(width);
-		this.cachedWidth = width;
-		this.cachedLines = lines;
-		return lines;
-	}
-
-	dispose(): void {
-		disposedCount += 1;
-		// 关键修复：清 fullscreenRefreshTimer，避免 setWidget 被新 factory 替换时旧 interval 泄漏（AC9 内存泄漏 FAIL）
-		if (fullscreenRefreshTimer) {
-			clearInterval(fullscreenRefreshTimer);
-			fullscreenRefreshTimer = null;
-		}
-	}
 }
 
 // ── 信号桥接（bus → store） ────────────────────────────────────
@@ -793,7 +676,7 @@ export function clearWorkerStatus(ctx: ExtensionContext): void {
 
 	// 如果展开态激活，先关闭
 	if (expandedActive) {
-		closeFullscreen();
+		closeWorkerPanel();
 	}
 
 	ctx.ui.setWidget(WIDGET_KEY, undefined);
@@ -813,16 +696,26 @@ export function resetThrottleState(): void {
 
 /**
  * 重置展开态（供测试用）
+ * - 清 panelRefreshTimer、panelHandle、panelContainer
+ * - 清 latestProgressByWorker + 从 store 移除对应记录（防 stale 污染）
+ * - 重置 expandedActive / latestCtx
  */
 export function resetExpandedState(): void {
 	expandedActive = false;
-	fullscreenHandle = null;
-	activeFullscreenComponent = null;
-	latestProgressByWorker.clear();
+	panelHandle = null;
+	panelContainer = null;
 	latestCtx = null;
-	if (fullscreenRefreshTimer) {
-		clearInterval(fullscreenRefreshTimer);
-		fullscreenRefreshTimer = null;
+
+	// 清最新进度 Map + 同步从 store 移除
+	const store = getStore();
+	for (const wid of latestProgressByWorker.keys()) {
+		store.delete(wid);
+	}
+	latestProgressByWorker.clear();
+
+	if (panelRefreshTimer) {
+		clearInterval(panelRefreshTimer);
+		panelRefreshTimer = null;
 	}
 }
 
@@ -855,56 +748,96 @@ function renderWidget(ctx: ExtensionContext): void {
 	});
 }
 
-// ── 全屏展开/折叠切换 ──────────────────────────────────────────
+// ── Tab 面板：多 worker 展开/折叠切换 ─────────────────────────────────
+
+/** Panel 返回结果 */
+export type PanelResult =
+	| { action: "select-child"; childId: string }
+	| { action: "back-to-parent" }
+	| { action: "close" }
+	| null;
 
 /**
- * 关闭全屏覆盖层
+ * 关闭 Tab Panel 覆盖层
  */
-function closeFullscreen(): void {
-	if (fullscreenRefreshTimer) {
-		clearInterval(fullscreenRefreshTimer);
-		fullscreenRefreshTimer = null;
+function closeWorkerPanel(): void {
+	// 1. 调 handle.hide() 关闭 overlay（如果在）
+	if (panelHandle) {
+		try { panelHandle.hide(); } catch { /* ignore */ }
+		panelHandle = null;
 	}
-	activeFullscreenComponent = null;
-	if (fullscreenHandle) {
-		try { fullscreenHandle.hide(); } catch { /* ignore */ }
-		fullscreenHandle = null;
+
+	// 2. 清 panelRefreshTimer（避免多 panel 叠加时泄漏）
+	if (panelRefreshTimer) {
+		clearInterval(panelRefreshTimer);
+		panelRefreshTimer = null;
 	}
+
+	// 3. 清 Container 引用（不手动 dispose，Container.clear() 会自动调子 dispose）
+	panelContainer = null;
+
+	// 4. 同步从 store 移除 latestProgressByWorker 中的 worker（避免 stale 污染）
+	const store = getStore();
+	for (const wid of latestProgressByWorker.keys()) {
+		store.delete(wid);
+	}
+	latestProgressByWorker.clear();
+
+	// 5. 重置展开态
 	expandedActive = false;
 
-	// 恢复折叠态 widget
+	// 6. 恢复折叠态 widget
 	if (latestCtx) {
 		renderWidget(latestCtx);
 	}
 }
 
 /**
- * 切换折叠/展开状态（Ctrl+O 触发）
+ * 显示多 worker Tab 面板（/dteam command 触发）
  */
-export function toggleWorkerExpanded(ctx: ExtensionContext): void {
+export function showWorkerPanel(ctx: ExtensionContext): void {
 	if (!ctx.hasUI) return;
 
+	// 幂等：已展开则关闭（重入口保护）
 	if (expandedActive) {
-		closeFullscreen();
+		closeWorkerPanel();
 		return;
 	}
 
-	// 需要有 worker 状态才能展开
+	// 空 store：直接 return（AC9 早返回）
 	const store = getStore();
 	if (store.size === 0) return;
 
-	// 取第一个 worker 作为"焦点"（实际应支持选定）
-	let focusWorkerId: string | undefined;
-	for (const [wid, p] of store.entries()) {
-		if (p.status === "running") {
-			focusWorkerId = wid;
-			break;
-		}
+	// 仅看父 worker（无 parentWorkerId）作为 tab
+	const parents = Array.from(store.values()).filter((p) => !p.parentWorkerId);
+	if (parents.length === 0) {
+		// 没有任何父 worker（异常情况），仍然提示用户
+		void ctx.ui.custom<PanelResult>(
+			(_tui, theme) => {
+				const container = new Container();
+				container.addChild(new Text(theme.fg("muted", "  (no parent workers)"), 0, 0));
+				return {
+					render: (w: number) => container.render(w),
+					invalidate: () => container.invalidate?.(),
+					handleInput: (data: string) => {
+						if (data === "q" || matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
+							container.clear();
+						}
+					},
+					dispose: () => { container.clear(); },
+				};
+			},
+			{
+				overlay: true,
+				overlayOptions: { anchor: "center", width: "60%", maxHeight: "40%" },
+				onHandle: (handle) => { panelHandle = handle; },
+			},
+		);
+		expandedActive = true;
+		latestCtx = ctx;
+		ctx.ui.setWidget(WIDGET_KEY, undefined);
+		return;
 	}
-	if (!focusWorkerId) {
-		focusWorkerId = store.keys().next().value;
-	}
-	if (!focusWorkerId) return;
 
 	latestCtx = ctx;
 	expandedActive = true;
@@ -912,33 +845,192 @@ export function toggleWorkerExpanded(ctx: ExtensionContext): void {
 	// 移除折叠态 widget
 	ctx.ui.setWidget(WIDGET_KEY, undefined);
 
-	// 弹出全屏覆盖层
-	void ctx.ui.custom(
-		(tui, theme, _keybindings, _done) => {
-			const component = new WorkerFullscreenView(theme, focusWorkerId!);
+	void ctx.ui.custom<PanelResult>(
+		(tui, theme, _keybindings, done) => {
+			// ── 闭包状态 ──
+			let currentTabIdx = 0;
+			let selectedChildId: string | undefined = undefined;
+			const container = new Container();
+			panelContainer = container;
 
-			activeFullscreenComponent = component;
-
-			// 定期刷新（进度数据变化时触发重绘）
-			fullscreenRefreshTimer = setInterval(() => {
-				if (!expandedActive) return;
-				if (activeFullscreenComponent) {
-					activeFullscreenComponent.invalidate();
-					tui.requestRender();
+			// 找出当前 tab 的 child worker 列表
+			function getCurrentChildren(): WorkerProgress[] {
+				const all = Array.from(getStore().values());
+				if (selectedChildId) {
+					// 在子详情页：以子 worker 为"当前"，但仍以原父的 child 列表为 children
+					const originalParent = all.find((p) => p.workerId === getCurrentParentId());
+					if (!originalParent) return [];
+					return all.filter((c) => c.parentWorkerId === originalParent.workerId);
 				}
+				const current = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime)[currentTabIdx];
+				if (!current) return [];
+				return all.filter((c) => c.parentWorkerId === current.workerId);
+			}
+
+			// 取得当前 tab 顶级 worker 的 id（主 tab 或父 tab）
+			function getCurrentParentId(): string | undefined {
+				if (selectedChildId) return selectedChildId; // 子详情时仍保留原父
+				const all = Array.from(getStore().values());
+				const sorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
+				return sorted[currentTabIdx]?.workerId;
+			}
+
+			// 取得当前显示的 worker 记录
+			function getCurrentWorker(): WorkerProgress | undefined {
+				if (selectedChildId) return getStore().get(selectedChildId);
+				const all = Array.from(getStore().values());
+				const sorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
+				return sorted[currentTabIdx];
+			}
+
+			// rebuild container 内容
+			function rebuild() {
+				// Container.clear() 会自动 dispose 各子 component
+				container.clear();
+
+				const all = Array.from(getStore().values());
+				const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
+
+				// 1. 标题行
+				container.addChild(new Text(theme.fg("accent", " 📊 dteam worker progress "), 0, 0));
+
+				// 2. Tab 栏
+				container.addChild(new Text(
+					"  " + buildTabBar(theme, parentsSorted, currentTabIdx, 78),
+					0, 0,
+				));
+
+				// 3. 分隔线
+				container.addChild(new Text(theme.fg("borderMuted", "─".repeat(80)), 0, 0));
+
+				// 4. Tab 内容
+				const currentWorker = getCurrentWorker();
+				if (currentWorker) {
+					const extended = latestProgressByWorker.get(currentWorker.workerId);
+					const children = getCurrentChildren();
+					const contentLines = buildTabContent(
+						theme,
+						currentWorker,
+						children,
+						extended,
+						80,
+						{ showBackToParent: !!selectedChildId },
+					);
+					for (const line of contentLines) {
+						container.addChild(new Text(line, 0, 0));
+					}
+				} else {
+					container.addChild(new Text(theme.fg("muted", "  (worker not found)"), 0, 0));
+				}
+
+				// 5. 底部提示
+				container.addChild(new Text("", 0, 0));
+				container.addChild(new Text(
+					theme.fg("borderMuted", "  [Tab/⇧Tab · ←/→] switch worker · [Enter] view child · [Esc/q/Ctrl+C] close"),
+					0, 0,
+				));
+			}
+
+			// 初次填充
+			rebuild();
+
+			// 500ms 跳秒（复用模块级单例 timer）
+			// 先清旧 timer 避免多 panel 叠加
+			if (panelRefreshTimer) clearInterval(panelRefreshTimer);
+			panelRefreshTimer = setInterval(() => {
+				if (!expandedActive) return;
+				rebuild();
+				tui.requestRender();
 			}, FULLSCREEN_REFRESH_MS);
 
-			return component;
+			// 键盘路由
+			function handleInput(data: string) {
+				const all = Array.from(getStore().values());
+				const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
+				const totalTabs = parentsSorted.length;
+
+				// 关闭快捷键
+				if (matchesKey(data, Key.escape) || data === "q" || matchesKey(data, Key.ctrl("c"))) {
+					if (selectedChildId) {
+						// 在子详情页：Esc 先返回父，不关闭 panel
+						selectedChildId = undefined;
+						rebuild();
+						tui.requestRender();
+						return;
+					}
+					done({ action: "close" });
+					return;
+				}
+
+				// 子详情页时：Right/Left/Tab 也可以返回父
+				if (selectedChildId) {
+					if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
+						selectedChildId = undefined;
+						rebuild();
+						tui.requestRender();
+						return;
+					}
+					if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.left)) {
+						selectedChildId = undefined;
+						rebuild();
+						tui.requestRender();
+						return;
+					}
+				}
+
+				// Tab 切换
+				if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
+					if (totalTabs === 0) return;
+					currentTabIdx = (currentTabIdx + 1) % totalTabs;
+					selectedChildId = undefined;
+					rebuild();
+					tui.requestRender();
+					return;
+				}
+				if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.left)) {
+					if (totalTabs === 0) return;
+					currentTabIdx = (currentTabIdx - 1 + totalTabs) % totalTabs;
+					selectedChildId = undefined;
+					rebuild();
+					tui.requestRender();
+					return;
+				}
+
+				// Enter：进入子 worker 详情
+				if (matchesKey(data, Key.enter)) {
+					const children = getCurrentChildren();
+					if (children.length > 0) {
+						// 选中第一个 child（简化：可后续加 child 列表光标）
+						selectedChildId = children[0].workerId;
+						rebuild();
+						tui.requestRender();
+						done({ action: "select-child", childId: selectedChildId });
+						return;
+					}
+				}
+			}
+
+			return {
+				render: (width: number) => container.render(width),
+				invalidate: () => container.invalidate?.(),
+				handleInput,
+				dispose: () => {
+					disposedCount += 1;
+					// 重要：dispose 不关 timer（交给 closeWorkerPanel）
+					// 只清 Container 引用即可
+					panelContainer = null;
+				},
+			};
 		},
 		{
 			overlay: true,
 			overlayOptions: {
 				anchor: "center",
 				width: "90%",
-				maxHeight: "80%",
+				maxHeight: "85%",
 			},
 			onHandle: (handle) => {
-				fullscreenHandle = handle;
+				panelHandle = handle;
 			},
 		},
 	);

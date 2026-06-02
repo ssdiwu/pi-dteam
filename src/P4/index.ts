@@ -262,7 +262,7 @@ import {
 import { spawnAgent } from "../P1/spawn.js";
 
 import { registerRenderers, emitWorkerProgress } from "./renderers.js";
-import { showWorkerStatus, clearWorkerStatus, updateAgentProgress, registerWorkerTerminated, toggleWorkerExpanded, installSignalBridge } from "./worker-widget.js";
+import { showWorkerStatus, clearWorkerStatus, updateAgentProgress, registerWorkerTerminated, showWorkerPanel, installSignalBridge } from "./worker-widget.js";
 import { registerCompactionI18n } from "../P1/compaction.js";
 
 import {
@@ -946,10 +946,10 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("dteam", {
-		description: "Toggle worker progress fullscreen (or use dteam tool for list/plan/run/status)",
+		description: "Toggle worker progress panel (multi-worker Tab) — or use dteam tool for list/plan/run/status",
 		async handler(_args: string, ctx) {
-			// 展开/折叠 worker widget
-			toggleWorkerExpanded(ctx);
+			// 展开/折叠多 worker Tab 面板
+			showWorkerPanel(ctx);
 		},
 	});
 }
