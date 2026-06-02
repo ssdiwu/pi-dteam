@@ -297,8 +297,8 @@ export default async function (pi: ExtensionAPI) {
 	// 安装信号桥接（bus → WorkerProgressStore）
 	installSignalBridge(workerBus as any);
 
-	// Ctrl+O 切换 worker widget 折叠/展开
-	pi.registerShortcut("ctrl+o", {
+	// 切换 worker widget 折叠/展开（用 f2 避免跟 pi 内置 ctrl+o 冲突）
+	pi.registerShortcut("f2", {
 		description: "Toggle worker progress fullscreen",
 		handler: (ctx) => toggleWorkerExpanded(ctx),
 	});

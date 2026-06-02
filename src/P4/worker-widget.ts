@@ -16,6 +16,7 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { rawKeyHint } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import type { OverlayHandle } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -221,6 +222,16 @@ export class WorkerStatusList implements Component {
 				lines.push(this.theme.fg("muted", `  … +${remaining} more`));
 			}
 		}
+
+		// 展开提示：用 pi 官方 rawKeyHint 函数，跟 pi 内部风格一致
+		// 测试环境可能没 initTheme()，所以 try/catch fallback 到手工拼
+		let expandHint: string;
+		try {
+			expandHint = rawKeyHint("F2", "expand");
+		} catch {
+			expandHint = "F2 expand";
+		}
+		lines.push(this.theme.fg("muted", expandHint));
 
 		this.cachedWidth = width;
 		this.cachedLines = lines;

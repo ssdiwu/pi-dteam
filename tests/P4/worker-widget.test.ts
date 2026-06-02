@@ -178,9 +178,10 @@ describe("worker-widget", () => {
 			setProgress(makeProgress({ workerId: "w-1", role: "build", task: "实现功能" }));
 			const list = new WorkerStatusList(makeMockTheme() as any);
 			const lines = list.render(80);
-			expect(lines.length).toBe(1);
-			expect(lines[0]).toContain("build");
-			expect(lines[0]).toContain("实现功能");
+			// 倒数第一行是 expand 提示（F2 expand），worker 行在前面
+			const workerLine = lines.find((l) => l.includes("build"));
+			expect(workerLine).toBeDefined();
+			expect(workerLine).toContain("实现功能");
 		});
 
 		it("多 worker：多行显示，无缩进", () => {
@@ -188,9 +189,8 @@ describe("worker-widget", () => {
 			setProgress(makeProgress({ workerId: "w-2", role: "check", task: "验收" }));
 			const list = new WorkerStatusList(makeMockTheme() as any);
 			const lines = list.render(80);
-			expect(lines.length).toBe(2);
-			expect(lines[0]).toContain("build");
-			expect(lines[1]).toContain("check");
+			expect(lines.some((l) => l.includes("build"))).toBe(true);
+			expect(lines.some((l) => l.includes("check"))).toBe(true);
 		});
 
 		it("嵌套 worker：子行带 2 空格 + ↳", () => {
@@ -198,9 +198,10 @@ describe("worker-widget", () => {
 			setProgress(makeProgress({ workerId: "team-1-0", role: "build", task: "build 子任务", parentWorkerId: "team-1" }));
 			const list = new WorkerStatusList(makeMockTheme() as any);
 			const lines = list.render(80);
-			expect(lines.length).toBe(2);
-			expect(lines[0]).toContain("team");
-			expect(lines[1]).toMatch(/^  ↳.*build/);
+			const teamLine = lines.find((l) => l.includes("team") && !l.includes("↳"));
+			const kidLine = lines.find((l) => l.includes("build") && l.includes("↳"));
+			expect(teamLine).toBeDefined();
+			expect(kidLine).toMatch(/^  ↳.*build/);
 		});
 
 		it("信号角标：signalCount=1 显示 📡", () => {
