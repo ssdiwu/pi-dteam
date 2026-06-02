@@ -15,15 +15,22 @@ export interface SoloResult {
 
 /**
  * 执行 solo 模式
+ *
+ * @param parentWorkerId 可选：outer workerId（来自 wrapWorker）。
+ *   存在时 emit 信号 workerId 使用 parentWorkerId 而非内部生成的 solo-${ts}，
+ *   以保证 P4 store 的主键与 wrapWorker 传入的 outer ID 一致（多 worker 不互相覆盖）。
  */
 export async function runSolo(
   config: WorkerConfig,
   bus: SignalBus,
   memory: MemoryAdapter,
   executor: (role: string, task: string, style: string) => Promise<string>,
+  parentWorkerId?: string,
 ): Promise<SoloResult> {
   const role = getRequiredOption<string>(config.options, "role");
-  const workerId = `solo-${Date.now()}`;
+  const innerId = `solo-${Date.now()}`;
+  // 关键修复：emit workerId 用 parentWorkerId（outer）以避免 P4 store 主键冲突
+  const workerId = parentWorkerId ?? innerId;
 
   try {
     bus.emit("progress", workerId, { status: "running" });

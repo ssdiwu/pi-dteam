@@ -21,22 +21,27 @@ export interface OrchestratorResult {
 
 /**
  * 执行 worker 编排
+ *
+ * @param parentWorkerId 可选：outer workerId（来自 wrapWorker）。
+ *   存在时透传给 runSolo/Chain/Team，让 P2 内部 emit 用 outer ID 替换内部生成的 solo/chain/team-${ts}，
+ *   保证 P4 store 的主键与 wrapWorker 传入的 outer ID 一致（多 worker 不互相覆盖）。
  */
 export async function runWorker(
   config: WorkerConfig,
   bus: SignalBus,
   memory: MemoryAdapter,
   executor: (role: string, task: string, style: string) => Promise<string>,
+  parentWorkerId?: string,
 ): Promise<OrchestratorResult> {
   try {
     let result: WorkerResult;
 
     if (config.type === "solo") {
-      result = await runSolo(config, bus, memory, executor);
+      result = await runSolo(config, bus, memory, executor, parentWorkerId);
     } else if (config.type === "chain") {
-      result = await runChain(config, bus, memory, executor);
+      result = await runChain(config, bus, memory, executor, parentWorkerId);
     } else if (config.type === "team") {
-      result = await runTeam(config, bus, memory, executor);
+      result = await runTeam(config, bus, memory, executor, parentWorkerId);
     } else {
       throw new Error(`Unsupported worker type: ${config.type}`);
     }

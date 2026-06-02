@@ -11,6 +11,10 @@ import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { DTEAM_PACKAGE_ROOT, workerCreate, workerStart, workerStatus } from "../P2/worker.js";
 import type { WorkerConfig } from "../P0/config.js";
 import { planFromTaskId, type ChainPlan } from "../P3/chainPlanner.js";
+// 静态 import：避免动态 import 丢事件
+// 之前用 import("./worker-widget.js").then(...) 是异步，会导致 onProgress/onComplete 闭包
+// 内的 mod 在事件触发时仍未 resolve，进度/终态事件丢失（AC7 FAIL）。
+import { updateAgentProgress, registerWorkerTerminated } from "./worker-widget.js";
 
 // ── 类型定义 ──────────────────────────────────────────────────
 
@@ -236,10 +240,19 @@ export async function executeRun(
 
   const workerId = createData.workerId;
 
-  // 调 workerStart（background 模式）
+  // 调 workerStart（background 模式）— 自动透传 onProgress + onComplete（闭包绑定 workerId）
+  // 这样 P4 store 能收到该 worker 的实时进度 + 终态清理
   const startResult = await workerStart(ctx, {
     workerId,
     background: true,
+    onProgress: (p) => {
+      // 静态 import：updateAgentProgress 在 import 顶部已解析，事件不丢
+      updateAgentProgress(workerId, p);
+    },
+    onComplete: (status, error) => {
+      // 静态 import：registerWorkerTerminated 在 import 顶部已解析，事件不丢
+      registerWorkerTerminated(workerId, status, error);
+    },
   });
   const startData = JSON.parse(startResult.content);
 

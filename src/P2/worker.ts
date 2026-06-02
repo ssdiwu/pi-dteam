@@ -322,12 +322,25 @@ export async function workerCreate(
 
 /**
  * worker.start — 启动 worker 执行
+ *
+ * 参数：
+ *   - workerId: 必传
+ *   - executorName: 可选
+ *   - background: 可选（后台模式不 await）
+ *   - onProgress: 闭包绑定 workerId 的进度回调（P4 注入）
+ *   - onComplete: 终态回调（done / failed）—— 关键修复：P4 通过这个收尾 store
  */
 export async function workerStart(
   ctx: { cwd: string },
-  params: { workerId: string; executorName?: string; background?: boolean; onProgress?: (progress: import("../P1/spawn.js").AgentProgress) => void },
+  params: {
+    workerId: string;
+    executorName?: string;
+    background?: boolean;
+    onProgress?: (progress: import("../P1/spawn.js").AgentProgress) => void;
+    onComplete?: (status: "done" | "failed", error?: string) => void;
+  },
 ): Promise<{ content: string }> {
-  const { workerId, executorName, background = false, onProgress } = params;
+  const { workerId, executorName, background = false, onProgress, onComplete } = params;
   const worker = workers.get(workerId);
 
   if (!worker) {
@@ -358,9 +371,10 @@ export async function workerStart(
 
   // 后台执行函数
   const executeInBackground = async () => {
+    let finalError: Error | undefined;
     try {
       worker.status = "running";
-      
+
       const signal = worker.abortController?.signal;
       if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
 
@@ -392,7 +406,9 @@ export async function workerStart(
       };
       
       // 4. 执行任务
-      const result = await runWorker(worker.config, worker.bus, worker.memory, wrappedExecutor);
+      // 关键修复：传 outer workerId（workerId）给 runWorker，让 P2 内部 emit 用此 ID 替换 solo/chain/team-${ts}，
+      // 保证 P4 store 的主键与 wrapWorker 传入的 outer ID 一致（多 worker 不互相覆盖）。
+      const result = await runWorker(worker.config, worker.bus, worker.memory, wrappedExecutor, workerId);
       if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
       worker.status = "done";
       
@@ -423,6 +439,7 @@ export async function workerStart(
 
       return result;
     } catch (error) {
+      finalError = error as Error;
       worker.status = "failed";
 
       // 保存失败结果到共享内存
@@ -433,14 +450,26 @@ export async function workerStart(
         error: (error as Error).message,
         success: false,
       };
-      
+
       const results = memory.get('worker', 'results') as any[] || [];
       results.push(executionResult);
       memory.set('worker', 'results', results, 'worker-manager');
 
       throw error;
     } finally {
-      // 失败路径终态清理：同样仅后台模式（前台可能需要 context 用于调试）
+      // 关键修复：终态清理
+      // 1. P4 注入的 onComplete 回调（让 P4 store 知道 worker 已 done/failed）
+      if (onComplete) {
+        try {
+          onComplete(
+            worker.status as "done" | "failed",
+            finalError?.message,
+          );
+        } catch {
+          // 回调内部错误吞掉，不影响主流程
+        }
+      }
+      // 2. 失败路径终态清理：同样仅后台模式（前台可能需要 context 用于调试）
       if (worker.background) {
         worker.context = undefined;
         worker.abortController = undefined;
@@ -452,7 +481,7 @@ export async function workerStart(
   if (background) {
     // 启动后台执行
     executeInBackground().catch(() => {});
-    
+
     return {
       content: JSON.stringify({
         workerId,
@@ -465,6 +494,9 @@ export async function workerStart(
   // 前台执行，等待完成
   try {
     const result = await executeInBackground();
+
+    // 前台路径也要触发 onComplete
+    onComplete?.(worker.status as "done" | "failed", undefined);
 
     return {
       content: JSON.stringify({
@@ -490,6 +522,7 @@ export async function workerStart(
     // 终态清理
     worker.context = undefined;
     worker.abortController = undefined;
+    onComplete?.("failed", (error as Error).message);
 
     return {
       content: JSON.stringify({

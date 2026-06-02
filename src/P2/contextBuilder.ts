@@ -43,6 +43,14 @@ export interface ExecutionContext {
 
   // ── 进度回调（可选，用于 TUI 实时显示） ──────────────────────
   onProgress?: (progress: import("../P1/spawn.js").AgentProgress) => void;
+
+  // ── 嵌套关系（自 v0.4.2） ────────────────────────────────────
+  /** 父 workerId（team/chain 嵌套时透传给子） */
+  parentWorkerId?: string;
+  /** chain step 序号（从 1 开始） */
+  chainIndex?: number;
+  /** chain 总步数 */
+  chainTotal?: number;
 }
 
 /**
