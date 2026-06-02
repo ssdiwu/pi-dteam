@@ -45,3 +45,15 @@ ContextBuilder.build() 做三件事：
 3. `sessionModel`（当前会话模型，P4 入口在 `model_select` 事件中更新）— 兜底
 
 `fallbackModels` 同上优先级链。worker 终态（done/failed/cancelled）会释放大引用（context + abortController）避免内存泄漏。
+
+## 失败诊断与观测键（新增）
+
+当 `worker_start` 进入关键阶段或失败时，会向共享内存写入 `worker-<workerId>` 诊断键：
+
+- `status`：当前状态（started/failed/done）
+- `startedAt` / `endedAt`：起止时间戳
+- `lastPhase`：最近阶段（如 `worker_start` / `runWorker`）
+- `lastError`：失败原因（仅失败路径）
+- `config`：启动时的 worker 配置快照
+
+这样即使 worker 快速 failed，也能通过 `worker_getMemory` 获取可复盘的上下文。

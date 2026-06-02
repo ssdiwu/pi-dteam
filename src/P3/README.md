@@ -26,7 +26,7 @@ runWorker(config, bus, memory, executor)
 planFromTaskId(cwd, taskId)
   → readFile → generatePlan(content, filename)
     ├─ extractTaskType()  → 选择默认链模板
-    ├─ extractGoal()      → 生成 step 描述
+    ├─ extractGoal()      → 生成 step 描述（目标为空会抛错）
     └─ extractAcceptanceCriteria() → 匹配验收条件到角色
 ```
 
