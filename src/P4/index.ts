@@ -297,11 +297,8 @@ export default async function (pi: ExtensionAPI) {
 	// 安装信号桥接（bus → WorkerProgressStore）
 	installSignalBridge(workerBus as any);
 
-	// 切换 worker widget 折叠/展开（用 f2 避免跟 pi 内置 ctrl+o 冲突）
-	pi.registerShortcut("f2", {
-		description: "Toggle worker progress fullscreen",
-		handler: (ctx) => toggleWorkerExpanded(ctx),
-	});
+	// 不注册快捷键——展开 widget 用 /dteam command（P4/index.ts:951 已存在）
+	// 避免快捷键冲突 + 用户输入 / 时能看到 command 列表（可发现性）
 
 	// ═══════════════════════════════════════════════════════════
 	// LLM executor 注册 + sessionModel 同步读（步骤 3 + 4）
@@ -949,9 +946,10 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("dteam", {
-		description: "显示 dteam 状态",
+		description: "Toggle worker progress fullscreen (or use dteam tool for list/plan/run/status)",
 		async handler(_args: string, ctx) {
-			ctx.ui.notify(`dteam v${pkg.version} active`, "info");
+			// 展开/折叠 worker widget
+			toggleWorkerExpanded(ctx);
 		},
 	});
 }

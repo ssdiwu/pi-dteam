@@ -16,7 +16,6 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { rawKeyHint } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import type { OverlayHandle } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -223,15 +222,9 @@ export class WorkerStatusList implements Component {
 			}
 		}
 
-		// 展开提示：用 pi 官方 rawKeyHint 函数，跟 pi 内部风格一致
-		// 测试环境可能没 initTheme()，所以 try/catch fallback 到手工拼
-		let expandHint: string;
-		try {
-			expandHint = rawKeyHint("F2", "expand");
-		} catch {
-			expandHint = "F2 expand";
-		}
-		lines.push(this.theme.fg("muted", expandHint));
+		// 展开提示：引导用户用 /dteam command 触发 toggleWorkerExpanded
+		// 不用快捷键——避免冲突 + 用户输入 / 时能看到 command 列表（可发现性）
+		lines.push(this.theme.fg("muted", "Type /dteam to expand"));
 
 		this.cachedWidth = width;
 		this.cachedLines = lines;
