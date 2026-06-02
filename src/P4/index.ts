@@ -52,9 +52,28 @@ function wrapWorker(
 	) => {
 		// 当用户没指定 model 时，按优先级注入
 		if (workerAction === "create" && params.config && !params.config.model) {
-			const role = params.config.options?.find((o: any) => o.type === "role")?.value;
-			let model: string | undefined;
+			// 优先从 options 获取 role，否则尝试从 task 推断
+			let role = params.config.options?.find((o: any) => o.type === "role")?.value as string | undefined;
+			if (!role && params.config.task) {
+				// 从 task 描述推断角色：explore/design/build/deploy/check/close
+				const taskLower = params.config.task.toLowerCase();
+				const rolePatterns: [RegExp, string][] = [
+					[/explore|探索|调研|搜集|分析/i, "explore"],
+					[/design|设计|方案|架构/i, "design"],
+					[/build|实现|开发|编码|编写|修复|重构/i, "build"],
+					[/deploy|部署|发布|上线/i, "deploy"],
+					[/check|检查|验证|测试|review/i, "check"],
+					[/close|收口|总结|归档/i, "close"],
+				];
+				for (const [pattern, r] of rolePatterns) {
+					if (pattern.test(taskLower)) {
+						role = r;
+						break;
+					}
+				}
+			}
 
+			let model: string | undefined;
 			let fallbackModels: string[] | undefined;
 
 			try {
@@ -82,19 +101,40 @@ function wrapWorker(
 			}
 		}
 
-		// 为 worker start 注入进度回调（供 TUI 实时显示）
-		const effectiveParams = workerAction === "start" ? { ...params, onProgress: updateAgentProgress } : params;
+		// 为 worker start 注入进度回调（闭包绑定 workerId） + 终态回调
+		// 关键修复：onProgress/onComplete 必须用 workerId 闭包绑定，
+		// 否则 store / register 拿不到正确的 workerId
+		let preCreatedWorkerId: string | undefined;
+		if (workerAction === "create") {
+			// worker_create 返回的 workerId 在 result.content 里，预先解析出来
+			// 后续如果用户立即调 worker_start，可以拿到
+			// 这里不强制处理（worker_start 自身会解析）
+		}
+
+		const effectiveParams = workerAction === "start"
+			? {
+				...params,
+				onProgress: params.workerId
+					? (p: import("../P1/spawn.js").AgentProgress) => updateAgentProgress(params.workerId, p)
+					: undefined,
+				onComplete: params.workerId
+					? (status: "done" | "failed", error?: string) => {
+						registerWorkerTerminated(params.workerId, status, error);
+					}
+					: undefined,
+			}
+			: params;
 		const result = await fn(ctx, effectiveParams);
-		
+
 		// 解析结果，发送TUI消息
 		try {
 			const parsed = JSON.parse(result.content);
 			const workerId = parsed.workerId || params.workerId;
-			
+
 			if (workerId) {
-				let status = "pending";
+				let status: "pending" | "running" | "done" | "failed" = "pending";
 				let task = "";
-				
+
 				switch (workerAction) {
 					case "create":
 						status = "pending";
@@ -117,23 +157,24 @@ function wrapWorker(
 						task = "Status check";
 						break;
 				}
-				
+
 				// 更新 TUI 状态栏
-				emitWorkerProgress(extensionApi, workerId, status as "pending" | "running" | "done" | "failed", task);
+				emitWorkerProgress(extensionApi, workerId, status, task);
 
 				// 更新 worker widget
 				if (workerAction === "start" && parsed.background) {
-					// 后台 worker：显示 widget
-					showWorkerStatus(ctx, {
+					// 后台 worker：显示 widget（首次注册到 store）
+					// 关键修复：传 workerId 作为 store 主键（之前没传，所有 worker 都被合并到 "unknown"）
+					showWorkerStatus(ctx, workerId, {
 						status: "running",
 						agent: params.executorName ?? "default",
 						task: parsed.config?.task ?? "Executing...",
 						toolCount: 0,
 						elapsedMs: 0,
-					});
+					} as any);
 				} else if (workerAction === "start" || workerAction === "cancel") {
-					// 前台 worker 完成 或 取消：清除 widget
-					clearWorkerStatus(ctx);
+					// 前台 worker 完成 或 取消：标记终态 + 调度清理
+					registerWorkerTerminated(workerId, status === "failed" ? "failed" : "done");
 				}
 			}
 		} catch (e) {
@@ -216,11 +257,12 @@ import {
 	getSessionModel,
 	setSessionModel,
 	getConfigForContext,
+	bus as workerBus,
 } from "../P2/worker.js";
 import { spawnAgent } from "../P1/spawn.js";
 
 import { registerRenderers, emitWorkerProgress } from "./renderers.js";
-import { showWorkerStatus, clearWorkerStatus, updateAgentProgress, toggleWorkerExpanded } from "./worker-widget.js";
+import { showWorkerStatus, clearWorkerStatus, updateAgentProgress, registerWorkerTerminated, toggleWorkerExpanded, installSignalBridge } from "./worker-widget.js";
 import { registerCompactionI18n } from "../P1/compaction.js";
 
 import {
@@ -251,6 +293,9 @@ export default async function (pi: ExtensionAPI) {
 
 	// 注册 compaction i18n
 	registerCompactionI18n(pi);
+
+	// 安装信号桥接（bus → WorkerProgressStore）
+	installSignalBridge(workerBus as any);
 
 	// Ctrl+O 切换 worker widget 折叠/展开
 	pi.registerShortcut("ctrl+o", {
@@ -480,7 +525,8 @@ export default async function (pi: ExtensionAPI) {
 		promptGuidelines: [
 			"当任务复杂（>30分钟，多文件修改，需要上下文积累）时，使用 worker_create 创建 worker 实例。",
 			"worker 提供共享内存、信号通信、执行上下文构建等能力，适合需要多角色协作的场景。",
-			"简单任务（<30分钟，单文件修改）可以直接执行，不需要 worker。"
+			"简单任务（<30分钟，单文件修改）可以直接执行，不需要 worker。",
+			"**重要**：必须在 options 中提供 role 选项（type='role'），指定执行角色（explore/design/build/deploy/check/close），以便从 dconfig.json 加载对应的 model 配置。"
 		],
 		parameters: {
 			type: "object",

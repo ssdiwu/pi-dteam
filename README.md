@@ -96,20 +96,26 @@ By default, `worker_start` calls real LLM via Pi SDK (`createAgentSession`). The
 
 Pass `executorName: "llm"` to `worker_start` to explicitly opt into LLM execution. Without it, the same default behavior applies (default executor is now real LLM, not mock).
 
-##### Worker Status Widget (since v0.4.1)
+##### Worker Status Widget (since v0.4.2)
 
-A bordered box widget shown in TUI while worker is running (inspired by pi-tldr):
+Worker running in TUI shows **multi-worker single-line** widget (evolved from v0.4.1 single-worker box):
 
 ```
-╭ worker ── 🔄 running ──────────────────────────────────╮
-│ Agent: build                                            │
-│ Task: Implement feature                                 │
-│ Tools: 3 (current: edit)                                │
-│ Elapsed: 5.0s                                           │
-╰─────────────────────────────────────────────────────────╯
+● build  Implement feature  T:3 · edit  5.0s  📡
+  ↳ step1/3 explore Analysis  2.1s  ✓
+● check  Review  T:1  1.2s
 ```
 
-Automatically shown on `worker_start` and cleared on completion/failure. Throttled at 1s intervals to avoid flicker.
+**Features**:
+- Multiple background workers shown in parallel (one per line)
+- team/chain children indented 2 spaces + `↳`
+- Signal badges: 📡 (progress) / 🚧 (blocked) / 🔍 (found) / 🆘 (help), cumulative ×N
+- Status bar minimal counter `N workers · M running`
+- 1s tick real-time refresh
+- Background workers auto-cleanup 3s after terminal state (fixes v0.4.1 cleanup bug)
+- Ctrl+O toggles fullscreen details (since v0.4.1)
+
+Auto-shown on `worker_start`, auto-cleanup 3s after terminal state. onProgress chain fully wired with workerId closure binding.
 
 #### Memory Tools
 
@@ -251,6 +257,32 @@ dteam({ action: "run", goal: "Implement user login" })
 dteam({ action: "status", workerId: "worker-123" })
 ```
 
+### Worker Create
+
+Create worker instances for complex tasks. **Important**: Must provide `role` option in `options` to load model configuration from `dconfig.json`.
+
+```typescript
+// Create worker with role option (recommended)
+worker_create({
+  config: {
+    type: "chain",
+    task: "Implement user authentication",
+    style: "pragmatist",
+    options: [
+      { type: "role", value: "build" }  // Required: specify role
+    ]
+  }
+})
+
+// Role can also be inferred from task description if not provided
+// explore: 探索/调研/搜集/分析
+// design: 设计/方案/架构
+// build: 实现/开发/编码/编写/修复/重构
+// deploy: 部署/发布/上线
+// check: 检查/验证/测试/review
+// close: 收口/总结/归档
+```
+
 ### Adaptive Concurrency Control
 
 Dynamic concurrency adjustment based on system load.
@@ -293,6 +325,29 @@ worker_create({ config: { type: "team", worktree: true, worktreeAutoCleanup: tru
 Press `Ctrl+O` to toggle full-screen progress view for workers.
 
 Fields: `currentTool`, `recentOutput`, `tokenCount`, `duration`, `activityFreshness`, `currentToolDuration`
+
+### Multi-worker Real-time Status + Nesting
+
+`dteam` supports multiple background workers in parallel (via `background: true`). TUI shows real-time progress of all running workers, plus:
+
+- **Nesting**: team sub-workers, chain steps shown indented
+- **Signal badges**: signals sent via `signal_emit` show as corner badges
+- **Terminal auto-cleanup**: background workers auto-disappear 3s after completion
+- **Status bar counter**: `3 workers · 2 running` minimal counter
+
+```typescript
+// 1. Create and start background worker
+const create = await worker_create({
+  config: { type: "team", task: "...", options: [{ type: "workers", value: [...] }] }
+});
+const start = await worker_start({ workerId: create.workerId, background: true });
+
+// 2. Real-time progress auto-updates widget via onProgress callback
+// 3. Terminal state auto-cleanup via onComplete callback
+
+// 4. Nesting: team mode shows each sub-worker as indented line
+//    chain mode shows each step as `↳ [1/3] explore Analysis  2.1s`
+```
 
 ## Documentation
 
