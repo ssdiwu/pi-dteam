@@ -16,9 +16,15 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
-import type { OverlayHandle } from "@earendil-works/pi-tui";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { Component, OverlayHandle } from "@earendil-works/pi-tui";
+import {
+	Container,
+	Key,
+	matchesKey,
+	Text,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 
 /** TUI 引用（仅用 requestRender）—— 避免与 pi-coding-agent 的 TUI 类型冲突 */
 type TuiRef = { requestRender: () => void };
@@ -94,6 +100,168 @@ let pendingUpdate: { ctx: ExtensionContext; progress: WorkerProgress } | null = 
 let throttleTimer: ReturnType<typeof setTimeout> | null = null;
 /** 测试用：widget factory 返回的 component dispose 计数 */
 let disposedCount = 0;
+
+// ── Tab 面板纯渲染函数（供 showWorkerPanel 与单测复用） ──────────
+
+/**
+ * 构建 Tab 栏文本（多 worker 切换用）。
+ * 例： `[● w-1] [○ w-2] [+ 3 more]`
+ *
+ * - parents 必须是父 worker 列表（无 parentWorkerId）
+ * - currentIdx 是当前选中 tab 索引（-1 表示未选中）
+ * - 超出 MAX_TAB_LABELS 折叠为 `[+N more]`
+ */
+export function buildTabBar(
+	theme: Theme,
+	parents: WorkerProgress[],
+	currentIdx: number,
+	width: number,
+): string {
+	if (parents.length === 0) {
+		return theme.fg("muted", "(no workers)");
+	}
+	const MAX_TAB_LABELS = 10;
+	const visibleCount = Math.min(parents.length, MAX_TAB_LABELS);
+	const parts: string[] = [];
+
+	for (let i = 0; i < visibleCount; i++) {
+		const w = parents[i];
+		const isActive = i === currentIdx;
+		const icon = w.status === "running" ? "●" : w.status === "done" ? "✓" : w.status === "failed" ? "✗" : "○";
+		const label = ` ${icon} ${w.workerId} `;
+		// active tab 用 selectedBg 高亮（theme 装饰，没有 selectedBg 时降级为 accent）
+		const text = isActive ? label : label;
+		parts.push(isActive ? theme.fg("accent", text) : theme.fg("muted", text));
+	}
+
+	if (parents.length > MAX_TAB_LABELS) {
+		parts.push(theme.fg("muted", ` [+${parents.length - MAX_TAB_LABELS} more]`));
+	}
+
+	return truncateToWidth(parts.join(" "), width);
+}
+
+/**
+ * 构建 Tab 内容（当前 worker 详情 + 嵌套区域）。
+ *
+ * - currentWorker：当前选中的 worker（父或 Enter 进入的子）
+ * - children：该 worker 的子 worker 列表（currentWorker.parentWorkerId 为空时才有意义）
+ * - extended：latestProgressByWorker 中的扩展数据
+ * - parentWorkerId：当显示子 worker 详情时，回到父 tab 的提示
+ *
+ * 返回 string[] 每行已带 ANSI 颜色。
+ */
+export function buildTabContent(
+	theme: Theme,
+	currentWorker: WorkerProgress,
+	children: WorkerProgress[],
+	extended: ExtendedProgressData | undefined,
+	width: number,
+	options: { showBackToParent?: boolean } = {},
+): string[] {
+	const lines: string[] = [];
+	const divider = theme.fg("borderMuted", "─".repeat(Math.max(1, width - 2)));
+
+	// 1. 顶部"返回父"提示（子 worker 详情时显示）
+	if (options.showBackToParent) {
+		lines.push(theme.fg("warning", truncateToWidth("◀ Back to parent (Esc)", width)));
+	}
+
+	// 2. 标题行
+	const statusIcon: Record<WorkerProgress["status"], string> = {
+		pending: "⏳",
+		running: "●",
+		done: "✓",
+		failed: "✗",
+	};
+	const icon = statusIcon[currentWorker.status] ?? "?";
+	const signalSuffix = currentWorker.lastSignal
+		? ` │ ${SIGNAL_ICON[currentWorker.lastSignal.type]}${currentWorker.signalCount > 1 ? `×${currentWorker.signalCount}` : ""}`
+		: "";
+	const title = ` ${icon} ${currentWorker.role} │ ${currentWorker.status} │ ${formatDuration(currentWorker.elapsedMs)}${signalSuffix} `;
+	lines.push(theme.fg("accent", truncateToWidth(title, width)));
+	lines.push(divider);
+
+	// 3. Task
+	const task = currentWorker.task || "(no task)";
+	lines.push(theme.fg("text", `Task: ${truncateToWidth(task, Math.max(1, width - 6))}`));
+	lines.push("");
+
+	// 4. Current Tool
+	const currentTool = extended?.currentTool ?? currentWorker.currentTool;
+	if (currentTool) {
+		const toolLine = extended?.currentToolDuration
+			? `Current Tool: ${currentTool} (${formatDuration(extended.currentToolDuration)})`
+			: `Current Tool: ${currentTool}`;
+		lines.push(theme.fg("warning", truncateToWidth(toolLine, width)));
+	} else {
+		lines.push(theme.fg("muted", "Current Tool: (none)"));
+	}
+	lines.push(divider);
+
+	// 5. Recent Output
+	lines.push(theme.fg("text", `Recent Output (${currentWorker.toolCount} tools):`));
+	if (extended?.recentOutput) {
+		const outputLines = extended.recentOutput.split("\n").slice(-8);
+		for (const line of outputLines) {
+			lines.push(theme.fg("muted", `  > ${truncateToWidth(line, Math.max(1, width - 4))}`));
+		}
+	} else {
+		lines.push(theme.fg("muted", "  (no output yet)"));
+	}
+	lines.push(divider);
+
+	// 6. Token Count + Activity
+	const tokenStr = extended?.tokenCount?.toLocaleString() ?? "—";
+	lines.push(theme.fg("text", `Token Count: ${tokenStr}`));
+	if (extended?.activityFreshness) {
+		lines.push(theme.fg("text", `Activity: ${formatFreshness(extended.activityFreshness)}`));
+	}
+
+	// 7. Final error
+	if (currentWorker.status === "failed" && currentWorker.finalError) {
+		lines.push("");
+		lines.push(theme.fg("error", `Error: ${truncateToWidth(currentWorker.finalError, Math.max(1, width - 8))}`));
+	}
+
+	// 8. 嵌套 worker section（子 worker 列表）
+	if (children.length > 0) {
+		lines.push("");
+		lines.push(divider);
+		lines.push(theme.fg("text", `Nested workers (${children.length}):`));
+		lines.push(...formatNestedWorkers(theme, currentWorker, children, width));
+		lines.push(theme.fg("dim", truncateToWidth("  Press Enter on a child to view its detail", width)));
+	}
+
+	return lines;
+}
+
+/**
+ * 格式化嵌套 worker 列表（用 ↳ 缩进显示在 Tab 内容底部）。
+ * 用于：buildTabContent 内部 + 单测。
+ */
+export function formatNestedWorkers(
+	theme: Theme,
+	parent: WorkerProgress,
+	children: WorkerProgress[],
+	width: number,
+): string[] {
+	const lines: string[] = [];
+	// 按 chainIndex 排序，缺失则按 startTime
+	const sorted = [...children].sort((a, b) => {
+		if (a.chainIndex !== undefined && b.chainIndex !== undefined) {
+			return a.chainIndex - b.chainIndex;
+		}
+		return a.startTime - b.startTime;
+	});
+	for (const kid of sorted) {
+		// 直接复用 formatWorkerRow（indent=2 → 2 空格 + ↳）
+		lines.push(theme.fg("muted", formatWorkerRow(kid, width, 2)));
+	}
+	// 引用 parent 避免 lint 警告（实际不需要，但函数签名清晰）
+	void parent;
+	return lines;
+}
 
 // ── 单行格式化函数 ──────────────────────────────────────────
 
