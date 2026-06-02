@@ -36,6 +36,7 @@ pi install /path/to/pi-dteam
 /deploy task description     # Deployer: build, deploy, and verify releases
 /check task description      # Reviewer: check code quality, verify results
 /close task description      # Closer: organize, archive, record lessons, close tasks
+/dteam                       # Toggle the multi-worker progress widget (fullscreen)
 ```
 
 ### Tools
@@ -61,6 +62,7 @@ pi install /path/to/pi-dteam
 | `worker_sendSignal` | Send a signal to a worker |
 | `worker_cancel` | Cancel a background worker |
 | `worker_status` | Get worker status |
+| `worker_getMemory` | Inspect worker diagnostic keys (`worker-<workerId>`: status/startedAt/endedAt/lastPhase/lastError/config) |
 
 #### Dteam Scheduler Tool
 
@@ -113,7 +115,7 @@ Worker running in TUI shows **multi-worker single-line** widget (evolved from v0
 - Status bar minimal counter `N workers · M running`
 - 1s tick real-time refresh
 - Background workers auto-cleanup 3s after terminal state (fixes v0.4.1 cleanup bug)
-- Ctrl+O toggles fullscreen details (since v0.4.1)
+- Run `/dteam` to toggle fullscreen details (replaces earlier Ctrl+O / F2 shortcuts to avoid conflicts with Pi's built-ins)
 
 Auto-shown on `worker_start`, auto-cleanup 3s after terminal state. onProgress chain fully wired with workerId closure binding.
 
@@ -310,7 +312,13 @@ Supports 5 task types: `refactor`, `bugfix`, `infra`, `functional`, `ui`
 
 ### Worktree Isolation
 
-Git worktree isolation for parallel workers.
+Git worktree isolation for parallel workers. Each worker gets its own `dteam/<workerId>` branch + working tree under `.dteam/worktrees/`, so concurrent team members don't stomp on each other.
+
+**WorkerConfig fields**:
+- `worktree` (boolean, default `false`): enable worktree isolation. The worker runs in `.dteam/worktrees/<workerId>/` instead of `<cwd>`.
+- `worktreeAutoCleanup` (boolean, default `false`): when set, the worktree + branch are removed after the worker reaches terminal state (`done` / `failed` / `cancelled`).
+
+**Prerequisite**: the host project must be a git repo (detected by `isGitRepo(ctx.cwd)`). If not, the worker logs a warning and falls back to `cwd`.
 
 ```typescript
 // Enable worktree isolation
@@ -322,7 +330,7 @@ worker_create({ config: { type: "team", worktree: true, worktreeAutoCleanup: tru
 
 ### Full-screen Progress View
 
-Press `Ctrl+O` to toggle full-screen progress view for workers.
+Run `/dteam` to toggle full-screen progress view for workers (Ctrl+O / F2 shortcuts were removed to avoid conflicts with Pi's built-ins).
 
 Fields: `currentTool`, `recentOutput`, `tokenCount`, `duration`, `activityFreshness`, `currentToolDuration`
 

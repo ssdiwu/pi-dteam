@@ -36,6 +36,7 @@ pi install /path/to/pi-dteam
 /deploy 任务描述     # 部署者：执行构建、部署上线、验证结果
 /check 任务描述      # 验收者：检查代码质量、验证结果
 /close 任务描述      # 收口者：整理归档、记录经验、关闭任务
+/dteam               # 展开多 worker 进度 widget（切换全屏视图）
 ```
 
 ### 工具
@@ -91,7 +92,7 @@ worker 运行时在 TUI 中显示**多 worker 单行** widget（从 v0.4.1 起�
 - 状态栏极简计数 `N workers · M running`
 - 1s 跳秒实时刷新
 - 背景 worker 完成后 3s 自动清理（修复 v0.4.1 的不清理 bug）
-- Ctrl+O 展开全屏详情（v0.4.1 已有）
+- Ctrl+O 展开全屏详情（v0.4.1 已有；为避免与 Pi 内置快捷键冲突，后续已改为 `/dteam` 命令触发，见「全屏进度视图」一节）
 
 `worker_start` 时自动显示，终态后 3s 自动清除。onProgress 链路贯通 + 闭包绑定 workerId。
 
@@ -262,7 +263,13 @@ dteam({ action: "plan", taskId: "20260601182644-bh4r" })
 
 ### Worktree 隔离
 
-并行 worker 的 git worktree 文件级隔离。
+并行 worker 的 git worktree 文件级隔离。每个 worker 拥有独立的 `dteam/<workerId>` 分支与 `.dteam/worktrees/<workerId>/` 工作目录，team 成员并发写入时互不覆盖。
+
+**WorkerConfig 字段**：
+- `worktree`（boolean，默认 `false`）：启用 worktree 隔离。worker 会在 `.dteam/worktrees/<workerId>/` 下运行，而不是 `<cwd>`。
+- `worktreeAutoCleanup`（boolean，默认 `false`）：worker 进入终态（`done` / `failed` / `cancelled`）后自动删除 worktree 与对应分支。
+
+**前提**：宿主项目必须是 git 仓库（由 `isGitRepo(ctx.cwd)` 检测）。非 git 环境下会打 warning 后 fallback 到 `cwd`。
 
 ```typescript
 // 启用 worktree 隔离
@@ -274,7 +281,7 @@ worker_create({ config: { type: "team", worktree: true, worktreeAutoCleanup: tru
 
 ### 全屏进度流
 
-按 `Ctrl+O` 切换 worker 全屏进度视图。
+执行 `/dteam` 切换 worker 全屏进度视图（原 `Ctrl+O` / `F2` 快捷键已移除，以避免与 Pi 内置快捷键冲突）。
 
 字段：`currentTool`、`recentOutput`、`tokenCount`、`duration`、`activityFreshness`、`currentToolDuration`
 
