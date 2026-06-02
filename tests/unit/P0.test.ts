@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import { getOption, getRequiredOption, normalizeOptions } from "../../src/P0/config.js";
+import { resolveDteamMemoryPath } from "../../src/P0/pathSafety.js";
 
 describe("P0-原子层", () => {
   describe("config", () => {
@@ -64,6 +65,44 @@ describe("P0-原子层", () => {
       expect(normalizeOptions(undefined)).toEqual([]);
       expect(normalizeOptions(null)).toEqual([]);
       expect(normalizeOptions("role")).toEqual([]);
+    });
+  });
+
+  describe("resolveDteamMemoryPath", () => {
+    const cwd = "/tmp/dteam-test";
+
+    it("裸文件名 → 解析到 <cwd>/.dteam/memory/<name>.json", () => {
+      expect(resolveDteamMemoryPath(cwd, "session.json")).toBe(
+        "/tmp/dteam-test/.dteam/memory/session.json",
+      );
+    });
+
+    it("子路径 → 允许", () => {
+      expect(resolveDteamMemoryPath(cwd, "team/foo.json")).toBe(
+        "/tmp/dteam-test/.dteam/memory/team/foo.json",
+      );
+    });
+
+    it("含 .dteam/memory 前缀会报明确错误（防嵌套）", () => {
+      expect(() => resolveDteamMemoryPath(cwd, ".dteam/memory/foo.json")).toThrow(
+        /must not contain/,
+      );
+    });
+
+    it("含 memory 段也会报明确错误", () => {
+      expect(() => resolveDteamMemoryPath(cwd, "memory/foo.json")).toThrow(
+        /must not contain/,
+      );
+    });
+
+    it("非 .json 后缀报错", () => {
+      expect(() => resolveDteamMemoryPath(cwd, "session.txt")).toThrow(
+        /\.json/,
+      );
+    });
+
+    it("绝对路径被拒绝（resolveInside 语义）", () => {
+      expect(() => resolveDteamMemoryPath(cwd, "/etc/passwd.json")).toThrow();
     });
   });
 });
