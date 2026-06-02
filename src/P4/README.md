@@ -9,7 +9,7 @@
 | `index.ts` | 扩展入口：注册 21+ 工具、`/dteam` 命令 |
 | `dteamTool.ts` | dteam 调度入口工具：list/plan/run/status 4 个 action |
 | `renderers.ts` | TUI 渲染：worker 进度消息渲染、底部状态栏 + `WorkerProgressStore`（模块级 Map<workerId, WorkerProgress>） |
-| `worker-widget.ts` | Worker 状态 Widget：折叠态（多 worker 单行 + 缩进 + 信号角标）+ 展开态（全屏覆盖层，Ctrl+O 切换）+ 信号桥接（bus → store） |
+| `worker-widget.ts` | Worker 状态 Widget：折叠态（多 worker 单行 + 缩进 + 信号角标）+ Tab 面板（`/dteam` 触发，多 worker 切换 + 嵌套详情 + `ctx.ui.custom` 覆盖层）+ 信号桥接（bus → store）+ 纯函数（`buildTabBar` / `buildTabContent` / `formatNestedWorkers`） |
 
 ## 注册的工具
 
@@ -24,7 +24,7 @@
 
 ## 注册的命令
 
-- `/dteam` — 显示 dteam 状态
+- `/dteam` — 切换 worker Tab 面板（折叠态 ↔ 多 worker Tab 面板，含嵌套关系展开）
 
 ## 入口链
 
@@ -45,6 +45,15 @@ extensions/index.ts
 - team/chain 子 worker 缩进 2 空格 + `↳`
 - 信号角标：📡（progress）/ 🚧（blocked）/ 🔍（found）/ 🆘（help），可显示累计 ×N
 - 状态栏极简计数：`N workers · M running`
+
+### Worker Tab 面板（/dteam 触发）
+
+折叠态外，dteam 提供**多 worker Tab 面板**，输入 `/dteam` 切换（再次输入关闭）：
+- 多 worker Tab 栏（父 worker）：`[● w-1] [○ w-2] [✓ team-1]`，最多 10 个 tab，超出折叠为 `[+N more]`
+- Tab 切换：`Tab` / `⇧Tab` / `←` / `→`
+- 子 worker 详情：`Enter` 进入，`Esc` / `Tab` / `←` / `→` 返回父
+- 关闭：`Esc` / `q` / `Ctrl+C`
+- 嵌套区域：父 tab 内显示 `Nested workers (N):`，按 `chainIndex` 排序
 
 数据流：wrapWorker 注入 `onProgress: (p) => updateAgentProgress(workerId, p)` 闭包 → 写 store → requestRender。
 `P2/team.ts`/`P2/chain.ts` 通过 `bus.emit('progress', subWorkerId, { parentWorkerId, ... })` 注册子 worker 到 store，P4 `installSignalBridge` 自动桥接。
