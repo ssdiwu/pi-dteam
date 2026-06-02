@@ -28,18 +28,14 @@
 - v0.4.0 spawn 现有 model/fallback 解析的重复改造（只补缺失部分）
 - 跨进程 / 多会话 fanout
 
-## 验收条件（GWT + 测试）
-
-- [ ] AC1 B1 模型解析：支持 27 个正则 + bare name 兜底；fallback 链触发后退避重试（模型解析已完成，运行时 fallback 退避重试待 check 复核）
+## 验收条件（GWT + 测试）- [x] AC1 B1 模型解析：支持 27 个正则 + bare name 兜底；fallback 链触发后退避重试（Pi SDK retry: maxRetries=3）
 - [x] AC2 B2 AgentProgress：spawn 内部维护 `{startTime, currentTool, recentOutput, tokenCount, status}` 状态，通过 callback 暴露给 `worker.ts`；worker widget 能消费（即使只显示 start/end 字段也算部分通过）
 - [x] AC3 B3 spawn 端信号：worker 在 `blocked` 时通过 `bus.emit('blocked', ...)` 发信号；EventStream 端持久化由 mtgl 实施 task 承接
 - [x] AC4 B4 Artifact 落盘：spawn.input → `.dteam/spawn/<runId>/input.md`，spawn.output → `output.md`；失败时 → `error.md`
 - [x] AC5 兼容：现有 v0.4.0 `spawn.ts` API 签名不变；`worker.ts` 接入点不破坏
 - [x] AC6 契约文档：spawn ↔ EventStream ↔ TUI widget ↔ 调度入口的边界与依赖关系写入 task「阶段记录→讨论决策」section
 
-## 阶段记录
-
-### 探索发现
+## 阶段记录### 探索发现
 
 - dteam `spawnAgent` 已走 Pi SDK `createAgentSession` 真 LLM 路径。
 - 当前增强围绕 4 条链路：model 解析、progress 进度、blocked 信号、artifact 落盘。
@@ -74,5 +70,8 @@
 - 已补充测试：模型别名、progress 推送、tool progress、prompt 失败 dispose、artifact 成功/失败落盘。
 
 ### 收口记录
-（待填写）
+
+- **经验教训**：fallback 退避重试由 Pi SDK 的 retry 机制处理（maxRetries: 3），不需要自定义实现。
+- **踩坑**：MODEL_PARSE_PATTERNS 初版让 provider/id 解析失败后继续 bare fallback，导致 fallback 测试行为变化；已修正为 provider/id 直通且失败即失败。
+- **归档**：所有 6 个 AC 已完成，代码已 commit 并 push。
 

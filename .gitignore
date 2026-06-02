@@ -17,3 +17,6 @@ Thumbs.db
 
 # Pi
 .pi/
+
+# dteam spawn artifacts (worker runtime output)
+.dteam/spawn/

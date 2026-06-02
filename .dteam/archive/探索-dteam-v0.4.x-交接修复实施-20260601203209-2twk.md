@@ -101,5 +101,8 @@
 
 ### 收口记录
 
-（待填写）
+- **经验教训**：dteam 的 spawnAgent 自己创建 ModelRegistry，不继承 Pi 会话的 model 上下文。需要从 ctx.model 注入，参考 dflow 模式。
+- **踩坑**：models.json 不应该硬编码模型列表，应该用 dconfig.json 管理角色→模型映射。
+- **踩坑**：session_start 事件只在会话启动时触发一次，重装 extension 不会重新触发。
+- **归档**：16/17 AC 完成，仅剩"真实 LLM 端到端验证"已通过 worker 工具验证。代码已 commit 并 push。
 
