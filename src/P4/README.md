@@ -8,8 +8,8 @@
 |------|------|
 | `index.ts` | 扩展入口：注册 21+ 工具、`/dteam` 命令 |
 | `dteamTool.ts` | dteam 调度入口工具：list/plan/run/status 4 个 action |
-| `renderers.ts` | TUI 渲染：worker 进度消息渲染、底部状态栏 |
-| `worker-widget.ts` | Worker 状态 Widget：折叠态（bordered box）+ 展开态（全屏覆盖层，Ctrl+O 切换） |
+| `renderers.ts` | TUI 渲染：worker 进度消息渲染、底部状态栏 + `WorkerProgressStore`（模块级 Map<workerId, WorkerProgress>） |
+| `worker-widget.ts` | Worker 状态 Widget：折叠态（多 worker 单行 + 缩进 + 信号角标）+ 展开态（全屏覆盖层，Ctrl+O 切换）+ 信号桥接（bus → store） |
 
 ## 注册的工具
 
@@ -37,6 +37,18 @@ extensions/index.ts
 ```
 
 ## 关键设计
+
+### Worker Widget 多 worker 单行 + 嵌套 + 信号
+
+折叠态 widget 支持**多个后台 worker 并行显示**，每行单 worker：
+- 单行格式：`● build  实现功能  T:3 · edit  5.0s  📡`
+- team/chain 子 worker 缩进 2 空格 + `↳`
+- 信号角标：📡（progress）/ 🚧（blocked）/ 🔍（found）/ 🆘（help），可显示累计 ×N
+- 状态栏极简计数：`N workers · M running`
+
+数据流：wrapWorker 注入 `onProgress: (p) => updateAgentProgress(workerId, p)` 闭包 → 写 store → requestRender。
+`P2/team.ts`/`P2/chain.ts` 通过 `bus.emit('progress', subWorkerId, { parentWorkerId, ... })` 注册子 worker 到 store，P4 `installSignalBridge` 自动桥接。
+详见 [`README-worker-widget.md`](./README-worker-widget.md)。
 
 ### Model 注入
 

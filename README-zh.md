@@ -74,20 +74,26 @@ pi install /path/to/pi-dteam
 
 `executorName: "llm"` 是显式语义入口。默认 executor 自 v0.4.0 起也是真 LLM。
 
-##### Worker 状态 Widget（自 v0.4.1）
+##### Worker 状态 Widget（自 v0.4.2）
 
-worker 运行时在 TUI 中显示 bordered box widget（借鉴 pi-tldr 设计）：
+worker 运行时在 TUI 中显示**多 worker 单行** widget（从 v0.4.1 起的单 worker box 进化而来）：
 
 ```
-╭ worker ── 🔄 running ──────────────────────────────────╮
-│ Agent: build                                            │
-│ Task: 实现功能                                          │
-│ Tools: 3 (current: edit)                                │
-│ Elapsed: 5.0s                                           │
-╰─────────────────────────────────────────────────────────╯
+● build  实现功能  T:3 · edit  5.0s  📡
+  ↳ step1/3 探索  2.1s  ✓
+● check  验收  T:1  1.2s
 ```
 
-`worker_start` 时自动显示，完成/失败时自动清除。1s 节流更新避免闪烁。
+**特性**：
+- 多个后台 worker 并行显示（每行一个）
+- team/chain 子 worker 缩进 2 空格 + `↳`
+- 信号角标：📡（progress）/ 🚧（blocked）/ 🔍（found）/ 🆘（help），累计 ×N
+- 状态栏极简计数 `N workers · M running`
+- 1s 跳秒实时刷新
+- 背景 worker 完成后 3s 自动清理（修复 v0.4.1 的不清理 bug）
+- Ctrl+O 展开全屏详情（v0.4.1 已有）
+
+`worker_start` 时自动显示，终态后 3s 自动清除。onProgress 链路贯通 + 闭包绑定 workerId。
 
 #### Memory 工具
 
@@ -271,6 +277,29 @@ worker_create({ config: { type: "team", worktree: true, worktreeAutoCleanup: tru
 按 `Ctrl+O` 切换 worker 全屏进度视图。
 
 字段：`currentTool`、`recentOutput`、`tokenCount`、`duration`、`activityFreshness`、`currentToolDuration`
+
+### 多 worker 实时状态 + 嵌套关系
+
+`dteam` 支持多个后台 worker 并行（通过 `background: true`）。TUI 中同时显示多个 worker 的实时进度，并支持：
+
+- **嵌套关系**：team 模式的子 worker、chain 模式的 step 缩进显示
+- **信号角标**：worker 通过 `signal_emit` 发送的信号会在行末显示角标
+- **终态自动清理**：背景 worker 完成后 3s 自动从 widget 消失
+- **状态栏计数**：`3 workers · 2 running` 极简计数
+
+```typescript
+// 1. 创建并启动后台 worker
+const create = await worker_create({
+  config: { type: "team", task: "...", options: [{ type: "workers", value: [...] }] }
+});
+const start = await worker_start({ workerId: create.workerId, background: true });
+
+// 2. 实时进度通过 onProgress 回调更新到 widget（自动）
+// 3. 终态通过 onComplete 回调清理（自动）
+
+// 4. 嵌套显示：team 模式下，每个子 worker 是单独一行，缩进 2 空格
+//    chain 模式下，每个 step 显示为 `↳ [1/3] explore 探索  2.1s`
+```
 
 ## 文档
 
