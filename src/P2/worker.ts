@@ -293,7 +293,16 @@ export async function workerCreate(
   ctx: { cwd: string },
   params: { config: WorkerConfig },
 ): Promise<{ content: string }> {
-  const { config } = params;
+  const config = params?.config;
+
+  if (!config || !config.type || !config.task || !config.style) {
+    return {
+      content: JSON.stringify({
+        status: 'failed',
+        error: '缺少必要 config 字段（type/task/style）',
+      }),
+    };
+  }
 
   // 防御性修复：Pi 工具的 JSON 序列化层可能把 options 数组错误转成对象。
   config.options = normalizeOptions(config.options);
@@ -344,8 +353,18 @@ export async function workerStart(
   const worker = workers.get(workerId);
 
   if (!worker) {
+    memory.setMany(`worker-${workerId}`,
+      {
+        status: 'failed',
+        lastPhase: 'worker_start',
+        lastError: `Worker not found: ${workerId}`,
+      },
+      'worker-manager',
+    );
+
     return {
       content: JSON.stringify({
+        status: 'failed',
         error: `Worker not found: ${workerId}`,
       }),
     };
@@ -354,6 +373,14 @@ export async function workerStart(
   // 设置后台执行标志
   worker.background = background;
   worker.abortController = new AbortController();
+
+  // 写入最小观测键：无论成功失败都保留该 worker 的可诊断上下文
+  memory.setMany(`worker-${workerId}`, {
+    status: 'started',
+    startedAt: Date.now(),
+    lastPhase: 'worker_start',
+    config: worker.config,
+  }, 'worker-manager');
 
   // worktree 隔离支持
   let worktreePath: string | undefined;
@@ -437,6 +464,12 @@ export async function workerStart(
       results.push(executionResult);
       memory.set('worker', 'results', results, 'worker-manager');
 
+      memory.setMany(`worker-${workerId}`, {
+        status: 'done',
+        endedAt: Date.now(),
+        lastPhase: 'runWorker',
+      }, 'worker-manager');
+
       return result;
     } catch (error) {
       finalError = error as Error;
@@ -454,6 +487,13 @@ export async function workerStart(
       const results = memory.get('worker', 'results') as any[] || [];
       results.push(executionResult);
       memory.set('worker', 'results', results, 'worker-manager');
+
+      memory.setMany(`worker-${workerId}`, {
+        status: 'failed',
+        endedAt: Date.now(),
+        lastPhase: 'runWorker',
+        lastError: (error as Error).message,
+      }, 'worker-manager');
 
       throw error;
     } finally {
@@ -524,9 +564,17 @@ export async function workerStart(
     worker.abortController = undefined;
     onComplete?.("failed", (error as Error).message);
 
+    memory.setMany(`worker-${workerId}`, {
+      status: 'failed',
+      endedAt: Date.now(),
+      lastPhase: 'worker_start',
+      lastError: (error as Error).message,
+    }, 'worker-manager');
+
     return {
       content: JSON.stringify({
         workerId,
+        status: 'failed',
         error: (error as Error).message,
         message: `Worker failed: ${workerId}`,
       }),

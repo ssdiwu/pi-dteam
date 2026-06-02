@@ -192,5 +192,13 @@ describe("chainPlanner", () => {
 
       expect(plan.taskId).toBe("20260601182644-dcs3");
     });
+
+    it("缺少「做什么」描述时抛出错误", () => {
+      const content = makeTaskMd("bugfix", "");
+
+      expect(() => generatePlan(content, "修复-20260601120000-abcd.md")).toThrow(
+        /缺少「目标→做什么」描述/,
+      );
+    });
   });
 });

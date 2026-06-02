@@ -133,12 +133,21 @@ export function generatePlan(content: string, filename: string): ChainPlan {
   const goal = extractGoal(content);
   const criteria = extractAcceptanceCriteria(content);
 
+  if (!goal) {
+    throw new Error("chain plan 生成失败：缺少「目标→做什么」描述");
+  }
+
   // 选择链模板
   const chain = DEFAULT_CHAINS[taskType] ?? FALLBACK_CHAIN;
 
   // 为每个 step 生成 task 描述
   const steps: ChainStep[] = chain.map((role, i) => {
     const roleTask = buildStepTask(role, goal, criteria);
+
+    if (!role || !roleTask) {
+      throw new Error(`chain plan 生成失败：step 缺少 role 或 task（role=${role}）`);
+    }
+
     const step: ChainStep = {
       role,
       mode: "solo",

@@ -21,6 +21,15 @@ describe("Worker 工具集成测试", () => {
   const ctx = { cwd: process.cwd() };
 
   describe("workerCreate", () => {
+    it("缺少 config 时应返回错误，不创建 worker", async () => {
+      // @ts-expect-error 故意缺少参数
+      const result = await workerCreate(ctx, {});
+      const parsed = JSON.parse(result.content);
+
+      expect(parsed.error).toBeDefined();
+      expect(String(parsed.error)).toContain("config");
+    });
+
     it("应该创建 worker 实例", async () => {
       const config: WorkerConfig = {
         type: "solo",
