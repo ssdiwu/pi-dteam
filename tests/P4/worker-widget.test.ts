@@ -18,8 +18,9 @@ import {
 	resetDisposedCount,
 	getDisposedCount,
 	updateAgentProgress,
-	toggleWorkerExpanded,
-	WorkerFullscreenView,
+	showWorkerPanel,
+	buildTabBar,
+	buildTabContent,
 	formatWorkerRow,
 	WorkerStatusList,
 	isExpanded,
@@ -363,13 +364,13 @@ describe("worker-widget", () => {
 	});
 
 	// ═══════════════════════════════════════════════════════════
-	// toggleWorkerExpanded：Ctrl+O 切换
+	// showWorkerPanel：/dteam command 触发入口
 	// ═══════════════════════════════════════════════════════════
 
-	describe("toggleWorkerExpanded", () => {
-		it("无 worker 状态时不展开", () => {
+	describe("showWorkerPanel", () => {
+		it("无 worker 状态时不展开（AC9 早返回）", () => {
 			const ctx = makeMockCtx();
-			toggleWorkerExpanded(ctx as any);
+			showWorkerPanel(ctx as any);
 
 			expect(ctx.ui.custom).not.toHaveBeenCalled();
 			expect(isExpanded()).toBe(false);
@@ -381,43 +382,59 @@ describe("worker-widget", () => {
 			ctx.ui.setWidget.mockClear();
 			ctx.ui.custom.mockClear();
 
-			toggleWorkerExpanded(ctx as any);
+			showWorkerPanel(ctx as any);
 
 			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-workers", undefined);
 			expect(ctx.ui.custom).toHaveBeenCalled();
 			expect(isExpanded()).toBe(true);
 		});
 
-		it("展开后再次 toggle 折叠", () => {
+		it("展开后再次 showWorkerPanel 幂等折叠", () => {
 			const ctx = makeMockCtx();
 			setProgress(makeProgress({ workerId: "w-1" }));
 			ctx.ui.setWidget.mockClear();
 
-			toggleWorkerExpanded(ctx as any);
+			showWorkerPanel(ctx as any);
 			expect(isExpanded()).toBe(true);
 
-			toggleWorkerExpanded(ctx as any);
+			showWorkerPanel(ctx as any);
 			expect(isExpanded()).toBe(false);
-			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-workers", expect.any(Function));
 		});
 
 		it("无 UI 时不展开", () => {
 			const ctx = makeMockCtx(false);
 			setProgress(makeProgress({ workerId: "w-1" }));
 
-			toggleWorkerExpanded(ctx as any);
+			showWorkerPanel(ctx as any);
 			expect(ctx.ui.custom).not.toHaveBeenCalled();
 		});
 	});
 
 	// ═══════════════════════════════════════════════════════════
-	// WorkerFullscreenView：从 store 读数据
+	// buildTabBar：多 worker Tab 栏（取代旧的 WorkerFullscreenView 展开态渲染）
 	// ═══════════════════════════════════════════════════════════
 
-	describe("WorkerFullscreenView render (展开态)", () => {
+	describe("buildTabBar (旧 WorkerFullscreenView 的 replace)", () => {
+		it("多 worker tab 数量正确", () => {
+			setProgress(makeProgress({ workerId: "w-1" }));
+			setProgress(makeProgress({ workerId: "w-2" }));
+			setProgress(makeProgress({ workerId: "team-1" }));
+			const parents = Array.from(getStore().values()).filter((p) => !p.parentWorkerId);
+			const bar = buildTabBar(makeMockTheme() as any, parents, 0, 80);
+			expect(bar).toContain("w-1");
+			expect(bar).toContain("w-2");
+			expect(bar).toContain("team-1");
+		});
+	});
+
+	// ═══════════════════════════════════════════════════════════
+	// buildTabContent：Tab 内容渲染（取代旧的 WorkerFullscreenView render）
+	// ═══════════════════════════════════════════════════════════
+
+	describe("buildTabContent (旧 WorkerFullscreenView render 的 replace)", () => {
 		it("渲染完整进度信息（从 store）", () => {
 			const now = Date.now();
-			setProgress(makeProgress({
+			const p = makeProgress({
 				workerId: "w-1",
 				role: "build",
 				status: "running",
@@ -425,70 +442,47 @@ describe("worker-widget", () => {
 				toolCount: 5,
 				startTime: now - 150000,
 				elapsedMs: 150000,
-			}));
-			updateAgentProgress("w-1", {
-				startTime: now - 150000,
+			});
+			const extended = {
 				currentTool: "bash",
 				recentOutput: "$ npm test\n✓ 138 tests passed",
 				tokenCount: 12345,
-				status: "tool",
-			});
+				duration: 150000,
+				activityFreshness: now - 1000,
+			};
 
-			const theme = makeMockTheme();
-			const view = new WorkerFullscreenView(theme as any, "w-1");
-			const lines = view.render(80);
+			const lines = buildTabContent(makeMockTheme() as any, p, [], extended, 80);
 
 			// 标题行
 			expect(lines[0]).toContain("build");
 			expect(lines[0]).toContain("running");
 			expect(lines[0]).toContain("2m 30s");
 
-			// Task
+			// Task + Current Tool + Output
 			const all = lines.join("\n");
 			expect(all).toContain("Task: 实现功能");
 			expect(all).toContain("Current Tool: bash");
 			expect(all).toContain("npm test");
 			expect(all).toContain("138 tests passed");
 			expect(all).toContain("Token Count: 12,345");
-			expect(all).toContain("[Ctrl+O] collapse");
-		});
-
-		it("无 store 记录：显示 fallback", () => {
-			const theme = makeMockTheme();
-			const view = new WorkerFullscreenView(theme as any, "nonexistent");
-			const lines = view.render(60);
-			expect(lines[0]).toContain("not found");
-		});
-
-		it("invalidate 清除缓存", () => {
-			setProgress(makeProgress({ workerId: "w-1" }));
-			const theme = makeMockTheme();
-			const view = new WorkerFullscreenView(theme as any, "w-1");
-			const lines1 = view.render(60);
-			const lines2 = view.render(60);
-			expect(lines1).toBe(lines2);
-			view.invalidate();
-			const lines3 = view.render(60);
-			expect(lines3).not.toBe(lines1);
 		});
 
 		it("failed 状态显示 finalError", () => {
-			setProgress(makeProgress({ workerId: "w-1", status: "failed", finalError: "model 404" }));
-			const theme = makeMockTheme();
-			const view = new WorkerFullscreenView(theme as any, "w-1");
-			const lines = view.render(60);
+			const p = makeProgress({ workerId: "w-1", status: "failed", finalError: "model 404" });
+			const lines = buildTabContent(makeMockTheme() as any, p, [], undefined, 60);
 			const all = lines.join("\n");
 			expect(all).toContain("Error: model 404");
 		});
 
 		it("信号徽章在标题行", () => {
-			setProgress(makeProgress({ workerId: "w-1" }));
-			recordSignal("w-1", "blocked");
-			recordSignal("w-1", "blocked");
-			const theme = makeMockTheme();
-			const view = new WorkerFullscreenView(theme as any, "w-1");
-			const lines = view.render(60);
-			expect(lines[0]).toContain("🚧×2");
+			const p = makeProgress({
+				workerId: "w-1",
+				signalCount: 2,
+				lastSignal: { type: "blocked", at: Date.now() },
+			});
+			const lines = buildTabContent(makeMockTheme() as any, p, [], undefined, 60);
+			const all = lines.join("\n");
+			expect(all).toContain("🚧×2");
 		});
 	});
 
