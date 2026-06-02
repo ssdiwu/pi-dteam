@@ -1,5 +1,12 @@
 /**
- * P4-用户接口层：worker-widget 单测（折叠态 + 展开态）
+ * P4-用户接口层：worker-widget 单测
+ *
+ * 覆盖：
+ *   - 折叠态：多 worker 单行 + 缩进 + 信号角标
+ *   - 展开态：全屏覆盖层（Ctrl+O 切换）
+ *   - 终态清理：registerWorkerTerminated + scheduleTerminationCleanup
+ *   - 状态栏：极简计数
+ *   - dispose / invalidate：内存泄漏防护
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -8,11 +15,26 @@ import {
 	clearWorkerStatus,
 	resetThrottleState,
 	resetExpandedState,
-	isExpanded,
+	resetDisposedCount,
+	getDisposedCount,
 	updateAgentProgress,
 	toggleWorkerExpanded,
 	WorkerFullscreenView,
+	formatWorkerRow,
+	WorkerStatusList,
+	isExpanded,
+	registerWorkerTerminated,
+	installSignalBridge,
+	uninstallSignalBridge,
 } from "../../src/P4/worker-widget.js";
+import {
+	getStore,
+	resetStore,
+	setProgress,
+	markTerminated,
+	recordSignal,
+	setParent,
+} from "../../src/P4/renderers.js";
 
 // ── Mock ──────────────────────────────────────────────────
 
@@ -42,37 +64,59 @@ function makeMockCtx(hasUI = true) {
 	};
 }
 
+/** 构造一个最小 WorkerProgress 记录 */
+function makeProgress(overrides: Partial<ReturnType<typeof getStore> extends Map<string, infer V> ? V : never> = {}) {
+	const now = Date.now();
+	return {
+		workerId: "w-1",
+		role: "build",
+		status: "running" as const,
+		task: "实现功能",
+		toolCount: 0,
+		startTime: now,
+		elapsedMs: 0,
+		signalCount: 0,
+		...overrides,
+	};
+}
+
 // ── 测试 ──────────────────────────────────────────────────
 
 describe("worker-widget", () => {
 	beforeEach(() => {
 		resetThrottleState();
 		resetExpandedState();
+		resetDisposedCount();
+		resetStore();
 	});
 
-	describe("showWorkerStatus (折叠态)", () => {
-		it("调用 ctx.ui.setWidget 注册 widget", () => {
+	// ═══════════════════════════════════════════════════════════
+	// 折叠态：多 worker 单行 widget
+	// ═══════════════════════════════════════════════════════════
+
+	describe("折叠态 widget (dteam-workers)", () => {
+		it("调用 ctx.ui.setWidget 注册 dteam-workers", () => {
 			const ctx = makeMockCtx();
-			showWorkerStatus(ctx as any, {
+			showWorkerStatus(ctx as any, "w-1", {
 				status: "running",
 				agent: "build",
 				task: "实现 LLM executor",
 				toolCount: 3,
 				elapsedMs: 5000,
-			});
+			} as any);
 
-			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-worker", expect.any(Function));
+			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-workers", expect.any(Function));
 		});
 
 		it("无 UI 时不调用 setWidget", () => {
 			const ctx = makeMockCtx(false);
-			showWorkerStatus(ctx as any, {
+			showWorkerStatus(ctx as any, "w-1", {
 				status: "running",
 				agent: "build",
 				task: "test",
 				toolCount: 0,
 				elapsedMs: 0,
-			});
+			} as any);
 
 			expect(ctx.ui.setWidget).not.toHaveBeenCalled();
 		});
@@ -80,28 +124,24 @@ describe("worker-widget", () => {
 		it("节流：1s 内多次调用只更新一次", async () => {
 			const ctx = makeMockCtx();
 
-			// 第一次调用（立即更新）
-			showWorkerStatus(ctx as any, {
+			showWorkerStatus(ctx as any, "w-1", {
 				status: "running",
 				agent: "build",
 				task: "test",
 				toolCount: 0,
 				elapsedMs: 0,
-			});
+			} as any);
 			expect(ctx.ui.setWidget).toHaveBeenCalledTimes(1);
 
-			// 第二次调用（立即调用，触发节流）
-			showWorkerStatus(ctx as any, {
+			showWorkerStatus(ctx as any, "w-1", {
 				status: "running",
 				agent: "build",
 				task: "test",
 				toolCount: 1,
 				elapsedMs: 100,
-			});
-			// 仍然只有 1 次（被节流）
+			} as any);
 			expect(ctx.ui.setWidget).toHaveBeenCalledTimes(1);
 
-			// 等待 1s，节流触发
 			await new Promise((resolve) => setTimeout(resolve, 1100));
 			expect(ctx.ui.setWidget).toHaveBeenCalledTimes(2);
 		});
@@ -112,7 +152,7 @@ describe("worker-widget", () => {
 			const ctx = makeMockCtx();
 			clearWorkerStatus(ctx as any);
 
-			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-worker", undefined);
+			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-workers", undefined);
 		});
 
 		it("无 UI 时不调用 setWidget", () => {
@@ -121,102 +161,209 @@ describe("worker-widget", () => {
 
 			expect(ctx.ui.setWidget).not.toHaveBeenCalled();
 		});
-
-		it("清除节流定时器", async () => {
-			const ctx = makeMockCtx();
-
-			// 先触发节流
-			showWorkerStatus(ctx as any, {
-				status: "running",
-				agent: "build",
-				task: "test",
-				toolCount: 0,
-				elapsedMs: 0,
-			});
-			showWorkerStatus(ctx as any, {
-				status: "running",
-				agent: "build",
-				task: "test",
-				toolCount: 1,
-				elapsedMs: 100,
-			});
-
-			// 清除
-			clearWorkerStatus(ctx as any);
-
-			// 等待 1s，不应该触发更新
-			await new Promise((resolve) => setTimeout(resolve, 1100));
-
-			// 只有第一次立即更新 + clearWorkerStatus 的 undefined
-			expect(ctx.ui.setWidget).toHaveBeenCalledTimes(2);
-		});
 	});
 
-	describe("WorkerStatusBox render (折叠态)", () => {
-		it("渲染 bordered box", () => {
-			const ctx = makeMockCtx();
-			showWorkerStatus(ctx as any, {
-				status: "running",
-				agent: "build",
-				task: "实现 LLM executor",
-				toolCount: 3,
-				currentTool: "edit",
-				elapsedMs: 12300,
-			});
+	// ═══════════════════════════════════════════════════════════
+	// WorkerStatusList：多 worker 单行渲染
+	// ═══════════════════════════════════════════════════════════
 
-			// 获取 factory 函数
-			const factory = ctx.ui.setWidget.mock.calls[0][1];
-			const mockTheme = makeMockTheme();
-			const component = factory(null, mockTheme);
-			const lines = component.render(60);
-
-			// 验证结构
-			expect(lines.length).toBe(6); // top + 4 content + bottom
-			expect(lines[0]).toContain("╭");
-			expect(lines[0]).toContain("worker");
-			expect(lines[0]).toContain("running");
-			expect(lines[1]).toContain("Agent: build");
-			expect(lines[2]).toContain("Task: 实现 LLM executor");
-			expect(lines[3]).toContain("Tools: 3 (current: edit)");
-			expect(lines[4]).toContain("Elapsed: 12.3s");
-			expect(lines[5]).toContain("╰");
+	describe("WorkerStatusList render", () => {
+		it("空 store：显示 '(no workers)'", () => {
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			const lines = list.render(80);
+			expect(lines[0]).toContain("no workers");
 		});
 
-		it("宽度不足时降级为单行", () => {
-			const ctx = makeMockCtx();
-			showWorkerStatus(ctx as any, {
-				status: "running",
-				agent: "build",
-				task: "test",
-				toolCount: 0,
-				elapsedMs: 0,
-			});
-
-			const factory = ctx.ui.setWidget.mock.calls[0][1];
-			const mockTheme = makeMockTheme();
-			const component = factory(null, mockTheme);
-			const lines = component.render(10); // 宽度不足
-
+		it("单 worker：单行格式", () => {
+			setProgress(makeProgress({ workerId: "w-1", role: "build", task: "实现功能" }));
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			const lines = list.render(80);
 			expect(lines.length).toBe(1);
-			expect(lines[0]).toContain("worker");
+			expect(lines[0]).toContain("build");
+			expect(lines[0]).toContain("实现功能");
+		});
+
+		it("多 worker：多行显示，无缩进", () => {
+			setProgress(makeProgress({ workerId: "w-1", role: "build", task: "实现" }));
+			setProgress(makeProgress({ workerId: "w-2", role: "check", task: "验收" }));
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			const lines = list.render(80);
+			expect(lines.length).toBe(2);
+			expect(lines[0]).toContain("build");
+			expect(lines[1]).toContain("check");
+		});
+
+		it("嵌套 worker：子行带 2 空格 + ↳", () => {
+			setProgress(makeProgress({ workerId: "team-1", role: "team", task: "并行任务" }));
+			setProgress(makeProgress({ workerId: "team-1-0", role: "build", task: "build 子任务", parentWorkerId: "team-1" }));
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			const lines = list.render(80);
+			expect(lines.length).toBe(2);
+			expect(lines[0]).toContain("team");
+			expect(lines[1]).toMatch(/^  ↳.*build/);
+		});
+
+		it("信号角标：signalCount=1 显示 📡", () => {
+			setProgress(makeProgress({ workerId: "w-1", role: "build" }));
+			recordSignal("w-1", "progress");
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			const lines = list.render(80);
+			expect(lines[0]).toContain("📡");
+			expect(lines[0]).not.toContain("×");
+		});
+
+		it("信号角标：signalCount>1 显示 📡×3", () => {
+			setProgress(makeProgress({ workerId: "w-1", role: "build" }));
+			recordSignal("w-1", "progress");
+			recordSignal("w-1", "progress");
+			recordSignal("w-1", "progress");
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			const lines = list.render(80);
+			expect(lines[0]).toContain("📡×3");
+		});
+
+		it("信号类型映射：blocked → 🚧", () => {
+			setProgress(makeProgress({ workerId: "w-1", role: "build" }));
+			recordSignal("w-1", "blocked");
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			const lines = list.render(80);
+			expect(lines[0]).toContain("🚧");
+		});
+
+		it("chain step 标识：[i/N] 前缀", () => {
+			setProgress(makeProgress({ workerId: "chain-1", role: "chain", task: "串行" }));
+			setProgress(makeProgress({
+				workerId: "chain-1-0",
+				role: "build",
+				task: "build 步",
+				parentWorkerId: "chain-1",
+				isChainStep: true,
+				chainIndex: 1,
+				chainTotal: 3,
+			}));
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			const lines = list.render(80);
+			expect(lines[1]).toContain("[1/3]");
+		});
+
+		it("宽度不足时降级为简化显示", () => {
+			setProgress(makeProgress({ workerId: "w-1" }));
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			const lines = list.render(10);
+			expect(lines[0]).toContain("w-1");
+		});
+
+		it("invalidate 清除缓存", () => {
+			setProgress(makeProgress({ workerId: "w-1" }));
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			const lines1 = list.render(60);
+			const lines2 = list.render(60);
+			expect(lines1).toBe(lines2); // 同一引用
+			list.invalidate();
+			const lines3 = list.render(60);
+			expect(lines3).not.toBe(lines1);
 		});
 	});
 
-	describe("updateAgentProgress", () => {
-		it("更新 latestProgress 数据", () => {
-			const now = Date.now();
-			updateAgentProgress({
-				startTime: now - 5000,
-				currentTool: "bash",
-				recentOutput: "hello\nworld",
-				tokenCount: 1234,
-				status: "running",
-			});
+	// ═══════════════════════════════════════════════════════════
+	// formatWorkerRow：单行格式化函数
+	// ═══════════════════════════════════════════════════════════
 
-			// isExpanded 为 false，但数据应该已存储
-			expect(isExpanded()).toBe(false);
+	describe("formatWorkerRow", () => {
+		it("基本格式：statusIcon + role + task + T:n + elapsed", () => {
+			const p = makeProgress({ role: "build", task: "实现功能", toolCount: 3, elapsedMs: 5000 });
+			const line = formatWorkerRow(p, 80, 0);
+			expect(line).toContain("build");
+			expect(line).toContain("实现功能");
+			expect(line).toContain("T:3");
+			expect(line).toContain("5.0s");
+		});
+
+		it("indent=2 + 父任务：行首 '  ↳ '", () => {
+			const p = makeProgress({ role: "build", task: "子任务" });
+			const line = formatWorkerRow(p, 80, 2);
+			expect(line.startsWith("  ↳ ")).toBe(true);
+		});
+
+		it("currentTool 后缀：' · edit'", () => {
+			const p = makeProgress({ currentTool: "edit" });
+			const line = formatWorkerRow(p, 80, 0);
+			expect(line).toContain("· edit");
+		});
+
+		it("chain step 标识：[1/3] 前缀", () => {
+			const p = makeProgress({ chainIndex: 1, chainTotal: 3, isChainStep: true });
+			const line = formatWorkerRow(p, 80, 0);
+			expect(line).toContain("[1/3]");
+		});
+
+		it("宽度截断", () => {
+			const p = makeProgress({ task: "非常长的任务描述".repeat(10) });
+			const line = formatWorkerRow(p, 30, 0);
+			expect(line.length).toBeLessThanOrEqual(30);
 		});
 	});
+
+	// ═══════════════════════════════════════════════════════════
+	// updateAgentProgress(workerId, progress)：新签名
+	// ═══════════════════════════════════════════════════════════
+
+	describe("updateAgentProgress (新签名)", () => {
+		it("写 store（不抛错）", () => {
+			expect(() => {
+				updateAgentProgress("w-1", {
+					startTime: Date.now() - 5000,
+					currentTool: "bash",
+					recentOutput: "hello",
+					tokenCount: 100,
+					status: "running",
+				});
+			}).not.toThrow();
+		});
+
+		it("无 store 记录时也不抛错（容错）", () => {
+			expect(() => {
+				updateAgentProgress("nonexistent", {
+					startTime: Date.now(),
+					recentOutput: "",
+					tokenCount: 0,
+					status: "running",
+				});
+			}).not.toThrow();
+		});
+	});
+
+	// ═══════════════════════════════════════════════════════════
+	// registerWorkerTerminated：终态清理
+	// ═══════════════════════════════════════════════════════════
+
+	describe("registerWorkerTerminated", () => {
+		it("标记 worker 为 done，写 store", () => {
+			setProgress(makeProgress({ workerId: "w-1" }));
+			registerWorkerTerminated("w-1", "done");
+			const p = getStore().get("w-1");
+			expect(p?.status).toBe("done");
+		});
+
+		it("标记 worker 为 failed + 错误信息", () => {
+			setProgress(makeProgress({ workerId: "w-1" }));
+			registerWorkerTerminated("w-1", "failed", "spawn error");
+			const p = getStore().get("w-1");
+			expect(p?.status).toBe("failed");
+			expect(p?.finalError).toBe("spawn error");
+		});
+
+		it("无 store 记录时自动创建最小记录", () => {
+			registerWorkerTerminated("w-new", "done");
+			const p = getStore().get("w-new");
+			expect(p).toBeDefined();
+			expect(p?.status).toBe("done");
+		});
+	});
+
+	// ═══════════════════════════════════════════════════════════
+	// toggleWorkerExpanded：Ctrl+O 切换
+	// ═══════════════════════════════════════════════════════════
 
 	describe("toggleWorkerExpanded", () => {
 		it("无 worker 状态时不展开", () => {
@@ -229,181 +376,243 @@ describe("worker-widget", () => {
 
 		it("有 worker 状态时展开调用 custom", () => {
 			const ctx = makeMockCtx();
-			// 先设置 worker 状态
-			showWorkerStatus(ctx as any, {
-				status: "running",
-				agent: "build",
-				task: "test",
-				toolCount: 0,
-				elapsedMs: 0,
-			});
-			// 重置 mock 计数
+			setProgress(makeProgress({ workerId: "w-1" }));
 			ctx.ui.setWidget.mockClear();
 			ctx.ui.custom.mockClear();
 
 			toggleWorkerExpanded(ctx as any);
 
-			// 应该移除折叠 widget 并弹出 overlay
-			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-worker", undefined);
+			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-workers", undefined);
 			expect(ctx.ui.custom).toHaveBeenCalled();
 			expect(isExpanded()).toBe(true);
 		});
 
 		it("展开后再次 toggle 折叠", () => {
 			const ctx = makeMockCtx();
-			// 先设置 worker 状态
-			showWorkerStatus(ctx as any, {
-				status: "running",
-				agent: "build",
-				task: "test",
-				toolCount: 0,
-				elapsedMs: 0,
-			});
+			setProgress(makeProgress({ workerId: "w-1" }));
 			ctx.ui.setWidget.mockClear();
 
-			// 展开
 			toggleWorkerExpanded(ctx as any);
 			expect(isExpanded()).toBe(true);
 
-			// 再次 toggle 折叠
 			toggleWorkerExpanded(ctx as any);
 			expect(isExpanded()).toBe(false);
-			// 应该恢复折叠 widget
-			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-worker", expect.any(Function));
+			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-workers", expect.any(Function));
 		});
 
 		it("无 UI 时不展开", () => {
 			const ctx = makeMockCtx(false);
-			// 先设置 worker 状态
-			showWorkerStatus(ctx as any, {
-				status: "running",
-				agent: "build",
-				task: "test",
-				toolCount: 0,
-				elapsedMs: 0,
-			});
+			setProgress(makeProgress({ workerId: "w-1" }));
 
 			toggleWorkerExpanded(ctx as any);
 			expect(ctx.ui.custom).not.toHaveBeenCalled();
 		});
 	});
 
-	describe("WorkerFullscreenView render (展开态)", () => {
-		it("渲染完整进度信息", () => {
-			const theme = makeMockTheme();
-			const now = Date.now();
-			const view = new WorkerFullscreenView(
-				theme,
-				{
-					status: "running",
-					agent: "build",
-					task: "实现功能",
-					toolCount: 5,
-					currentTool: "bash",
-					elapsedMs: 150000,
-				},
-				{
-					currentTool: "bash",
-					recentOutput: "$ npm test\n✓ 138 tests passed",
-					tokenCount: 12345,
-					duration: 150000,
-					activityFreshness: now - 5000,
-					currentToolDuration: 15000,
-				},
-			);
+	// ═══════════════════════════════════════════════════════════
+	// WorkerFullscreenView：从 store 读数据
+	// ═══════════════════════════════════════════════════════════
 
+	describe("WorkerFullscreenView render (展开态)", () => {
+		it("渲染完整进度信息（从 store）", () => {
+			const now = Date.now();
+			setProgress(makeProgress({
+				workerId: "w-1",
+				role: "build",
+				status: "running",
+				task: "实现功能",
+				toolCount: 5,
+				startTime: now - 150000,
+				elapsedMs: 150000,
+			}));
+			updateAgentProgress("w-1", {
+				startTime: now - 150000,
+				currentTool: "bash",
+				recentOutput: "$ npm test\n✓ 138 tests passed",
+				tokenCount: 12345,
+				status: "tool",
+			});
+
+			const theme = makeMockTheme();
+			const view = new WorkerFullscreenView(theme as any, "w-1");
 			const lines = view.render(80);
 
 			// 标题行
-			expect(lines[0]).toContain("Worker: build");
+			expect(lines[0]).toContain("build");
 			expect(lines[0]).toContain("running");
 			expect(lines[0]).toContain("2m 30s");
 
 			// Task
-			expect(lines[2]).toContain("Task: 实现功能");
-
-			// Current Tool
-			expect(lines[4]).toContain("Current Tool: bash");
-			expect(lines[4]).toContain("15s");
-
-			// Recent Output
-			expect(lines[6]).toContain("Recent Output (5 tools):");
-			expect(lines[7]).toContain("npm test");
-			expect(lines[8]).toContain("138 tests passed");
-
-			// Token Count
-			expect(lines[10]).toContain("Token Count: 12,345");
-
-			// Activity
-			expect(lines[11]).toContain("Activity: 5s ago");
-
-			// 底部提示
-			expect(lines[lines.length - 1]).toContain("[Ctrl+O] collapse");
+			const all = lines.join("\n");
+			expect(all).toContain("Task: 实现功能");
+			expect(all).toContain("Current Tool: bash");
+			expect(all).toContain("npm test");
+			expect(all).toContain("138 tests passed");
+			expect(all).toContain("Token Count: 12,345");
+			expect(all).toContain("[Ctrl+O] collapse");
 		});
 
-		it("无 progress 时渲染默认值", () => {
+		it("无 store 记录：显示 fallback", () => {
 			const theme = makeMockTheme();
-			const view = new WorkerFullscreenView(
-				theme,
-				{
-					status: "pending",
-					agent: "explore",
-					task: "分析代码",
-					toolCount: 0,
-					elapsedMs: 0,
-				},
-				null,
-			);
-
+			const view = new WorkerFullscreenView(theme as any, "nonexistent");
 			const lines = view.render(60);
-			const all = lines.join("\n");
-
-			expect(all).toContain("Worker: explore");
-			expect(all).toContain("pending");
-			expect(all).toContain("Current Tool: (none)");
-			expect(all).toContain("(no output yet)");
-			expect(all).toContain("Token Count: —");
+			expect(lines[0]).toContain("not found");
 		});
 
 		it("invalidate 清除缓存", () => {
+			setProgress(makeProgress({ workerId: "w-1" }));
 			const theme = makeMockTheme();
-			const view = new WorkerFullscreenView(
-				theme,
-				{ status: "running", agent: "build", task: "test", toolCount: 0, elapsedMs: 0 },
-				null,
-			);
-
+			const view = new WorkerFullscreenView(theme as any, "w-1");
 			const lines1 = view.render(60);
-			// 缓存命中
 			const lines2 = view.render(60);
-			expect(lines1).toBe(lines2); // 同一引用
-
-			// invalidate 后重新渲染
+			expect(lines1).toBe(lines2);
 			view.invalidate();
 			const lines3 = view.render(60);
-			expect(lines3).not.toBe(lines1); // 不同引用（新数组）
+			expect(lines3).not.toBe(lines1);
 		});
 
-		it("updateData 更新数据", () => {
+		it("failed 状态显示 finalError", () => {
+			setProgress(makeProgress({ workerId: "w-1", status: "failed", finalError: "model 404" }));
 			const theme = makeMockTheme();
-			const view = new WorkerFullscreenView(
-				theme,
-				{ status: "running", agent: "build", task: "test", toolCount: 0, elapsedMs: 0 },
-				null,
-			);
-
-			view.render(60);
-
-			// 更新数据
-			view.updateData(
-				{ status: "done", agent: "build", task: "test", toolCount: 3, elapsedMs: 10000 },
-				{ duration: 10000, activityFreshness: Date.now(), tokenCount: 500 },
-			);
-
+			const view = new WorkerFullscreenView(theme as any, "w-1");
 			const lines = view.render(60);
 			const all = lines.join("\n");
-			expect(all).toContain("done");
-			expect(all).toContain("Token Count: 500");
+			expect(all).toContain("Error: model 404");
+		});
+
+		it("信号徽章在标题行", () => {
+			setProgress(makeProgress({ workerId: "w-1" }));
+			recordSignal("w-1", "blocked");
+			recordSignal("w-1", "blocked");
+			const theme = makeMockTheme();
+			const view = new WorkerFullscreenView(theme as any, "w-1");
+			const lines = view.render(60);
+			expect(lines[0]).toContain("🚧×2");
+		});
+	});
+
+	// ═══════════════════════════════════════════════════════════
+	// dispose / 内存泄漏防护
+	// ═══════════════════════════════════════════════════════════
+
+	describe("dispose", () => {
+		it("WidgetStatusList.dispose 计入 disposedCount", () => {
+			const list = new WorkerStatusList(makeMockTheme() as any);
+			expect(getDisposedCount()).toBe(0);
+			list.dispose();
+			expect(getDisposedCount()).toBe(1);
+		});
+	});
+
+	// ═══════════════════════════════════════════════════════════
+	// 信号桥接（installSignalBridge）
+	// ═══════════════════════════════════════════════════════════
+
+	describe("installSignalBridge", () => {
+		it("progress 信号 → store 中 recordSignal", () => {
+			const listeners: Record<string, Array<(s: any) => void>> = {};
+			const fakeBus = {
+				on: (type: string, fn: any) => {
+					if (!listeners[type]) listeners[type] = [];
+					listeners[type].push(fn);
+					return () => {};
+				},
+			};
+			installSignalBridge(fakeBus as any);
+
+			setProgress(makeProgress({ workerId: "w-1" }));
+			listeners.progress.forEach((fn) => fn({ workerId: "w-1", data: { status: "running" } }));
+
+			const p = getStore().get("w-1");
+			expect(p?.signalCount).toBe(1);
+			expect(p?.lastSignal?.type).toBe("progress");
+		});
+
+		it("带 parentWorkerId 的信号 → store 设置嵌套关系", () => {
+			const listeners: Record<string, Array<(s: any) => void>> = {};
+			const fakeBus = {
+				on: (type: string, fn: any) => {
+					if (!listeners[type]) listeners[type] = [];
+					listeners[type].push(fn);
+					return () => {};
+				},
+			};
+			installSignalBridge(fakeBus as any);
+
+			listeners.progress.forEach((fn) => fn({
+				workerId: "child-1",
+				data: { parentWorkerId: "team-1", role: "build", task: "子任务" },
+			}));
+
+			const p = getStore().get("child-1");
+			expect(p?.parentWorkerId).toBe("team-1");
+			expect(p?.role).toBe("build");
+			expect(p?.task).toBe("子任务");
+		});
+
+		it("chainIndex 信号 → store 标记 isChainStep", () => {
+			const listeners: Record<string, Array<(s: any) => void>> = {};
+			const fakeBus = {
+				on: (type: string, fn: any) => {
+					if (!listeners[type]) listeners[type] = [];
+					listeners[type].push(fn);
+					return () => {};
+				},
+			};
+			installSignalBridge(fakeBus as any);
+
+			listeners.progress.forEach((fn) => fn({
+				workerId: "step-2",
+				data: { chainIndex: 2, chainTotal: 5, isChainStep: true },
+			}));
+
+			const p = getStore().get("step-2");
+			expect(p?.chainIndex).toBe(2);
+			expect(p?.chainTotal).toBe(5);
+			expect(p?.isChainStep).toBe(true);
+		});
+
+		it("重复安装幂等（不重复注册 listener）", () => {
+			const listeners: Record<string, Array<(s: any) => void>> = {};
+			const fakeBus = {
+				on: (type: string, fn: any) => {
+					if (!listeners[type]) listeners[type] = [];
+					listeners[type].push(fn);
+					return () => {};
+				},
+			};
+			uninstallSignalBridge(); // 重置
+			installSignalBridge(fakeBus as any);
+			const count1 = listeners.progress.length;
+			installSignalBridge(fakeBus as any);
+			const count2 = listeners.progress.length;
+			expect(count2).toBe(count1);
+		});
+
+		it("uninstallSignalBridge 取消所有 listener", () => {
+			const fakeBus = {
+				on: () => () => {},
+			};
+			installSignalBridge(fakeBus as any);
+			expect(() => uninstallSignalBridge()).not.toThrow();
+		});
+	});
+
+	// ═══════════════════════════════════════════════════════════
+	// updateAgentProgress(workerId, p) 触发折叠 widget 重绘
+	// ═══════════════════════════════════════════════════════════
+
+	describe("updateAgentProgress 触发 TUI 重绘", () => {
+		it("写入 latestProgressByWorker（不抛错）", () => {
+			expect(() => {
+				updateAgentProgress("w-1", {
+					startTime: Date.now(),
+					currentTool: "bash",
+					recentOutput: "out",
+					tokenCount: 50,
+					status: "tool",
+				});
+			}).not.toThrow();
 		});
 	});
 });
