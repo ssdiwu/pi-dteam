@@ -819,11 +819,22 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 	// 仅看父 worker（无 parentWorkerId）作为 tab
 	const parents = Array.from(store.values()).filter((p) => !p.parentWorkerId);
 	if (parents.length === 0) {
-		// 没有任何父 worker（异常情况），仍然提示用户
+		// 空 store 或所有 worker 都是嵌套的（无主 worker），都进异常分支弹提示 panel
 		void ctx.ui.custom<PanelResult>(
 			(_tui, theme, _kb, done) => {
 				const container = new Container();
-				container.addChild(new Text(theme.fg("muted", "  (no parent workers)"), 0, 0));
+				container.addChild(new Text(theme.fg("accent", " 📊 dteam worker 进度 "), 0, 0));
+				container.addChild(new Text(theme.fg("borderMuted", "─".repeat(Math.max(1, 60))), 0, 0));
+				container.addChild(new Text(theme.fg("muted", "  （无 worker 正在工作）"), 0, 0));
+				container.addChild(new Text("", 0, 0));
+				container.addChild(new Text(theme.fg("dim", "  启动 worker 试试："), 0, 0));
+				container.addChild(new Text(theme.fg("dim", "    /dteam run <目标描述>"), 0, 0));
+				container.addChild(new Text(theme.fg("borderMuted", "─".repeat(Math.max(1, 60))), 0, 0));
+				container.addChild(new Text(
+					theme.fg("borderMuted", "  [Esc/q/Ctrl+C] 关闭"),
+					1,
+					0,
+				));
 				// 暴露 done 出口供 closeWorkerPanel 外部触发
 				currentPanelDone = done;
 				return {
@@ -836,6 +847,11 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 					},
 					dispose: () => { container.clear(); currentPanelDone = null; },
 				};
+			},
+			{
+				overlay: true,
+				overlayOptions: { anchor: "center", width: "60%", maxHeight: "40%" },
+				onHandle: (_handle) => { /* currentPanelDone 已是 done 出口 */ },
 			},
 		);
 		expandedActive = true;

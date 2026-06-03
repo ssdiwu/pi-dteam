@@ -133,7 +133,7 @@ describe("showWorkerPanel (集成)", () => {
 		const panel = getCaptured();
 		expect(panel).not.toBeNull();
 		const lines = panel!.render(80);
-		expect(lines.join("\n")).toContain("no parent workers");
+		expect(lines.join("\n")).toContain("无父 worker");
 	});
 
 	it("异常分支 Esc 关掉 overlay（BUG #2 修复验证）", () => {
