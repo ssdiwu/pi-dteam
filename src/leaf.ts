@@ -3,8 +3,7 @@
  *
  * 唯一职责：调 LLM 实际执行一个 subTask。
  *
- * v1 用 createAgentSession，目前不暴露额外工具（v1.1 加）。
- * LLM 只描述"会怎么做"，不直接改文件。
+ * v1.1：暴露 read/bash/edit/write 工具，让 leaf 能真正改文件。
  */
 
 import { createWorkerSession } from "./session.js";
@@ -27,9 +26,9 @@ export async function execute(
     `  Title: ${task.title}\n` +
     `  Description: ${task.description}\n` +
     `\n` +
-    `Describe concisely what you would do to complete this task. Be specific.` +
-    `\n` +
-    `In v1, you cannot modify files. Just describe the action plan.`;
+    `You have access to read, bash, edit, and write tools.\n` +
+    `Use them to actually complete the task. Do not just describe what you would do — DO it.\n` +
+    `When done, provide a brief summary of what you accomplished.`;
 
   // 从 ctx 拿模型信息
   const model = ctx.model;
@@ -41,22 +40,22 @@ export async function execute(
     cwd: ctx.cwd || process.cwd(),
     modelStr,
     ctx,
-    // v1 不暴露工具；v1.1 加 read/bash/edit/write
-    tools: [],
+    // 内置工具：让 leaf 能真正读文件、跑命令、改文件
+    builtInTools: ["read", "bash", "edit", "write"],
   });
 
   // 发 prompt
-  await session.prompt("Execute now.");
+  await session.prompt("Execute this task now.");
 
   // 从 session.messages 取最终文本
-  const messages = session.messages;
+  const messages = session.messages as any[];
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== "assistant") continue;
-    const content = Array.isArray(msg.content) ? msg.content : [];
+    const content: any[] = Array.isArray(msg.content) ? msg.content : [];
     for (const part of content) {
-      if ((part as any).type === "text") {
-        return (part as any).text;
+      if (part.type === "text") {
+        return part.text;
       }
     }
   }

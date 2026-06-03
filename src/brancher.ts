@@ -44,7 +44,7 @@ export async function decide(
     cwd: ctx.cwd || process.cwd(),
     modelStr,
     ctx,
-    tools: [
+    customTools: [
       {
         name: "decide",
         label: "decide",

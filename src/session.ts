@@ -41,8 +41,10 @@ export interface CreateSessionOptions {
   modelStr: string;
   /** Pi 扩展上下文（拿 modelRegistry / authStorage） */
   ctx: any;
-  /** 可选：暴露给 LLM 的工具列表 */
-  tools?: any[];
+  /** 内置工具名字列表，如 ["read", "bash", "edit", "write"] */
+  builtInTools?: string[];
+  /** 自定义工具定义，如 brancher 的 decide 工具 */
+  customTools?: any[];
   /** 可选：thinking level，默认 "off" */
   thinkingLevel?: "off" | "low" | "medium" | "high";
 }
@@ -84,7 +86,8 @@ export async function createWorkerSession(options: CreateSessionOptions) {
     cwd,
     modelStr,
     ctx,
-    tools,
+    builtInTools,
+    customTools: customToolsArg,
     thinkingLevel = "off",
   } = options;
 
@@ -99,8 +102,6 @@ export async function createWorkerSession(options: CreateSessionOptions) {
     retry: { enabled: true, maxRetries: 1 },
   });
 
-  // tools = 内置工具名字列表（如 ["read", "bash"]）
-  // customTools = 自定义工具定义（如 brancher 的 decide 工具）
   const { session } = await createAgentSession({
     cwd,
     model,
@@ -108,7 +109,8 @@ export async function createWorkerSession(options: CreateSessionOptions) {
     authStorage: modelRegistry.authStorage,
     modelRegistry,
     resourceLoader,
-    customTools: tools ?? [],
+    tools: builtInTools,
+    customTools: customToolsArg,
     sessionManager: SessionManager.inMemory(),
     settingsManager,
   });
