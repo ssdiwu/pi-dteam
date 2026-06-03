@@ -2,121 +2,203 @@
  * dteam v1 — 规划器 (planner)
  *
  * Phase 1：问 LLM 制定执行计划。
- * 输出 ExecutionPlan：mode (solo/chain/team) + steps (每个 step 独立选 strategy)。
+ * 策略：先用规则判断（零 LLM 成本），复杂情况才调 LLM 生成 JSON。
  */
 
-import { Type } from "@earendil-works/pi-ai";
-import { createWorkerSession } from "./session.js";
-import type { ExecutionPlan } from "./tools.js";
+import { createWorkerSession, pickAvailableModel } from "./session.js";
+import type { ExecutionPlan, ExecMode, RoleName, Strategy } from "./tools.js";
 
 export async function plan(goal: string, ctx: any): Promise<ExecutionPlan> {
-  const systemPrompt = `你是 dteam 的规划器。根据用户目标，制定执行计划。
+  // 1. 规则判断（零 LLM 成本）
+  const quickPlan = quickRuleBasedPlan(goal);
+  if (quickPlan) {
+    return quickPlan;
+  }
 
-## 两个维度（完全独立，任意组合）
+  // 2. 复杂情况调 LLM 生成 JSON
+  const modelStr = pickAvailableModel(ctx, "minimax-cn/MiniMax-M3", "minimax-cn/MiniMax-M2.7");
+  const systemPrompt = `你是 dteam 的规划器。根据用户目标返回 JSON。
 
-### 维度一：组织形式（怎么组织多个步骤）
-- solo: 单步执行
-- chain: 串行执行，前一步输出自动注入下一步
-- team: 并行执行，每批最多 3 个
+规则：
+- mode: solo (1步) | chain (串行) | team (并行，每批≤3)
+- role: explore | design | build | check | close
+- strategy: direct (跑一次) | build_check (build→check→修, 最多3轮) | adaptive (执行→评估→调, 最多5轮)
 
-### 维度二：执行策略（每个步骤独立选择）
-- direct: 跑一次出结果（适合读文件、跑命令、简单查询）
-- build_check: build→check→不通过就修→再check，最多 3 轮（适合写代码）
-- adaptive: 执行→评估→不满意就调→再评估，最多 5 轮（适合模糊目标）
-
-## 5 个角色
-- explore: 探索者，搜集信息（只读）
-- design: 方案制定者（只读）
-- build: 实现者（唯一能改代码的角色）
-- check: 验收者（只读 + 跑测试）
-- close: 收口者（归档）
-
-## 角色链参考
-- 简单目标 → solo: build
+选择：
+- 简单目标 → solo + build + direct
 - 中等目标 → chain: explore → build
 - 编码目标 → chain: explore → build → check
 - 完整目标 → chain: explore → design → build → check → close
-- 并行目标 → team: 多个 build 并行
+- 可并行 → team: 多个 build
 
-## 策略参考
-- explore/design/check/close → 通常用 direct
-- build（写代码）→ 通常用 build_check
-- build（优化/调整）→ 用 adaptive
-- build（一步到位）→ 用 direct
-
-## 规则
-- solo 只能有 1 个 step
-- chain 的步骤按顺序串行
-- team 不要超过 5 个 step
-- 每个步骤独立选择策略
-
-调用 plan 工具返回结构化执行计划。不要输出其他文本。`;
+你必须且只能返回 JSON 对象，格式：
+{"mode":"chain","reason":"...","steps":[{"role":"explore","task":"...","strategy":"direct"},{"role":"build","task":"...","strategy":"build_check"}]}`;
 
   const session = await createWorkerSession({
     systemPrompt,
     cwd: ctx.cwd || process.cwd(),
-    modelStr: "minimax-cn/MiniMax-M3",
+    modelStr,
     ctx,
-    customTools: [
-      {
-        name: "plan",
-        label: "plan",
-        description: "为这个 goal 制定执行计划",
-        parameters: Type.Object({
-          mode: Type.Union([Type.Literal("solo"), Type.Literal("chain"), Type.Literal("team")]),
-          reason: Type.String({ description: "为什么选这个模式" }),
-          steps: Type.Array(
-            Type.Object({
-              role: Type.Union([
-                Type.Literal("explore"),
-                Type.Literal("design"),
-                Type.Literal("build"),
-                Type.Literal("check"),
-                Type.Literal("close"),
-              ]),
-              task: Type.String({ description: "具体任务描述" }),
-              strategy: Type.Union([
-                Type.Literal("direct"),
-                Type.Literal("build_check"),
-                Type.Literal("adaptive"),
-              ]),
-              files: Type.Optional(Type.Array(Type.String())),
-            }),
-          ),
-        }),
-      },
-    ],
   });
 
-  await session.prompt(`目标：${goal}\n\n请制定执行计划。`);
+  await session.prompt(`目标：${goal}`);
 
-  // 从 messages 中找 plan tool call
+  // 从 messages 中取最终文本
   const messages = session.messages as any[];
+  let text = "";
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== "assistant") continue;
     const content: any[] = Array.isArray(msg.content) ? msg.content : [];
     for (const part of content) {
-      if (part.type === "toolCall" && part.name === "plan") {
-        const args = part.arguments;
-        return {
-          mode: args.mode ?? "solo",
-          reason: String(args.reason ?? ""),
-          steps: (Array.isArray(args.steps) ? args.steps : []).map((s: any) => ({
-            role: s.role ?? "build",
-            task: String(s.task ?? goal),
-            strategy: s.strategy ?? "direct",
-            files: Array.isArray(s.files) ? s.files : undefined,
-          })),
-        };
+      if (part.type === "text" && part.text) {
+        text = part.text;
+        break;
       }
     }
+    if (text) break;
   }
 
-  // Fallback：LLM 没返回 plan → solo + direct + build
+  const parsed = extractJSON(text);
+  if (parsed) {
+    const mode = normalizeMode(String(parsed.mode ?? "solo"));
+    const rawSteps = Array.isArray(parsed.steps) ? parsed.steps : [];
+    const steps = rawSteps.length > 0
+      ? rawSteps.map((s: any) => ({
+          role: normalizeRole(String(s.role ?? "build")),
+          task: String(s.task ?? goal),
+          strategy: normalizeStrategy(String(s.strategy ?? "direct")),
+        }))
+      : [{ role: "build" as RoleName, task: goal, strategy: "direct" as Strategy }];
+
+    return { mode, reason: String(parsed.reason ?? ""), steps };
+  }
+
+  // LLM 失败 → fallback
   return {
     mode: "solo",
-    reason: "LLM 未返回计划，fallback",
+    reason: "LLM 未返回有效 JSON，fallback",
     steps: [{ role: "build", task: goal, strategy: "direct" }],
   };
+}
+
+// ═══ 规则判断（零 LLM 成本） ═══
+
+/**
+ * 简单目标用规则判断，避免调 LLM。
+ * 返回 null 表示需要走 LLM。
+ */
+function quickRuleBasedPlan(goal: string): ExecutionPlan | null {
+  const g = goal.trim();
+
+  // 空 goal
+  if (!g) {
+    return {
+      mode: "solo",
+      reason: "空目标",
+      steps: [{ role: "build", task: g, strategy: "direct" }],
+    };
+  }
+
+  // 特征词
+  const isExploratory = /(?:探索|了解|调研|看看|调查|解释|什么|哪些|怎么实现|思路)/.test(g);
+  const isCoding = /(?:实现|编写|创建|开发|添加|加|构建|写|改|修复|重构|代码|函数|项目)/.test(g);
+  const isVerification = /(?:测试|验证|检查|跑|确认|tsc|pytest)/.test(g);
+  const isParallel = /(?:同时|并行|分别|各自|独立|各)/.test(g);
+  const isAdaptive = /(?:优化|调整|改进|提升|直到|满意|迭代|慢慢)/.test(g);
+
+  // 短目标 → solo+direct
+  if (g.length < 25) {
+    return {
+      mode: "solo",
+      reason: "目标简短，直接干",
+      steps: [{ role: "build", task: g, strategy: "direct" }],
+    };
+  }
+
+  // 并行任务
+  if (isParallel && isCoding && !isExploratory) {
+    return {
+      mode: "team",
+      reason: "检测到并行特征",
+      steps: [{ role: "build", task: g, strategy: "build_check" }],
+    };
+  }
+
+  // 编码目标 → chain
+  if (isCoding && !isVerification) {
+    const strategy: Strategy = isAdaptive ? "adaptive" : "build_check";
+    return {
+      mode: "chain",
+      reason: isAdaptive ? "需要迭代优化" : "编码任务：先探索再实现再验证",
+      steps: [
+        { role: "explore", task: `探索项目现状：${g}`, strategy: "direct" },
+        { role: "build", task: g, strategy },
+      ],
+    };
+  }
+
+  // 探索/调研
+  if (isExploratory && !isCoding) {
+    return {
+      mode: "solo",
+      reason: "纯探索任务",
+      steps: [{ role: "explore", task: g, strategy: "direct" }],
+    };
+  }
+
+  // 验证任务
+  if (isVerification && !isCoding) {
+    return {
+      mode: "solo",
+      reason: "纯验证任务",
+      steps: [{ role: "check", task: g, strategy: "direct" }],
+    };
+  }
+
+  // 其他 → LLM
+  return null;
+}
+
+// ═══ JSON 提取 ═══
+
+function extractJSON(text: string): Record<string, any> | null {
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch?.[1]) {
+    try { return JSON.parse(fenceMatch[1].trim()); } catch { /* next */ }
+  }
+
+  const braceStart = text.indexOf("{");
+  const braceEnd = text.lastIndexOf("}");
+  if (braceStart >= 0 && braceEnd > braceStart) {
+    try { return JSON.parse(text.slice(braceStart, braceEnd + 1)); } catch { /* next */ }
+  }
+
+  return null;
+}
+
+// ═══ 归一化 ═══
+
+function normalizeMode(raw: string): ExecMode {
+  const lower = raw.toLowerCase().trim();
+  if (lower.includes("chain")) return "chain";
+  if (lower.includes("team")) return "team";
+  return "solo";
+}
+
+function normalizeRole(raw: string): RoleName {
+  const lower = raw.toLowerCase().trim();
+  if (lower.includes("explor") || lower === "侦察" || lower === "探索") return "explore";
+  if (lower.includes("design") || lower === "方案" || lower === "设计") return "design";
+  if (lower.includes("build") || lower === "实现" || lower === "构建") return "build";
+  if (lower.includes("check") || lower.includes("review") || lower === "验收" || lower === "检查") return "check";
+  if (lower.includes("close") || lower === "收口" || lower === "归档") return "close";
+  return "build";
+}
+
+function normalizeStrategy(raw: string): Strategy {
+  const lower = raw.toLowerCase().trim();
+  if (lower.includes("build_check") || lower.includes("build-check") || lower === "建检") return "build_check";
+  if (lower.includes("adapt") || lower === "自适应" || lower === "迭代") return "adaptive";
+  return "direct";
 }

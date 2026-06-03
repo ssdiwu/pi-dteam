@@ -5,7 +5,7 @@
  * 角色决定 systemPrompt + tools（由 session.ts 的角色系统处理）。
  */
 
-import { createWorkerSession } from "./session.js";
+import { createWorkerSession, pickAvailableModel } from "./session.js";
 import type { RoleName } from "./tools.js";
 
 /**
@@ -26,7 +26,7 @@ export async function execute(
   const session = await createWorkerSession({
     role,
     cwd: ctx.cwd || process.cwd(),
-    modelStr: "minimax-cn/MiniMax-M3",
+    modelStr: pickAvailableModel(ctx, "minimax-cn/MiniMax-M3", "minimax-cn/MiniMax-M2.7"),
     ctx,
   });
 
@@ -49,3 +49,5 @@ export async function execute(
 
   return "(no output)";
 }
+
+// ═══ 模型解析已抽取到 session.ts（pickAvailableModel） ═══

@@ -9,7 +9,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import type { Decision, Task } from "./tools.js";
-import { createWorkerSession } from "./session.js";
+import { createWorkerSession, pickAvailableModel } from "./session.js";
 
 /**
  * 让 LLM 决定：拆还是干。
@@ -34,9 +34,9 @@ export async function decide(
     `\n` +
     `You MUST call the decide tool with the structured decision. Do not output any other text.`;
 
-  // 从 ctx 拿模型信息，优先用 MiniMax-M3
+  // 从 ctx 拿模型信息，优先用 MiniMax-M3，找不到就降级
   const model = ctx.model;
-  const modelStr = "minimax-cn/MiniMax-M3";
+  const modelStr = pickAvailableModel(ctx, "minimax-cn/MiniMax-M3", "minimax-cn/MiniMax-M2.7");
 
   const session = await createWorkerSession({
     systemPrompt,
@@ -102,3 +102,5 @@ export async function decide(
     : "no content";
   throw new Error(`Brancher: LLM did not call decide tool. Got: ${JSON.stringify(debug)}`);
 }
+
+// ═══ 模型解析已抽取到 session.ts（pickAvailableModel） ═══

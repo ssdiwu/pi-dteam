@@ -146,6 +146,34 @@ function resolveModelStr(
   throw new Error(`Cannot resolve model: "${modelStr}"`);
 }
 
+/**
+ * 公开：主模型找不到时降级到备选。
+ * 返回实际能用的 model 字符串。
+ */
+export function pickAvailableModel(
+  ctx: any,
+  primary: string,
+  fallback: string,
+): string {
+  const registry = ctx?.modelRegistry;
+  if (!registry) return primary;
+
+  for (const m of [primary, fallback]) {
+    const slashIdx = m.indexOf("/");
+    if (slashIdx <= 0) continue;
+    const provider = m.slice(0, slashIdx);
+    const id = m.slice(slashIdx + 1);
+    if (registry.find?.(provider, id)) {
+      if (m !== primary) {
+        console.error(`[dteam] Primary model ${primary} not found, falling back to ${m}`);
+      }
+      return m;
+    }
+  }
+
+  return primary; // 都找不到，让 resolveModelStr 拋错
+}
+
 // ═══ 主工厂函数 ═══
 
 export async function createWorkerSession(options: CreateSessionOptions) {
