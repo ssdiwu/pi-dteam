@@ -1,29 +1,33 @@
 # doc/
 
-> 设计文档总览（面向贡献者）。
+> 所有文档都在这里。
 
-## 核心设计
+## 用户面向
 
 | 文件 | 说明 |
 |------|------|
-| [design.md](./design.md) | v1 最小闭环设计（早期版本） |
-| [design-v2.md](./design-v2.md) | v2 二维编排设计稿（当前） |
-| [vs-ant-colony.md](./vs-ant-colony.md) | dteam vs ant-colony 关键差异 |
-| [gap-analysis.md](./gap-analysis.md) | v1 现状 vs ant-colony 能力差距 |
-| [exec-modes.md](./exec-modes.md) | solo/chain/team 模式设计稿 |
-| [roles-v1.md](./roles-v1.md) | 角色系统设计稿 |
-| [ui-v1.md](./ui-v1.md) | UI 规划 |
+| [架构说明.md](./架构说明.md) | 二维编排模型 + 三阶段流水线 |
+| [角色系统.md](./角色系统.md) | 5 个角色（explore/design/build/check/close） |
+| [API参考.md](./API参考.md) | 工具 + 命令 API |
 
-## 用户面向文档（在 `../docs/`）
+## 设计笔记
 
-- [../docs/architecture.md](../docs/architecture.md) — 架构
-- [../docs/roles.md](../docs/roles.md) — 角色
-- [../docs/api.md](../docs/api.md) — API
+| 文件 | 说明 |
+|------|------|
+| [设计-v1.md](./设计-v1.md) | v1 最小闭环设计（早期版本） |
+| [设计-v2.md](./设计-v2.md) | v2 二维编排设计稿（当前） |
+| [执行模式.md](./执行模式.md) | solo/chain/team 模式设计稿 |
+| [角色-v1.md](./角色-v1.md) | 角色系统设计稿 |
+| [与蚁群对比.md](./与蚁群对比.md) | dteam vs ant-colony 关键差异 |
+| [差距分析.md](./差距分析.md) | v1 现状 vs ant-colony 能力差距 |
+| [UI-v1.md](./UI-v1.md) | UI 规划 |
 
 ## 阅读顺序建议
 
 新人接手 dteam：
 1. [../README.md](../README.md) — 项目门面
-2. [../docs/architecture.md](../docs/architecture.md) — 怎么跑
-3. [../src/README.md](../src/README.md) — 代码组织
-4. [design-v2.md](./design-v2.md) — 当时为什么这样设计
+2. [架构说明.md](./架构说明.md) — 怎么跑
+3. [角色系统.md](./角色系统.md) — 角色权限
+4. [API参考.md](./API参考.md) — 怎么调
+5. [设计-v2.md](./设计-v2.md) — 当时为什么这样设计
+6. [../src/README.md](../src/README.md) — 代码组织

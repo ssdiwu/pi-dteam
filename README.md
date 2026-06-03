@@ -62,13 +62,13 @@ dteam(action="run", goal="在 /tmp 下创建 hello.txt")
 
 ## 文档
 
-- [架构说明（二维编排模型）](./docs/architecture.md)
-- [角色系统（5 个角色职责）](./docs/roles.md)
-- [工具 API](./docs/api.md)
+- [架构说明（二维编排模型）](./doc/架构说明.md)
+- [角色系统（5 个角色职责）](./doc/角色系统.md)
+- [工具 API](./doc/API参考.md)
 - [src/ 内部架构](./src/README.md)
 - [设计文档总览](./doc/README.md)
-- [v1 vs ant-colony 差距](./doc/gap-analysis.md)
-- [v2 设计稿（二维编排）](./doc/design-v2.md)
+- [v1 vs ant-colony 差距](./doc/差距分析.md)
+- [v2 设计稿（二维编排）](./doc/设计-v2.md)
 
 ## 目录结构
 
@@ -89,13 +89,12 @@ dteam(action="run", goal="在 /tmp 下创建 hello.txt")
 │   └── ui-widget.ts        # 折叠态 widget
 ├── agents/                 # 5 个角色定义
 │   ├── explore.md
-│   ├── design.md
+│   ├── 设计-v1.md
 │   ├── build.md
 │   ├── check.md
 │   └── close.md
 ├── tests/                  # 189 个测试
-├── doc/                    # 设计文档
-├── docs/                   # 用户文档
+├── doc/                    # 所有文档（中文名）
 ├── archive/                # v0 历史归档
 └── ...
 ```
@@ -121,4 +120,4 @@ dteam(action="run", goal="在 /tmp 下创建 hello.txt")
 ## 相关链接
 
 - v0 历史归档：[`archive/v0-pre-rewrite/`](./archive/v0-pre-rewrite/README-archive.md)
-- Pi 扩展开发：<https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/extensions.md>
+- Pi 扩展开发：<https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agen./doc/extensions.md>

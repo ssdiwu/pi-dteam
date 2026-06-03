@@ -19,8 +19,8 @@ dteam v1 是一个 Pi 扩展，把"派一个 worker"做成一棵递归的 worker
 | `src/leaf.ts` | 调 LLM 干活 | 必读 |
 | `src/pool.ts` | 任务池（内存） | 必读 |
 | `src/index.ts` | Pi 扩展入口 | 必读 |
-| `doc/design.md` | v1 最小闭环设计 | 参考 |
-| `doc/vs-ant-colony.md` | 与 ant-colony 对比 | 参考 |
+| `doc/设计-v1.md` | v1 最小闭环设计 | 参考 |
+| `doc/与蚁群对比.md` | 与 ant-colony 对比 | 参考 |
 | `archive/v0-pre-rewrite/` | v0 完整归档 | **不要回去抄** |
 | `.doc/` | v0 文档（已归档） | **不要参考** |
 
@@ -69,7 +69,7 @@ npm run build
 | 改对外暴露的 dteam 工具 | 改 `src/index.ts` |
 | 加新工具 | **不推荐**——dteam v1 故意只暴露 1 个工具 |
 | 加面板 / 持久化 / 并发 | **v2 再做**，v1 不动 |
-| 重构 | 看完 `doc/design.md` 确认你理解 v1 设计 |
+| 重构 | 看完 `doc/设计-v1.md` 确认你理解 v1 设计 |
 
 ## 状态机提醒
 
@@ -89,7 +89,7 @@ v1 不做：waiting_help / blocked / skipped 状态。这些是 v0 设计的，*
 示例：
 - `feat(v1.1): 让 leaf 实际能改文件`
 - `fix(v1): 修正 brancher 解析 tool call 的逻辑`
-- `docs(v1): 更新 doc/design.md`
+- `docs(v1): 更新 doc/设计-v1.md`
 
 **提交前**：
 - `npm run build` 通过
