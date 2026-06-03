@@ -5,7 +5,7 @@
  *   - dteam(action="run", goal="...")  → 同步阻塞跑完一个 goal
  *
  * 注册 1 个命令：
- *   - /dteam → 显示 worker 进度面板
+ *   - /dteam → toggle 面板（有 run 显示详情，无 run 显示空态）
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -13,19 +13,26 @@ import { Container, Text } from "@earendil-works/pi-tui";
 import { run } from "./src/orchestrator.js";
 import { uiStore } from "./src/ui-store.js";
 import { renderWidget, WIDGET_KEY } from "./src/ui-widget.js";
+import { togglePanel, closePanel, renderPanel, isPanelActive, PANEL_KEY } from "./src/ui-panel.js";
 import { statusIcon, truncText } from "./src/ui-render.js";
 import type { RunResult } from "./src/tools.js";
 
 /** widget 刷新定时器 */
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
-function startWidgetRefresh(ctx: any) {
-  stopWidgetRefresh();
+function startRefresh(ctx: any) {
+  stopRefresh();
+  // 立即渲染一次
   renderWidget(ctx);
-  refreshTimer = setInterval(() => renderWidget(ctx), 500);
+  renderPanel(ctx);
+  // 每 500ms 刷新
+  refreshTimer = setInterval(() => {
+    renderWidget(ctx);
+    renderPanel(ctx);
+  }, 500);
 }
 
-function stopWidgetRefresh() {
+function stopRefresh() {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
 }
 
@@ -51,7 +58,7 @@ function renderDteamResult(result: any, options: { expanded: boolean }, theme: a
     return c;
   }
 
-  const { status, summary, workItems } = parsed;
+  const { status, workItems } = parsed;
   const icon = status === "done" ? "✓" : "✗";
   const color = status === "done" ? "success" : "error";
   const goal = workItems?.[0]?.title ?? "";
@@ -59,7 +66,6 @@ function renderDteamResult(result: any, options: { expanded: boolean }, theme: a
   const failed = workItems?.filter(t => t.status === "failed").length ?? 0;
   const total = workItems?.length ?? 0;
 
-  // 第一行：✓ dteam · 4/4 完成
   const summaryCn = failed > 0 ? `${done}/${total} 完成, ${failed} 失败` : `${done}/${total} 完成`;
   c.addChild(new Text(theme.fg(color, `${icon} dteam · ${summaryCn}`), 0, 0));
 
@@ -118,15 +124,23 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify(`dteam: 开始执行 "${goal}"`, "info");
       ctx.ui.setStatus("dteam", `执行中: ${goal}`);
 
-      startWidgetRefresh(ctx);
+      // 启动刷新（折叠 widget + 面板同步）
+      startRefresh(ctx);
 
       try {
         const result = await run(goal, ctx);
         ctx.ui.setStatus("dteam", undefined);
-        renderWidget(ctx);
 
+        // 最后刷新一次
+        renderWidget(ctx);
+        renderPanel(ctx);
+
+        // 3 秒后停止刷新 + 关闭折叠 widget（面板保留）
         setTimeout(() => {
-          if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined);
+          stopRefresh();
+          if (ctx.hasUI && !isPanelActive()) {
+            ctx.ui.setWidget(WIDGET_KEY, undefined);
+          }
         }, 3000);
 
         return {
@@ -135,7 +149,7 @@ export default function (pi: ExtensionAPI) {
         };
       } catch (e) {
         ctx.ui.setStatus("dteam", undefined);
-        stopWidgetRefresh();
+        stopRefresh();
         return {
           content: [{ type: "text" as const, text: `dteam 失败: ${(e as Error).message}` }],
           isError: true,
@@ -148,14 +162,11 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ═══ 注册 /dteam 命令 ═══
+  // ═══ 注册 /dteam 命令（toggle 面板） ═══
   pi.registerCommand("dteam", {
-    description: "显示 dteam worker 进度面板",
+    description: "切换 dteam worker 进度面板",
     async handler(_args, ctx) {
-      // 无论有没有活跃 run，都启动 widget 刷新
-      // 有 run 显示进度，无 run 显示"就绪"
-      startWidgetRefresh(ctx);
-      ctx.ui.notify("dteam: 面板已启动", "info");
+      togglePanel(ctx);
     },
   });
 }
