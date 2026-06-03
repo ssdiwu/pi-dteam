@@ -4,9 +4,10 @@
  * 唯一职责：问 LLM "这个 subTask 还要拆吗？"
  *
  * v1 实现：用 `completeSimple` 直接调 LLM，把决策编码成 tool call。
+ * 用 typebox 定义 schema（Pi SDK 要求）。
  */
 
-import { completeSimple } from "@earendil-works/pi-ai";
+import { completeSimple, Type } from "@earendil-works/pi-ai";
 import type { Decision, Task } from "./tools.js";
 
 /**
@@ -48,26 +49,19 @@ export async function decide(
     tools: [
       {
         name: "decide",
-        description: "Call this with your decision",
-        parameters: {
-          type: "object",
-          properties: {
-            kind: { type: "string", enum: ["execute", "decompose"] },
-            reason: { type: "string" },
-            subTasks: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  title: { type: "string" },
-                  description: { type: "string" },
-                },
-                required: ["title", "description"],
-              },
-            },
-          },
-          required: ["kind", "reason"],
-        },
+        description: "Call this with your decision: either execute directly or decompose into sub-tasks.",
+        parameters: Type.Object({
+          kind: Type.Union([Type.Literal("execute"), Type.Literal("decompose")]),
+          reason: Type.String(),
+          subTasks: Type.Optional(
+            Type.Array(
+              Type.Object({
+                title: Type.String(),
+                description: Type.String(),
+              }),
+            ),
+          ),
+        }),
       },
     ],
   };
@@ -79,13 +73,15 @@ export async function decide(
   let details: any = null;
   for (const part of content) {
     if (part?.type === "toolCall" && part.name === "decide") {
-      details = part.arguments ?? part.args;
+      details = part.arguments;
       break;
     }
   }
 
   if (!details || typeof details !== "object") {
-    throw new Error("Brancher: LLM did not call decide tool");
+    // debug: 看看 LLM 实际返回了什么
+    const debug = content.map((c: any) => ({ type: c?.type, name: c?.name, text: c?.text?.slice(0, 100) }));
+    throw new Error(`Brancher: LLM did not call decide tool. Got: ${JSON.stringify(debug)}`);
   }
 
   if (details.kind === "execute") {

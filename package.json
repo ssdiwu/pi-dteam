@@ -27,7 +27,7 @@
   "pi": {
     "name": "dteam",
     "extensions": [
-      "./extensions"
+      "./index.ts"
     ]
   },
   "peerDependencies": {
