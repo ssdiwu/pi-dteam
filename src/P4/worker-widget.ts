@@ -853,7 +853,7 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 					}
 				},
 			};
-		}, { placement: "aboveEditor" });
+		});
 
 		expandedActive = true;
 		latestCtx = ctx;
@@ -978,5 +978,5 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 				}
 			},
 		};
-	}, { placement: "aboveEditor" });
+	});
 }
