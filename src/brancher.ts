@@ -47,6 +47,7 @@ export async function decide(
     tools: [
       {
         name: "decide",
+        label: "decide",
         description: "Call this with your decision: either execute directly or decompose into sub-tasks.",
         parameters: Type.Object({
           kind: Type.Union([Type.Literal("execute"), Type.Literal("decompose")]),

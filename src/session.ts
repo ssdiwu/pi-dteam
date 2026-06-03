@@ -99,6 +99,8 @@ export async function createWorkerSession(options: CreateSessionOptions) {
     retry: { enabled: true, maxRetries: 1 },
   });
 
+  // tools = 内置工具名字列表（如 ["read", "bash"]）
+  // customTools = 自定义工具定义（如 brancher 的 decide 工具）
   const { session } = await createAgentSession({
     cwd,
     model,
@@ -106,7 +108,7 @@ export async function createWorkerSession(options: CreateSessionOptions) {
     authStorage: modelRegistry.authStorage,
     modelRegistry,
     resourceLoader,
-    tools: tools ?? [],
+    customTools: tools ?? [],
     sessionManager: SessionManager.inMemory(),
     settingsManager,
   });
