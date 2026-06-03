@@ -804,7 +804,7 @@ function closeWorkerPanel(): void {
 /**
  * 显示多 worker Tab 面板（/dteam command 触发）
  */
-export function showWorkerPanel(ctx: ExtensionContext): void {
+export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 	if (!ctx.hasUI) return;
 
 	// 幂等：已展开则关闭（重入口保护）
@@ -825,7 +825,7 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 		const emptyMsg = store.size === 0
 			? "  （无 worker 正在工作）"
 			: "  （无父 worker 正在工作）";
-		void ctx.ui.custom<PanelResult>(
+		await ctx.ui.custom<PanelResult>(
 			(_tui, theme, _kb, done) => {
 				const boxW = Math.min(56, Math.max(30, 56)); // 默认 56 列宽
 				const innerW = boxW - 4; // Box paddingX=2 两侧
@@ -861,11 +861,7 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 					dispose: () => { box.clear(); currentPanelDone = null; },
 				};
 			},
-			{
-				overlay: true,
-				overlayOptions: { anchor: "center", width: 60, maxHeight: 16 },
-				onHandle: (_handle) => { /* currentPanelDone 已是 done 出口 */ },
-			},
+			// inline 模式：无 overlay，面板渲染在信息流中
 		);
 		expandedActive = true;
 		latestCtx = ctx;
@@ -879,7 +875,7 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 	// 移除折叠态 widget
 	ctx.ui.setWidget(WIDGET_KEY, undefined);
 
-	void ctx.ui.custom<PanelResult>(
+	await ctx.ui.custom<PanelResult>(
 		(tui, theme, _keybindings, done) => {
 			// 暴露 done 出口供 closeWorkerPanel 外部触发
 			currentPanelDone = done;

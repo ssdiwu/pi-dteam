@@ -370,45 +370,45 @@ describe("worker-widget", () => {
 	// ═══════════════════════════════════════════════════════════
 
 	describe("showWorkerPanel", () => {
-		it("无 worker 状态时也弹提示 panel（AC9 修复）", () => {
+		it("无 worker 状态时也弹提示 panel（AC9 修复）", async () => {
 			const ctx = makeMockCtx();
-			showWorkerPanel(ctx as any);
+			await showWorkerPanel(ctx as any);
 
 			// 修复后空 store 也弹 panel
 			expect(ctx.ui.custom).toHaveBeenCalled();
 			expect(isExpanded()).toBe(true);
 		});
 
-		it("有 worker 状态时展开调用 custom", () => {
+		it("有 worker 状态时展开调用 custom", async () => {
 			const ctx = makeMockCtx();
 			setProgress(makeProgress({ workerId: "w-1" }));
 			ctx.ui.setWidget.mockClear();
 			ctx.ui.custom.mockClear();
 
-			showWorkerPanel(ctx as any);
+			await showWorkerPanel(ctx as any);
 
 			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-workers", undefined);
 			expect(ctx.ui.custom).toHaveBeenCalled();
 			expect(isExpanded()).toBe(true);
 		});
 
-		it("展开后再次 showWorkerPanel 幂等折叠", () => {
+		it("展开后再次 showWorkerPanel 幂等折叠", async () => {
 			const ctx = makeMockCtx();
 			setProgress(makeProgress({ workerId: "w-1" }));
 			ctx.ui.setWidget.mockClear();
 
-			showWorkerPanel(ctx as any);
+			await showWorkerPanel(ctx as any);
 			expect(isExpanded()).toBe(true);
 
-			showWorkerPanel(ctx as any);
+			await showWorkerPanel(ctx as any);
 			expect(isExpanded()).toBe(false);
 		});
 
-		it("无 UI 时不展开", () => {
+		it("无 UI 时不展开", async () => {
 			const ctx = makeMockCtx(false);
 			setProgress(makeProgress({ workerId: "w-1" }));
 
-			showWorkerPanel(ctx as any);
+			await showWorkerPanel(ctx as any);
 			expect(ctx.ui.custom).not.toHaveBeenCalled();
 		});
 	});
