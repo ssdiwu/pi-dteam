@@ -1,0 +1,353 @@
+# pi-dteam
+
+> 轻量级多代理编排系统 — 基于 Pi 的多代理工作流框架
+
+[English](./README.md) | 中文
+
+## 概述
+
+dteam 是一个 **Pi 扩展包**，它真正的定位是一个**半自动多 worker 编排引擎**。
+
+它不是单纯的 prompt 集合，不是单纯的 TUI Widget，也不是全自动自治的蚁群系统。它的目标是把复杂任务转化为：
+
+- **可拆解**
+- **可执行**
+- **可追踪**
+- **可续跑**
+- **可交接**
+
+它的核心哲学是：
+
+> **先把任务讲清楚，再让 worker 去做。**
+
+## 核心概念
+
+- **task**：工作契约（Markdown），定义目标、范围、验收条件，是全局主上下文
+- **Root Worker（根 worker）**：唯一编排器 / 主 worker，负责理解目标、拆任务、调度、接收信号、决定何时交还人工决策
+- **Branch Worker（分支 worker）**：`chain` / `team`，worker 树中的局部协调节点
+- **Leaf Worker（叶子 worker）**：`solo`，最小执行单元，直接读文件、写代码、跑测试、发信号
+- **worker tree（worker 树）**：dteam 的真实执行模型；一个根 worker，多个可嵌套的分支 worker，以及若干叶子 worker
+- **信号**：结构化协作协议（`progress` / `found` / `help` / `blocked`），不是给人看的自由文本日志，而是机器可消费的协作事件
+- **runs/**：运行时现场，保存 state、signals、help、resume 等上下文，支持续跑与审计
+- **archive/**：历史知识库，保存完成任务与经验教训
+
+## dteam 不是什么
+
+- 不是一组 `/explore` `/design` `/build` prompt 的集合
+- 不是以 Widget / TUI 为核心的 UI 项目
+- 不是去掉人工决策点的全自动 colony
+- 不是单纯的任务管理器或 Jira 替代品
+- 不是以 deploy 为核心的系统
+
+## 安装
+
+```bash
+# 通过 git 安装（推荐）
+pi install git:github.com/ssdiwu/pi-dteam
+
+# 或通过本地路径
+pi install /path/to/pi-dteam
+```
+
+## 使用
+
+### 命令
+
+```
+/explore 任务描述    # 探索者：搜集内部和外部信息
+/design 任务描述     # 方案制定者：评估需求、制定方案
+/build 任务描述      # 实现者：执行计划、编写代码、更新文档、编写测试
+/deploy 任务描述     # 部署者：执行构建、部署上线、验证结果
+/check 任务描述      # 验收者：检查代码质量、验证结果
+/close 任务描述      # 收口者：整理归档、记录经验、关闭任务
+/dteam               # 展开多 worker 进度 widget（切换全屏视图）
+```
+
+### 工具
+
+#### Task 工具
+
+| 工具 | 功能 |
+|------|------|
+| `task_create` | 创建新的 task |
+| `task_read` | 读取 task 的指定 section |
+| `task_update` | 更新 task 的指定 section |
+| `task_complete` | 标记 checklist 项为完成 |
+| `task_archive` | 归档完成的任务 |
+| `task_list` | 列出所有 task |
+| `task_search` | 搜索 task |
+
+#### Worker 工具
+
+| 工具 | 功能 |
+|------|------|
+| `worker_create` | 创建 worker 实例 |
+| `worker_start` | 启动 worker 执行 |
+| `worker_sendSignal` | 发送信号到 worker |
+| `worker_cancel` | 取消后台执行的 worker |
+| `worker_status` | 获取 worker 状态 |
+
+##### LLM 执行器(自 v0.4.0)
+
+`worker_start` 默认调真实 LLM(走 Pi SDK `createAgentSession`)。执行流程:
+
+1. 加载 `agents/<role>.md` 拿 `systemPrompt` + `tools`(frontmatter)
+2. 解析 `model` 优先级:`WorkerConfig.model` → role frontmatter `model` → 当前会话模型(`sessionModel` 兜底)
+3. 首选 model 不可用时走 `fallbackModels` 链(超过 5 个截断)
+4. 通过 `onUpdate` 流式推送响应,累加 `text_delta` 事件
+5. 返回 `{ exitCode, output, usage, model, stopReason, errorMessage, isModelError }`
+
+`executorName: "llm"` 是显式语义入口。默认 executor 自 v0.4.0 起也是真 LLM。
+
+##### Worker 状态 Widget（自 v0.4.2）
+
+worker 运行时在 TUI 中显示**多 worker 单行** widget（从 v0.4.1 起的单 worker box 进化而来）：
+
+```
+● build  实现功能  T:3 · edit  5.0s  📡
+  ↳ step1/3 探索  2.1s  ✓
+● check  验收  T:1  1.2s
+```
+
+**特性**：
+- 多个后台 worker 并行显示（每行一个）
+- team/chain 子 worker 缩进 2 空格 + `↳`
+- 信号角标：📡（progress）/ 🚧（blocked）/ 🔍（found）/ 🆘（help），累计 ×N
+- 状态栏极简计数 `N workers · M running`
+- 1s 跳秒实时刷新
+- 背景 worker 完成后 3s 自动清理（修复 v0.4.1 的不清理 bug）
+- Ctrl+O 展开全屏详情（v0.4.1 已有；为避免与 Pi 内置快捷键冲突，后续已改为 `/dteam` 命令触发，见「全屏进度视图」一节）
+
+`worker_start` 时自动显示，终态后 3s 自动清除。onProgress 链路贯通 + 闭包绑定 workerId。
+
+#### Memory 工具
+
+| 工具 | 功能 |
+|------|------|
+| `memory_get` | 从共享内存获取值 |
+| `memory_set` | 向共享内存设置值 |
+| `memory_keys` | 列出命名空间下的所有键 |
+| `memory_has` | 检查键是否存在 |
+| `memory_delete` | 删除键 |
+| `memory_clear` | 清空命名空间 |
+| `memory_save` | 保存共享内存到文件 |
+| `memory_load` | 从文件加载共享内存 |
+
+#### 自适应并发控制
+
+team 模式支持自适应并发控制，根据系统资源（CPU、内存）和任务吞吐动态调节并发度。
+
+**工作模式：**
+- **静态模式**：显式传入 `concurrency` 参数，使用固定并发数
+- **自适应模式**（默认）：根据系统负载自动调节并发度
+
+**状态机：**
+```
+coldStart → exploring → steady → overload
+    ↑           ↓          ↑        ↓
+    └───────────┘          └────────┘
+```
+
+**配置选项：**
+- `concurrencyMode`: `"static"` | `"adaptive"`（默认 "adaptive"）
+- `minConcurrency`: 最小并发数（默认 1）
+- `maxConcurrency`: 最大并发数（默认 8）
+- `concurrency`: 静态并发数（显式传入时使用静态模式）
+
+**过载保护：**
+- CPU > 85% 或内存 < 500MB 时自动降级
+- CPU < 70% 且内存 > 1GB 时自动恢复
+
+**示例：**
+```json
+{
+  "type": "team",
+  "task": "并行执行多个子任务",
+  "style": "explore",
+  "options": [
+    { "type": "concurrencyMode", "value": "adaptive" },
+    { "type": "minConcurrency", "value": 2 },
+    { "type": "maxConcurrency", "value": 6 },
+    { "type": "workers", "value": [/* workers */] }
+  ]
+}
+```
+
+#### 其他工具
+
+| 工具 | 功能 |
+|------|------|
+| `reference_architecture` | 查询架构类型参考 |
+| `signal_emit` | 发送信号 |
+| `signal_history` | 获取信号历史 |
+
+### Compaction 本地化
+
+dteam 内置了 Pi compaction 和 branch summary 输出的本地化功能。这意味着当你使用 `/compact` 或通过 `/tree` 导航分支时，总结的标题会自动翻译成你的语言。
+
+**支持的语言：**
+
+| Locale | 语言 | 标题示例 |
+|--------|------|----------|
+| `zh-CN` | 简体中文 | `## 目标 / ## 进展 / ## 下一步` |
+| `zh-TW` | 繁體中文 | `## 目標 / ## 進展 / ## 下一步` |
+| `ja` | 日本語 | `## 目標 / ## 進捗 / ## 次のステップ` |
+| `ko` | 한국어 | `## 목표 / ## 진행 상황 / ## 다음 단계` |
+| `de` | Deutsch | `## Ziel / ## Fortschritt / ## Nächste Schritte` |
+| `fr` | Français | `## Objectif / ## Progression / ## Étapes suivantes` |
+| `es` | Español | `## Objetivo / ## Progreso / ## Próximos pasos` |
+| `pt` | Português | `## Objetivo / ## Progresso / ## Próximos passos` |
+| `ru` | Русский | `## Цель / ## Прогресс / ## Следующие шаги` |
+| `ar` | العربية | `## الهدف / ## التقدم / ## الخطوات التالية` |
+| `en` | English | `## Goal / ## Progress / ## Next Steps` |
+
+**检查状态：**
+
+```
+/compaction-i18n-status
+```
+
+语言会从你的环境变量自动检测（`PI_LOCALE` > `LC_ALL` > `LANG`）。
+
+## 完整工作流
+
+```text
+用户目标
+   │
+   ▼
+Phase 1：编排
+  explore → design → task 契约 → 必要时人工确认
+   │
+   ▼
+Phase 2：执行
+  build / check / close
+   │
+   ├─ progress / found → 继续推进
+   ├─ help → 派一个辅助 worker，补充后续跑一次
+   └─ 补充后仍失败 → 交还给人
+```
+
+这意味着 dteam 是**半自动**而不是全自动：系统可以协调、续跑、补充一次，但最终决策权始终在人手里。
+
+## 目录结构
+
+```
+pi-dteam/
+├── package.json        # 扩展包元数据
+├── extensions/         # 扩展入口
+├── src/                # 源代码
+│   ├── P0/             # 原子层：类型、配置、纯函数
+│   ├── P1/             # 分子层：服务实现
+│   ├── P2/             # 细胞层：编排模式
+│   ├── P3/             # 组织层：编排逻辑
+│   └── P4/             # 用户接口层：Pi扩展入口
+├── agents/             # agent 定义（6个）
+├── prompts/            # prompt 模板（6个）
+├── reference/          # 参考数据
+├── .doc/               # 文档
+├── tests/              # 测试
+├── AGENTS.md           # Agent 行为规范
+└── README.md           # 本文件
+```
+
+## 功能特性
+
+### Dteam 调度入口工具
+
+自然语言驱动的 agent 编排。`dteam` 工具让主 LLM 自动选择 agent、组装 worker、决定执行模式。
+
+```typescript
+// 列出可用 agent
+dteam({ action: "list" })
+
+// 生成执行计划
+dteam({ action: "plan", goal: "实现用户登录功能" })
+
+// 执行计划
+dteam({ action: "run", goal: "实现用户登录功能" })
+
+// 查询 worker 状态
+dteam({ action: "status", workerId: "worker-123" })
+```
+
+### 自适应并发控制
+
+基于系统负载的动态并发调整。
+
+```typescript
+// 启用自适应模式（默认）
+worker_create({ config: { type: "team", concurrencyMode: "adaptive" } })
+
+// 静态模式（旧行为）
+worker_create({ config: { type: "team", concurrencyMode: "static", concurrency: 4 } })
+```
+
+状态机：`coldStart` → `exploring` → `steady` → `overload`
+
+### 自动编排
+
+从 Markdown 到执行计划的自动任务分解。
+
+```typescript
+// 从 task ID 生成计划
+dteam({ action: "plan", taskId: "20260601182644-bh4r" })
+```
+
+支持 5 种 task 类型：`refactor`、`bugfix`、`infra`、`functional`、`ui`
+
+### Worktree 隔离
+
+并行 worker 的 git worktree 文件级隔离。每个 worker 拥有独立的 `dteam/<workerId>` 分支与 `.dteam/worktrees/<workerId>/` 工作目录，team 成员并发写入时互不覆盖。
+
+**WorkerConfig 字段**：
+- `worktree`（boolean，默认 `false`）：启用 worktree 隔离。worker 会在 `.dteam/worktrees/<workerId>/` 下运行，而不是 `<cwd>`。
+- `worktreeAutoCleanup`（boolean，默认 `false`）：worker 进入终态（`done` / `failed` / `cancelled`）后自动删除 worktree 与对应分支。
+
+**前提**：宿主项目必须是 git 仓库（由 `isGitRepo(ctx.cwd)` 检测）。非 git 环境下会打 warning 后 fallback 到 `cwd`。
+
+```typescript
+// 启用 worktree 隔离
+worker_create({ config: { type: "team", worktree: true } })
+
+// 完成后自动清理
+worker_create({ config: { type: "team", worktree: true, worktreeAutoCleanup: true } })
+```
+
+### 全屏进度流
+
+执行 `/dteam` 切换 worker 全屏进度视图（原 `Ctrl+O` / `F2` 快捷键已移除，以避免与 Pi 内置快捷键冲突）。
+
+字段：`currentTool`、`recentOutput`、`tokenCount`、`duration`、`activityFreshness`、`currentToolDuration`
+
+### 多 worker 实时状态 + 嵌套关系
+
+`dteam` 支持多个后台 worker 并行（通过 `background: true`）。TUI 中同时显示多个 worker 的实时进度，并支持：
+
+- **嵌套关系**：team 模式的子 worker、chain 模式的 step 缩进显示
+- **信号角标**：worker 通过 `signal_emit` 发送的信号会在行末显示角标
+- **终态自动清理**：背景 worker 完成后 3s 自动从 widget 消失
+- **状态栏计数**：`3 workers · 2 running` 极简计数
+
+```typescript
+// 1. 创建并启动后台 worker
+const create = await worker_create({
+  config: { type: "team", task: "...", options: [{ type: "workers", value: [...] }] }
+});
+const start = await worker_start({ workerId: create.workerId, background: true });
+
+// 2. 实时进度通过 onProgress 回调更新到 widget（自动）
+// 3. 终态通过 onComplete 回调清理（自动）
+
+// 4. 嵌套显示：team 模式下，每个子 worker 是单独一行，缩进 2 空格
+//    chain 模式下，每个 step 显示为 `↳ [1/3] explore 探索  2.1s`
+```
+
+## 文档
+
+- [文档导航](.doc/README.md)
+- [Agent 行为规范](AGENTS.md)
+- [系统注入提示词](reference/系统注入提示词.md)
+
+## 许可证
+
+MIT
