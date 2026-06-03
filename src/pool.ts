@@ -62,7 +62,7 @@ class TaskPool {
    * 拿所有任务（只读快照）。
    */
   getAll(): Task[] {
-    return Array.from(this.tasks.values());
+    return Array.from(this.tasks.values()).map((t) => ({ ...t }));
   }
 
   /**
