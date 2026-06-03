@@ -807,75 +807,67 @@ function closeWorkerPanel(): void {
 export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 	if (!ctx.hasUI) return;
 
-	// 幂等：已展开则关闭（重入口保护）
+	// 幂等：已展开则关闭
 	if (expandedActive) {
 		closeWorkerPanel();
 		return;
 	}
 
-	// 不管 store 是否为空，都弹 panel（AC9：空 store 也显示提示，不静默失败）
 	const store = getStore();
-
-	// 仅看父 worker（无 parentWorkerId）作为 tab
 	const parents = Array.from(store.values()).filter((p) => !p.parentWorkerId);
+
 	if (parents.length === 0) {
-		// 根据 store 状态选文案：
-		// - store.size === 0: 真空 · 提示“未启动 worker”
-		// - store.size > 0 但全是嵌套子 worker: 异常 · 提示“无主 worker”
-		const emptyMsg = store.size === 0
-			? "  （无 worker 正在工作）"
-			: "  （无父 worker 正在工作）";
-		// 用 setWidget 在信息流中渲染空态面板（aboveEditor）
+		// ── 空态 overlay 面板 ──
 		expandedActive = true;
 		latestCtx = ctx;
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
 
-		ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => {
-			const innerW = 68;
-			const divider = "─".repeat(Math.max(1, innerW));
+		return ctx.ui.custom<PanelResult | null>((_tui, theme, _kb, done) => {
+			const container = new Container();
+			const emptyMsg = store.size === 0
+				? "（无 worker 正在工作）"
+				: "（无父 worker 正在工作）";
+			const sep = "\u2500".repeat(56);  // ─
 
-			const box = new Box(2, 1, (s) => theme.bg("customMessageBg", s));
-			box.addChild(new Text(theme.fg("accent", " 📊 dteam worker 进度 "), 0, 0));
-			box.addChild(new Text(theme.fg("borderMuted", divider), 0, 0));
-			box.addChild(new Text(theme.fg("muted", emptyMsg), 0, 0));
-			box.addChild(new Text("", 0, 0));
-			box.addChild(new Text(theme.fg("dim", "  启动 worker 试试："), 0, 0));
-			box.addChild(new Text(theme.fg("dim", "    /dteam run <目标描述>"), 0, 0));
-			box.addChild(new Text(theme.fg("borderMuted", divider), 0, 0));
-			box.addChild(new Text(theme.fg("borderMuted", "  [Esc/q/Ctrl+C] 关闭"), 1, 0));
+			container.addChild(new Text(theme.fg("accent", " \ud83d\udcca dteam worker \u8fdb\u5ea6"), 1, 0));
+			container.addChild(new Text(theme.fg("borderMuted", sep), 1, 0));
+			container.addChild(new Text(theme.fg("muted", "  " + emptyMsg), 1, 0));
+			container.addChild(new Text("", 1, 0));
+			container.addChild(new Text(theme.fg("dim", "  \u542f\u52a8 worker \u8bd5\u8bd5\uff1a"), 1, 0));
+			container.addChild(new Text(theme.fg("dim", "    /dteam run <\u76ee\u6807\u63cf\u8ff0>"), 1, 0));
+			container.addChild(new Text(theme.fg("borderMuted", sep), 1, 0));
+			container.addChild(new Text(theme.fg("borderMuted", "  [Esc/q/Ctrl+C] \u5173\u95ed"), 1, 0));
+
+			currentPanelDone = done;
 
 			return {
-				render: (width: number) => box.render(width),
-				invalidate: () => box.invalidate?.(),
+				render: (w: number) => container.render(w),
+				invalidate: () => container.invalidate(),
 				handleInput: (data: string) => {
 					if (data === "q" || matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
-						closeWorkerPanel();
+						done(null);
 					}
 				},
+				dispose: () => { container.clear(); currentPanelDone = null; },
 			};
+		}).then(() => {
+			expandedActive = false;
+			currentPanelDone = null;
+			if (latestCtx) renderWidget(latestCtx);
 		});
-
-		expandedActive = true;
-		latestCtx = ctx;
-		ctx.ui.setWidget(WIDGET_KEY, undefined);
-		return;
 	}
 
-	latestCtx = ctx;
+	// ── Tab 面板（多 worker）──
 	expandedActive = true;
-
-	// 移除折叠态 widget
+	latestCtx = ctx;
 	ctx.ui.setWidget(WIDGET_KEY, undefined);
 
-	let panelTui: any = null;
-
-	ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
-		panelTui = tui;
-		const innerW = 68;
+	return ctx.ui.custom<PanelResult>((tui, theme, _keybindings, done) => {
+		currentPanelDone = done;
 
 		let currentTabIdx = 0;
 		let selectedChildId: string | undefined = undefined;
-		const box = new Box(2, 1, (s) => theme.bg("customMessageBg", s));
+		const container = new Container();
 
 		function getCurrentChildren(): WorkerProgress[] {
 			const all = Array.from(getStore().values());
@@ -904,34 +896,37 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 		}
 
 		function rebuild() {
-			box.clear();
+			container.clear();
 			const all = Array.from(getStore().values());
 			const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
+			const sep = "\u2500".repeat(56);
 
-			box.addChild(new Text(theme.fg("accent", " 📊 dteam worker progress "), 0, 0));
-			box.addChild(new Text(
-				"  " + buildTabBar(theme, parentsSorted, currentTabIdx, innerW),
-				0, 0,
+			container.addChild(new Text(theme.fg("accent", " \ud83d\udcca dteam worker progress"), 1, 0));
+			container.addChild(new Text(
+				"  " + buildTabBar(theme, parentsSorted, currentTabIdx, 68),
+				1, 0,
 			));
-			box.addChild(new Text(theme.fg("borderMuted", "─".repeat(Math.max(1, innerW))), 0, 0));
+			container.addChild(new Text(theme.fg("borderMuted", sep), 1, 0));
 
 			const currentWorker = getCurrentWorker();
 			if (currentWorker) {
 				const extended = latestProgressByWorker.get(currentWorker.workerId);
 				const children = getCurrentChildren();
 				const contentLines = buildTabContent(
-					theme, currentWorker, children, extended, innerW,
+					theme, currentWorker, children, extended, 68,
 					{ showBackToParent: !!selectedChildId },
 				);
-				for (const line of contentLines) { box.addChild(new Text(line, 0, 0)); }
+				for (const line of contentLines) {
+					container.addChild(new Text(line, 1, 0));
+				}
 			} else {
-				box.addChild(new Text(theme.fg("muted", "  (worker not found)"), 0, 0));
+				container.addChild(new Text(theme.fg("muted", "  (worker not found)"), 1, 0));
 			}
 
-			box.addChild(new Text("", 0, 0));
-			box.addChild(new Text(
-				theme.fg("borderMuted", "  [Tab/⇧Tab · ←/→] switch · [Enter] child · [Esc/q/Ctrl+C] close"),
-				0, 0,
+			container.addChild(new Text(theme.fg("borderMuted", sep), 1, 0));
+			container.addChild(new Text(
+				theme.fg("dim", "  [Tab/\u21e7Tab \u00b7 \u2190/\u2192] switch \u00b7 [Enter] child \u00b7 [Esc/q/Ctrl+C] close"),
+				1, 0,
 			));
 		}
 
@@ -941,42 +936,58 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 		panelRefreshTimer = setInterval(() => {
 			if (!expandedActive) return;
 			rebuild();
-			if (panelTui) panelTui.requestRender();
+			tui.requestRender();
 		}, FULLSCREEN_REFRESH_MS);
 
 		return {
-			render: (width: number) => box.render(width),
-			invalidate: () => box.invalidate?.(),
+			render: (width: number) => container.render(width),
+			invalidate: () => container.invalidate(),
 			handleInput: (data: string) => {
 				const all = Array.from(getStore().values());
 				const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
 				const totalTabs = parentsSorted.length;
 
 				if (matchesKey(data, Key.escape) || data === "q" || matchesKey(data, Key.ctrl("c"))) {
-					if (selectedChildId) { selectedChildId = undefined; rebuild(); return; }
-					closeWorkerPanel();
+					if (selectedChildId) { selectedChildId = undefined; rebuild(); tui.requestRender(); return; }
+					done({ action: "close" });
 					return;
 				}
-
 				if (selectedChildId) {
-					if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) { selectedChildId = undefined; rebuild(); return; }
-					if (matchesKey(data, Key.left)) { selectedChildId = undefined; rebuild(); return; }
+					if (matchesKey(data, Key.tab) || matchesKey(data, Key.right) || matchesKey(data, Key.left)) {
+						selectedChildId = undefined; rebuild(); tui.requestRender(); return;
+					}
 				}
-
 				if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
 					if (totalTabs > 0) currentTabIdx = (currentTabIdx + 1) % totalTabs;
-					selectedChildId = undefined; rebuild(); return;
+					selectedChildId = undefined; rebuild(); tui.requestRender(); return;
 				}
 				if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.left)) {
 					if (totalTabs > 0) currentTabIdx = (currentTabIdx - 1 + totalTabs) % totalTabs;
-					selectedChildId = undefined; rebuild(); return;
+					selectedChildId = undefined; rebuild(); tui.requestRender(); return;
 				}
-
 				if (matchesKey(data, Key.enter)) {
 					const children = getCurrentChildren();
-					if (children.length > 0) { selectedChildId = children[0].workerId; rebuild(); }
+					if (children.length > 0) {
+						selectedChildId = children[0].workerId;
+						rebuild();
+						done({ action: "select-child", childId: selectedChildId });
+					}
+				}
+			},
+			dispose: () => {
+				disposedCount += 1;
+				if (panelRefreshTimer) { clearInterval(panelRefreshTimer); panelRefreshTimer = null; }
+				currentPanelDone = null;
+				expandedActive = false;
+				if (latestCtx) {
+					latestCtx.ui.setWidget(WIDGET_KEY, (_tui, th) => new WorkerStatusList(th));
 				}
 			},
 		};
+	}).then(() => {
+		if (panelRefreshTimer) { clearInterval(panelRefreshTimer); panelRefreshTimer = null; }
+		currentPanelDone = null;
+		expandedActive = false;
+		if (latestCtx) renderWidget(latestCtx);
 	});
 }

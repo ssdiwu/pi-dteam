@@ -61,7 +61,7 @@ function makeMockCtx(hasUI = true) {
 			}),
 			notify: vi.fn(),
 			setStatus: vi.fn(),
-			custom: vi.fn(() => Promise.resolve(undefined)),
+			custom: vi.fn(() => new Promise<never>(() => {})), // pending — 不自动 resolve
 			requestRender: vi.fn(),
 		},
 		_widgets: widgets,
@@ -371,36 +371,36 @@ describe("worker-widget", () => {
 	// ═══════════════════════════════════════════════════════════
 
 	describe("showWorkerPanel", () => {
-		it("无 worker 状态时也弹提示 panel（AC9 修复）", async () => {
+		it("无 worker 状态时也弹提示 panel（AC9 修复）", () => {
 			const ctx = makeMockCtx();
-			await showWorkerPanel(ctx as any);
+			void showWorkerPanel(ctx as any);
 
 			// 修复后空 store 也弹 panel
-			expect(ctx.ui.setWidget).toHaveBeenCalled();
+			expect(ctx.ui.custom).toHaveBeenCalled();
 			expect(isExpanded()).toBe(true);
 		});
 
-		it("有 worker 状态时展开调用 setWidget", async () => {
+		it("有 worker 状态时展开调用 custom", () => {
 			const ctx = makeMockCtx();
 			setProgress(makeProgress({ workerId: "w-1" }));
 			ctx.ui.setWidget.mockClear();
 
-			await showWorkerPanel(ctx as any);
+			void showWorkerPanel(ctx as any);
 
-			// clear + set panel (至少 2 次 setWidget 调用)
-			expect(ctx.ui.setWidget).toHaveBeenCalled();
+			expect(ctx.ui.custom).toHaveBeenCalled();
 			expect(isExpanded()).toBe(true);
 		});
 
-		it("展开后再次 showWorkerPanel 幂等折叠", async () => {
+		it("展开后再次 showWorkerPanel 幂等折叠", () => {
 			const ctx = makeMockCtx();
 			setProgress(makeProgress({ workerId: "w-1" }));
 			ctx.ui.setWidget.mockClear();
 
-			await showWorkerPanel(ctx as any);
+			void showWorkerPanel(ctx as any);
 			expect(isExpanded()).toBe(true);
 
-			await showWorkerPanel(ctx as any);
+			// 第二次调用触发 closeWorkerPanel（幂等关闭）
+			showWorkerPanel(ctx as any);
 			expect(isExpanded()).toBe(false);
 		});
 

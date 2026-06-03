@@ -48,35 +48,39 @@ interface CapturedPanel {
 }
 
 /** Mock ctx.ui.setWidget 实际跑 factory 并捕获组件 */
+/** Mock ctx.ui.custom 实际跑 factory 并捗获 handleInput / dispose / done */
 function makeCapturingCtx(): { ctx: ExtensionContext; getCaptured: () => CapturedPanel | null } {
 	let captured: CapturedPanel | null = null;
 	const ctx: any = {
 		hasUI: true,
 		ui: {
-			setWidget: vi.fn((_key: string, factory: any, _options?: any) => {
+			setWidget: vi.fn((_key: string, factory: any) => {
 				if (typeof factory === "function") {
-					try {
-						const component = factory(makeMockTui(), makeMockTheme());
-						captured = {
-							render: (w) => component.render(w),
-							invalidate: () => component.invalidate?.(),
-							handleInput: (data) => component.handleInput?.(data),
-							dispose: () => component.dispose?.(),
-							donePromise: Promise.resolve(null),
-						};
-					} catch (e) {
-						/* expected during cleanup */
-					}
+					try { factory(makeMockTui(), makeMockTheme()); } catch { /* expected */ }
 				}
 			}),
 			setStatus: vi.fn(),
 			notify: vi.fn(),
 			requestRender: vi.fn(),
-			custom: vi.fn(), // 不再使用
+			custom: vi.fn((factory: any) => {
+				let resolveDone!: (value: unknown) => void;
+				const donePromise = new Promise<unknown>((res) => { resolveDone = res; });
+				const tui = makeMockTui();
+				const component = factory(tui, makeMockTheme(), null, resolveDone);
+				captured = {
+					render: (w) => component.render(w),
+					invalidate: () => component.invalidate?.(),
+					handleInput: (data) => component.handleInput?.(data),
+					dispose: () => component.dispose?.(),
+					donePromise,
+				};
+				return donePromise;
+			}),
 		},
 	};
 	return { ctx, getCaptured: () => captured };
 }
+
 
 
 function makeWorkerProgress(over: Partial<{
@@ -115,7 +119,7 @@ describe("showWorkerPanel (集成)", () => {
 
 	it("store 空时弹提示 panel（AC9 修复）", async () => {
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		// 修复后空 store 也弹 panel
 		expect(ctx.ui.setWidget).toHaveBeenCalled();
 		expect(getCaptured()).not.toBeNull();
@@ -126,7 +130,7 @@ describe("showWorkerPanel (集成)", () => {
 	it("只有子 worker（无 parent）时弹异常分支 panel", async () => {
 		setProgress(makeWorkerProgress({ workerId: "child-1", parentWorkerId: "parent-missing" }));
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		const panel = getCaptured();
 		expect(panel).not.toBeNull();
 		const lines = panel!.render(80);
@@ -136,7 +140,7 @@ describe("showWorkerPanel (集成)", () => {
 	it("异常分支 Esc 关掉 overlay（BUG #2 修复验证）", async () => {
 		setProgress(makeWorkerProgress({ workerId: "child-1", parentWorkerId: "parent-missing" }));
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		const panel = getCaptured()!;
 		panel.handleInput("\x1b"); // Esc
 		return panel.donePromise.then((result) => {
@@ -147,7 +151,7 @@ describe("showWorkerPanel (集成)", () => {
 	it("异常分支 q 关掉 overlay", async () => {
 		setProgress(makeWorkerProgress({ workerId: "child-1", parentWorkerId: "parent-missing" }));
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		const panel = getCaptured()!;
 		panel.handleInput("q");
 		return panel.donePromise.then((result) => {
@@ -158,7 +162,7 @@ describe("showWorkerPanel (集成)", () => {
 	it("异常分支 Ctrl+C 关掉 overlay", async () => {
 		setProgress(makeWorkerProgress({ workerId: "child-1", parentWorkerId: "parent-missing" }));
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		const panel = getCaptured()!;
 		panel.handleInput("\x03"); // Ctrl+C
 		return panel.donePromise.then((result) => {
@@ -170,7 +174,7 @@ describe("showWorkerPanel (集成)", () => {
 		setProgress(makeWorkerProgress({ workerId: "w-1", role: "build", task: "实现功能" }));
 		setProgress(makeWorkerProgress({ workerId: "w-2", role: "check", status: "done", task: "验收" }));
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		const panel = getCaptured()!;
 		const lines = panel.render(120);
 		const all = lines.join("\n");
@@ -188,7 +192,7 @@ describe("showWorkerPanel (集成)", () => {
 		setProgress(makeWorkerProgress({ workerId: "team-1-a", role: "explore", parentWorkerId: "team-1" }));
 		setProgress(makeWorkerProgress({ workerId: "team-1-b", role: "check", parentWorkerId: "team-1" }));
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		const panel = getCaptured()!;
 		const lines = panel.render(120);
 		const all = lines.join("\n");
@@ -207,7 +211,7 @@ describe("showWorkerPanel (集成)", () => {
 		setProgress(makeWorkerProgress({ workerId: "w-1", role: "build" }));
 		setProgress(makeWorkerProgress({ workerId: "w-2", role: "check", status: "done" }));
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		const panel = getCaptured()!;
 		// 初始 tab 0 = w-1
 		expect(panel.render(120).join("\n")).toContain("build");
@@ -223,7 +227,7 @@ describe("showWorkerPanel (集成)", () => {
 		setProgress(makeWorkerProgress({ workerId: "w-1" }));
 		setProgress(makeWorkerProgress({ workerId: "w-2" }));
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		const panel = getCaptured()!;
 		// 初始 tab 0
 		expect(panel.render(120).join("\n")).toContain("w-1");
@@ -235,7 +239,7 @@ describe("showWorkerPanel (集成)", () => {
 	it("Esc 关掉正常 panel", async () => {
 		setProgress(makeWorkerProgress({ workerId: "w-1" }));
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		const panel = getCaptured()!;
 		// Esc 关闭面板（调用 closeWorkerPanel），不应抛错
 		expect(() => panel.handleInput("\x1b")).not.toThrow();
@@ -244,7 +248,7 @@ describe("showWorkerPanel (集成)", () => {
 	it("dispose 路径清理（BUG #1 修复验证）", async () => {
 		setProgress(makeWorkerProgress({ workerId: "w-1" }));
 		const { ctx, getCaptured } = makeCapturingCtx();
-		await showWorkerPanel(ctx as any);
+		void showWorkerPanel(ctx as any);
 		const panel = getCaptured()!;
 		// 调 dispose 不抛错
 		expect(() => panel.dispose()).not.toThrow();
