@@ -795,9 +795,9 @@ function closeWorkerPanel(): void {
 	// 4. 重置展开态
 	expandedActive = false;
 
-	// 5. 恢复折叠态 widget
+	// 5. 清除 widget（不恢复折叠态，让信息流自然回弹）
 	if (latestCtx) {
-		renderWidget(latestCtx);
+		latestCtx.ui.setWidget(WIDGET_KEY, undefined);
 	}
 }
 
@@ -840,7 +840,7 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 					theme.fg("dim", "  \u542f\u52a8 worker \u8bd5\u8bd5\uff1a"),
 					theme.fg("dim", "    /dteam run <\u76ee\u6807\u63cf\u8ff0>"),
 					theme.fg("borderMuted", sep),
-					theme.fg("borderMuted", "  [Esc/q/Ctrl+C] \u5173\u95ed"),
+					theme.fg("dim", "  \u518d\u8f93 /dteam \u5173\u95ed"),
 					"",
 				],
 				invalidate: () => {},
