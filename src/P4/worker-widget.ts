@@ -3,7 +3,7 @@
  *
  * 三层状态：
  *   - 折叠态：多 worker 单行 + 2 空格缩进 + ↳ + 信号角标
- *   - 展开态：全屏覆盖层显示 AgentProgress 详细信息（Ctrl+O 切换）
+ *   - 展开态：多 worker Tab 面板（/dteam 触发），每个主 worker 一个 tab，嵌套在内容底部 ↳ 缩进
  *   - 状态栏：极简计数 "N workers · M running"
  *
  * 数据流：
@@ -16,7 +16,7 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { Component, OverlayHandle } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
 import {
 	Container,
 	Key,
@@ -80,16 +80,14 @@ export interface ExtendedProgressData {
 
 /** 当前展开态是否激活 */
 let expandedActive = false;
-/** Tab Panel 覆盖层句柄 */
-let panelHandle: OverlayHandle | null = null;
+/** Tab Panel 关闭出口：factory 内部赋值 done，外部 closeWorkerPanel 调它触发 inline widget 卸载 */
+let currentPanelDone: ((result: PanelResult) => void) | null = null;
 /** 最新 AgentProgress 数据（按 workerId 索引） */
 const latestProgressByWorker = new Map<string, ExtendedProgressData>();
 /** 最新 ExtensionContext */
 let latestCtx: ExtensionContext | null = null;
 /** Panel 刷新定时器（模块级单例，多 panel 不重复创建） */
 let panelRefreshTimer: ReturnType<typeof setInterval> | null = null;
-/** Panel 内部缓存的 Container 引用（rebuild 时更新） */
-let panelContainer: Container | null = null;
 /** 折叠 widget 的全局 tick（1s 跳秒） */
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 /** 当前活跃的 TUI（用于 requestRender） */
@@ -696,14 +694,13 @@ export function resetThrottleState(): void {
 
 /**
  * 重置展开态（供测试用）
- * - 清 panelRefreshTimer、panelHandle、panelContainer
+ * - 清 panelRefreshTimer、currentPanelDone
  * - 清 latestProgressByWorker + 从 store 移除对应记录（防 stale 污染）
  * - 重置 expandedActive / latestCtx
  */
 export function resetExpandedState(): void {
 	expandedActive = false;
-	panelHandle = null;
-	panelContainer = null;
+	currentPanelDone = null;
 	latestCtx = null;
 
 	// 清最新进度 Map + 同步从 store 移除
@@ -758,13 +755,20 @@ export type PanelResult =
 	| null;
 
 /**
- * 关闭 Tab Panel 覆盖层
+ * 关闭 Tab Panel（inline widget 模式）
+ *
+ * 流程：
+ * 1. 调 currentPanelDone(null) 触发 TUI 卸载 inline component
+ * 2. 清 currentPanelDone / panelRefreshTimer（避免悬挂引用 + 定时器泄漏）
+ * 3. 同步从 store 移除 latestProgressByWorker 中的 worker（避免 stale 污染）
+ * 4. 重置展开态
+ * 5. 恢复折叠态 widget（用户在 /dteam 关闭后仍能看到底部状态行）
  */
 function closeWorkerPanel(): void {
-	// 1. 调 handle.hide() 关闭 overlay（如果在）
-	if (panelHandle) {
-		try { panelHandle.hide(); } catch { /* ignore */ }
-		panelHandle = null;
+	// 1. 触发 inline widget 关闭（factory 内调 done(null)）
+	if (currentPanelDone) {
+		try { currentPanelDone(null); } catch { /* ignore */ }
+		currentPanelDone = null;
 	}
 
 	// 2. 清 panelRefreshTimer（避免多 panel 叠加时泄漏）
@@ -773,20 +777,17 @@ function closeWorkerPanel(): void {
 		panelRefreshTimer = null;
 	}
 
-	// 3. 清 Container 引用（不手动 dispose，Container.clear() 会自动调子 dispose）
-	panelContainer = null;
-
-	// 4. 同步从 store 移除 latestProgressByWorker 中的 worker（避免 stale 污染）
+	// 3. 同步从 store 移除 latestProgressByWorker 中的 worker（避免 stale 污染）
 	const store = getStore();
 	for (const wid of latestProgressByWorker.keys()) {
 		store.delete(wid);
 	}
 	latestProgressByWorker.clear();
 
-	// 5. 重置展开态
+	// 4. 重置展开态
 	expandedActive = false;
 
-	// 6. 恢复折叠态 widget
+	// 5. 恢复折叠态 widget
 	if (latestCtx) {
 		renderWidget(latestCtx);
 	}
@@ -813,24 +814,21 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 	if (parents.length === 0) {
 		// 没有任何父 worker（异常情况），仍然提示用户
 		void ctx.ui.custom<PanelResult>(
-			(_tui, theme) => {
+			(_tui, theme, _kb, done) => {
 				const container = new Container();
 				container.addChild(new Text(theme.fg("muted", "  (no parent workers)"), 0, 0));
+				// 暴露 done 出口供 closeWorkerPanel 外部触发
+				currentPanelDone = done;
 				return {
 					render: (w: number) => container.render(w),
 					invalidate: () => container.invalidate?.(),
 					handleInput: (data: string) => {
 						if (data === "q" || matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
-							container.clear();
+							done(null);
 						}
 					},
-					dispose: () => { container.clear(); },
+					dispose: () => { container.clear(); currentPanelDone = null; },
 				};
-			},
-			{
-				overlay: true,
-				overlayOptions: { anchor: "center", width: "60%", maxHeight: "40%" },
-				onHandle: (handle) => { panelHandle = handle; },
 			},
 		);
 		expandedActive = true;
@@ -847,11 +845,12 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 
 	void ctx.ui.custom<PanelResult>(
 		(tui, theme, _keybindings, done) => {
+			// 暴露 done 出口供 closeWorkerPanel 外部触发
+			currentPanelDone = done;
 			// ── 闭包状态 ──
 			let currentTabIdx = 0;
 			let selectedChildId: string | undefined = undefined;
 			const container = new Container();
-			panelContainer = container;
 
 			// 找出当前 tab 的 child worker 列表
 			function getCurrentChildren(): WorkerProgress[] {
@@ -1016,22 +1015,22 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 				handleInput,
 				dispose: () => {
 					disposedCount += 1;
-					// 重要：dispose 不关 timer（交给 closeWorkerPanel）
-					// 只清 Container 引用即可
-					panelContainer = null;
+					// dispose 兑底清理：清 timer + done 出口 + 折叠 widget 恢复
+					// 避免 Pi 内部清理 widget 时 timer 泄漏
+					if (panelRefreshTimer) {
+						clearInterval(panelRefreshTimer);
+						panelRefreshTimer = null;
+					}
+					currentPanelDone = null;
+					expandedActive = false;
+					// 恢复折叠 widget（如果最新 ctx 还在）
+					if (latestCtx) {
+						latestCtx.ui.setWidget(WIDGET_KEY, (_tui, theme) =>
+							new WorkerStatusList(theme),
+						);
+					}
 				},
 			};
-		},
-		{
-			overlay: true,
-			overlayOptions: {
-				anchor: "center",
-				width: "90%",
-				maxHeight: "85%",
-			},
-			onHandle: (handle) => {
-				panelHandle = handle;
-			},
 		},
 	);
 }
