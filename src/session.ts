@@ -14,8 +14,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { getModel } from "@earendil-works/pi-ai";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
+import type { RoleName } from "./tools.js";
 
 // ═══ 最小 ResourceLoader ═══
 
@@ -35,9 +35,7 @@ function makeResourceLoader(systemPrompt: string): ResourceLoader {
 
 // ═══ 角色定义 ═══
 
-export type RoleName = "explore" | "design" | "build" | "check" | "close";
-
-/** 角色配置（从 agents/*.md frontmatter 解析） */
+/** 角色配置 */
 interface RoleConfig {
   tools: string[];
   thinking: string;

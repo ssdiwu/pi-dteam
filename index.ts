@@ -51,29 +51,33 @@ function renderDteamResult(result: any, options: { expanded: boolean }, theme: a
     return c;
   }
 
-  const { status, workItems } = parsed;
+  const { status, goal: runGoal, plan, steps } = parsed;
   const icon = status === "done" ? "✓" : "✗";
   const color = status === "done" ? "success" : "error";
-  const goal = workItems?.[0]?.title ?? "";
-  const done = workItems?.filter(t => t.status === "done").length ?? 0;
-  const failed = workItems?.filter(t => t.status === "failed").length ?? 0;
-  const total = workItems?.length ?? 0;
+  const done = steps?.filter(t => t.status === "done").length ?? 0;
+  const failed = steps?.filter(t => t.status === "failed").length ?? 0;
+  const total = steps?.length ?? 0;
+  const goalText = runGoal ?? "";
 
+  // 第一行：✓ dteam · 4/4 完成
   const summaryCn = failed > 0 ? `${done}/${total} 完成, ${failed} 失败` : `${done}/${total} 完成`;
-  c.addChild(new Text(theme.fg(color, `${icon} dteam · ${summaryCn}`), 0, 0));
+  const modeLabel = plan?.mode ? `${plan.mode} · ` : "";
+  c.addChild(new Text(theme.fg(color, `${icon} dteam · ${modeLabel}${summaryCn}`), 0, 0));
 
-  if (options.expanded && workItems?.length) {
-    for (const item of workItems) {
+  if (options.expanded && steps?.length) {
+    for (const item of steps) {
       const si = statusIcon(item.status);
-      const title = truncText(item.title, w - 10);
-      c.addChild(new Text(theme.fg("dim", `  ${si} ${title}`), 0, 0));
-      if (item.result) {
-        const resultLine = truncText(item.result.split("\n")[0] ?? "", w - 8);
+      const roleLabel = item.role ? `${item.role}: ` : "";
+      const stratLabel = item.strategy && item.strategy !== "direct" ? ` (${item.strategy}${item.rounds ? `×${item.rounds}` : ""})` : "";
+      const title = truncText(`${roleLabel}${item.task}`, w - 10);
+      c.addChild(new Text(theme.fg("dim", `  ${si} ${title}${stratLabel}`), 0, 0));
+      if (item.output) {
+        const resultLine = truncText(item.output.split("\n")[0] ?? "", w - 8);
         c.addChild(new Text(theme.fg("dim", `    ⎿ ${resultLine}`), 0, 0));
       }
     }
   } else {
-    c.addChild(new Text(theme.fg("dim", `  ⎿ ${truncText(goal, w - 6)}`), 0, 0));
+    c.addChild(new Text(theme.fg("dim", `  ⎿ ${truncText(goalText, w - 6)}`), 0, 0));
   }
 
   return c;

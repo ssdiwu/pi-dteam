@@ -1,99 +1,275 @@
 /**
  * dteam v1 — 编排器 (orchestrator)
  *
- * 主循环：
- *   1. 把 goal 写成 root task
- *   2. 循环 claimNext → dispatch
- *   3. dispatch = brancher.decide → decompose | leaf.execute
- *   4. 全部 done 后返回 RunResult
- */
-
-import { TaskPool } from "./pool.js";
-import { decide } from "./brancher.js";
-import { execute } from "./leaf.js";
-import type { Task, RunResult } from "./tools.js";
-import { uiStore } from "./ui-store.js";
-
-/**
- * 跑一个 goal。
+ * 三阶段：
+ *   1. Plan  → 问 LLM 制定执行计划（二维：组织形式 × 执行策略）
+ *   2. Execute → 按 plan 派 worker（solo/chain/team × direct/build_check/adaptive）
+ *   3. Report → 汇总结果
  *
- * @param goal 用户目标
- * @param ctx Pi 扩展上下文（有 model, modelRegistry, cwd, ui）
+ * 递归分解：plan 阶段替代了旧 brancher 的顶层分解角色。
+ * brancher 保留供后续在 build 步骤内部使用。
  */
-export async function run(goal: string, ctx: any): Promise<RunResult> {
-  const pool = new TaskPool();
 
-  // UI: 开始 run
+import { plan } from "./planner.js";
+import { execute as runSolo } from "./leaf.js";
+import { uiStore } from "./ui-store.js";
+import type {
+  ExecutionPlan, PlanStep, RunResult, StepResult, RoleName, Strategy,
+} from "./tools.js";
+
+const TEAM_BATCH_SIZE = 3;
+const BUILD_CHECK_MAX_ROUNDS = 3;
+const ADAPTIVE_MAX_ROUNDS = 5;
+
+// ═══ 主入口 ═══
+
+export async function run(goal: string, ctx: any): Promise<RunResult> {
   uiStore.startRun(goal);
 
-  // 1. 写入 root task
-  const rootId = `t-${Math.random().toString(36).slice(2, 14)}`;
-  pool.write({
-    id: rootId,
-    parentId: null,
-    title: goal,
-    description: goal,
-    status: "pending",
-    createdAt: Date.now(),
-  });
-  // UI: 添加 root worker
-  uiStore.addWorker({ id: rootId, parentId: null, title: goal });
-
-  // 2. 主循环
-  let safety = 0;
-  const MAX_ITERATIONS = 50;
-
-  while (safety++ < MAX_ITERATIONS) {
-    const task = pool.claimNext();
-    if (!task) break; // 没有 pending 任务了
-
-    // claimNext 已经标记了 in_progress，不需要再 update
-    uiStore.updateWorker(task.id, { status: "running" });
-
-    try {
-      // 3. 问 LLM：拆还是干
-      const decision = await decide(task, ctx, goal);
-
-      if (decision.kind === "decompose") {
-        // 拆成子任务，写回池
-        for (const sub of decision.subTasks) {
-          const subId = `t-${Math.random().toString(36).slice(2, 14)}`;
-          pool.write({
-            id: subId,
-            parentId: task.id,
-            title: sub.title,
-            description: sub.description,
-            status: "pending",
-            createdAt: Date.now(),
-          });
-          // UI: 添加子 worker
-          uiStore.addWorker({ id: subId, parentId: task.id, title: sub.title });
-        }
-        pool.update(task.id, { status: "done", result: `decomposed into ${decision.subTasks.length} sub-tasks` });
-        uiStore.updateWorker(task.id, { status: "done", recentOutput: `decomposed into ${decision.subTasks.length} sub-tasks` });
-      } else {
-        // 叶子执行
-        const result = await execute(task, ctx, goal);
-        pool.update(task.id, { status: "done", result });
-        uiStore.updateWorker(task.id, { status: "done", recentOutput: result?.slice(0, 200) ?? "" });
-      }
-    } catch (e) {
-      pool.update(task.id, { status: "failed", result: (e as Error).message });
-      uiStore.updateWorker(task.id, { status: "failed", recentOutput: (e as Error).message });
-    }
+  // Phase 1: Plan
+  let executionPlan: ExecutionPlan;
+  try {
+    executionPlan = await plan(goal, ctx);
+  } catch (e) {
+    // Plan 失败 → fallback 到 solo+direct+build
+    executionPlan = {
+      mode: "solo",
+      reason: `规划失败: ${(e as Error).message}`,
+      steps: [{ role: "build", task: goal, strategy: "direct" }],
+    };
   }
 
-  // 4. 汇总
-  const items = pool.getAll();
-  const done = items.filter((t) => t.status === "done").length;
-  const failed = items.filter((t) => t.status === "failed").length;
+  // UI: 显示规划结果
+  uiStore.addWorker({
+    id: "plan",
+    parentId: null,
+    title: `📋 ${executionPlan.mode} · ${executionPlan.reason}`,
+  });
+  uiStore.updateWorker("plan", { status: "done" });
 
-  // UI: 结束 run
+  // Phase 2: Execute
+  const stepResults: StepResult[] = [];
+
+  try {
+    switch (executionPlan.mode) {
+      case "solo":
+        await executeSteps(executionPlan.steps, ctx, goal, stepResults, "serial");
+        break;
+      case "chain":
+        await executeSteps(executionPlan.steps, ctx, goal, stepResults, "serial");
+        break;
+      case "team":
+        await executeSteps(executionPlan.steps, ctx, goal, stepResults, "parallel");
+        break;
+    }
+  } catch {
+    // 致命错误，继续到 report
+  }
+
+  // Phase 3: Report
   uiStore.finishRun();
+  const done = stepResults.filter(s => s.status === "done").length;
+  const failed = stepResults.filter(s => s.status === "failed").length;
 
   return {
     status: failed > 0 ? "failed" : "done",
-    workItems: items,
-    summary: `${done}/${items.length} done, ${failed} failed`,
+    goal,
+    plan: executionPlan,
+    steps: stepResults,
+    summary: failed > 0
+      ? `${done}/${stepResults.length} 完成, ${failed} 失败`
+      : `${done}/${stepResults.length} 完成`,
   };
+}
+
+// ═══ 执行调度 ═══
+
+/**
+ * 执行一组 steps。
+ * serial = chain 模式：串行，前一步输出注入下一步。
+ * parallel = team 模式：分批并行，每批 ≤ TEAM_BATCH_SIZE。
+ */
+async function executeSteps(
+  steps: PlanStep[],
+  ctx: any,
+  goal: string,
+  results: StepResult[],
+  order: "serial" | "parallel",
+): Promise<void> {
+  if (order === "serial") {
+    let prevOutput = "";
+
+    for (const step of steps) {
+      // 前一步输出注入下一步
+      const taskWithPrev = prevOutput
+        ? `${step.task}\n\n## 上一步输出\n${prevOutput}`
+        : step.task;
+      const enhancedStep = { ...step, task: taskWithPrev };
+
+      const result = await runStepWithStrategy(enhancedStep, ctx, goal);
+      results.push(result);
+
+      if (result.status === "failed") break;
+      prevOutput = result.output;
+    }
+  } else {
+    // parallel: 分批
+    for (let i = 0; i < steps.length; i += TEAM_BATCH_SIZE) {
+      const batch = steps.slice(i, i + TEAM_BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(step => runStepWithStrategy(step, ctx, goal)),
+      );
+      results.push(...batchResults);
+    }
+  }
+}
+
+// ═══ 策略执行 ═══
+
+/** 按策略执行单个 step */
+async function runStepWithStrategy(
+  step: PlanStep,
+  ctx: any,
+  goal: string,
+): Promise<StepResult> {
+  const stepId = `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  uiStore.addWorker({
+    id: stepId,
+    parentId: null,
+    title: `${roleIcon(step.role)} ${step.role}: ${step.task.slice(0, 50)}`,
+  });
+  uiStore.updateWorker(stepId, { status: "running" });
+
+  let result: StepResult;
+
+  switch (step.strategy) {
+    case "build_check":
+      result = await runBuildCheck(step, ctx, goal);
+      break;
+    case "adaptive":
+      result = await runAdaptive(step, ctx, goal);
+      break;
+    case "direct":
+    default:
+      result = await runDirect(step, ctx, goal);
+      break;
+  }
+
+  uiStore.updateWorker(stepId, {
+    status: result.status,
+    recentOutput: result.output?.slice(0, 200) ?? "",
+  });
+
+  return result;
+}
+
+/** ① 直接完成：跑一次 */
+async function runDirect(
+  step: PlanStep,
+  ctx: any,
+  goal: string,
+): Promise<StepResult> {
+  try {
+    const output = await runSolo(step.role, step.task, ctx, goal);
+    return {
+      role: step.role, task: step.task, strategy: step.strategy,
+      status: "done", output,
+    };
+  } catch (e) {
+    return {
+      role: step.role, task: step.task, strategy: step.strategy,
+      status: "failed", output: (e as Error).message,
+    };
+  }
+}
+
+/** ② 建检循环：build → check → 修 → 再 check，最多 3 轮 */
+async function runBuildCheck(
+  step: PlanStep,
+  ctx: any,
+  goal: string,
+): Promise<StepResult> {
+  let currentTask = step.task;
+  let lastOutput = "";
+  let rounds = 0;
+
+  for (let round = 0; round < BUILD_CHECK_MAX_ROUNDS; round++) {
+    rounds++;
+
+    // Build
+    const buildOutput = await runSolo("build", currentTask, ctx, goal);
+    lastOutput = buildOutput;
+
+    // Check
+    const checkTask = `验证以下任务是否完成：${step.task}\n\n## build 输出\n${buildOutput}`;
+    const checkOutput = await runSolo("check", checkTask, ctx, goal);
+
+    // 通过？
+    if (/通过|pass|✓|✅|成功|没有问题|no\s*issue|all\s*tests?\s*pass/i.test(checkOutput)) {
+      return {
+        role: step.role, task: step.task, strategy: "build_check",
+        status: "done", output: buildOutput, rounds,
+      };
+    }
+
+    // 不通过 → 注入问题到下一轮
+    currentTask = `修复以下问题：\n${checkOutput}\n\n原任务：${step.task}`;
+  }
+
+  return {
+    role: step.role, task: step.task, strategy: "build_check",
+    status: "done", output: lastOutput, rounds,
+  };
+}
+
+/** ③ 自适应：执行 → 评估 → 调整 → 再评估，最多 5 轮 */
+async function runAdaptive(
+  step: PlanStep,
+  ctx: any,
+  goal: string,
+): Promise<StepResult> {
+  let currentTask = step.task;
+  let lastOutput = "";
+  let rounds = 0;
+
+  for (let round = 0; round < ADAPTIVE_MAX_ROUNDS; round++) {
+    rounds++;
+
+    // 执行
+    const output = await runSolo(step.role as any, currentTask, ctx, goal);
+    lastOutput = output;
+
+    // 评估
+    const evalTask = `评估距离目标的差距：${step.task}\n\n## 当前输出\n${output}\n\n如果满意回复"满意"。否则给出具体改进建议。`;
+    const evalOutput = await runSolo("check", evalTask, ctx, goal);
+
+    // 满意？
+    if (/满意|完成|达标|satisf|good\s*enough/i.test(evalOutput)) {
+      return {
+        role: step.role, task: step.task, strategy: "adaptive",
+        status: "done", output, rounds,
+      };
+    }
+
+    // 不满意 → 注入反馈
+    currentTask = `根据评估反馈改进：\n${evalOutput}\n\n原任务：${step.task}`;
+  }
+
+  return {
+    role: step.role, task: step.task, strategy: "adaptive",
+    status: "done", output: lastOutput, rounds,
+  };
+}
+
+// ═══ 工具函数 ═══
+
+function roleIcon(role: RoleName): string {
+  const icons: Record<RoleName, string> = {
+    explore: "🔍",
+    design: "📐",
+    build: "⚒️",
+    check: "🛡️",
+    close: "📦",
+  };
+  return icons[role] ?? "●";
 }

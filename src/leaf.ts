@@ -1,49 +1,38 @@
 /**
- * dteam v1 — 叶子器 (leaf)
+ * dteam v1 — 叶子执行器 (leaf)
  *
- * 唯一职责：调 LLM 实际执行一个 subTask。
- *
- * v1.1：暴露 read/bash/edit/write 工具，让 leaf 能真正改文件。
+ * 唯一职责：用指定角色调 LLM 执行一个 step。
+ * 角色决定 systemPrompt + tools（由 session.ts 的角色系统处理）。
  */
 
 import { createWorkerSession } from "./session.js";
-import type { Task } from "./tools.js";
+import type { RoleName } from "./tools.js";
 
 /**
- * 执行一个 leaf task。
+ * 用指定角色执行一个任务。
+ *
+ * @param role  角色（决定 systemPrompt + tools）
+ * @param task  具体任务描述
+ * @param ctx   Pi 扩展上下文
+ * @param goal  全局目标（注入 prompt 供参考）
+ * @returns     LLM 的最终文本输出
  */
 export async function execute(
-  task: Task,
+  role: RoleName,
+  task: string,
   ctx: any,
   goal: string,
 ): Promise<string> {
-  const systemPrompt =
-    `You are a leaf worker in dteam's recursive worker tree.\n` +
-    `\n` +
-    `The user originally asked: "${goal}"\n` +
-    `\n` +
-    `You are now executing this sub-task:\n` +
-    `  Title: ${task.title}\n` +
-    `  Description: ${task.description}\n` +
-    `\n` +
-    `You have access to read, bash, edit, and write tools.\n` +
-    `Use them to actually complete the task. Do not just describe what you would do — DO it.\n` +
-    `When done, provide a brief summary of what you accomplished.`;
-
-  // 从 ctx 拿模型信息，优先用 MiniMax-M3
-  const modelStr = "minimax-cn/MiniMax-M3";
-
   const session = await createWorkerSession({
-    role: "build",
+    role,
     cwd: ctx.cwd || process.cwd(),
-    modelStr,
+    modelStr: "minimax-cn/MiniMax-M3",
     ctx,
-    // 内置工具：让 leaf 能真正读文件、跑命令、改文件
-    builtInTools: ["read", "bash", "edit", "write"],
   });
 
-  // 发 prompt
-  await session.prompt("Execute this task now.");
+  // 注入全局目标供角色参考
+  const fullPrompt = `[全局目标: ${goal}]\n\n${task}`;
+  await session.prompt(fullPrompt);
 
   // 从 session.messages 取最终文本
   const messages = session.messages as any[];
