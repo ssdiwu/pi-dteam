@@ -1,148 +1,153 @@
 /**
- * ui-panel.ts — dteam v1 展开/空态面板
+ * ui-panel.ts — dteam v1 统一面板
  *
- * /dteam 命令触发的完整 TUI 面板。
- * 有 run 时显示 worker 进度详情，无 run 时显示"就绪"面板。
- * 再输 /dteam 关闭面板（toggle 行为）。
+ * 一个 key，两种态：
+ *   - 折叠态：run 进行中自动显示在右侧（worker 摘要）
+ *   - 展开态：/dteam 触发（完整面板，空态也有内容）
+ *
+ * /dteam toggle：展开 ↔ 关闭
+ * run 进行中：自动折叠态刷新
+ * run 结束 3s：折叠态消失
  */
 
 import { uiStore } from "./ui-store.js"
 import { statusIcon, formatDuration, truncText } from "./ui-render.js"
 
-export const PANEL_KEY = "dteam-workers"
+export const WIDGET_KEY = "dteam-workers"
 
 // ═══ 面板状态 ═══
 
-let panelActive = false
+let panelExpanded = false
 
-export function isPanelActive(): boolean {
-  return panelActive
+export function isPanelExpanded(): boolean {
+  return panelExpanded
 }
 
-/** 渲染空态面板（无活跃 run） */
-function buildEmptyPanel(theme: any, width: number): { render(width: number): string[]; invalidate(): void } {
-  return {
-    render(_w: number) {
-      const sep = "─".repeat(Math.max(20, width - 4))
-      return [
-        "",
-        theme.fg("accent", " 📊 dteam worker 进度"),
-        theme.fg("borderMuted", sep),
-        theme.fg("muted", "  （无 worker 正在工作）"),
-        "",
-        theme.fg("dim", "  启动 worker：让主 LLM 调 dteam(action=\"run\", goal=\"...\")"),
-        theme.fg("borderMuted", sep),
-        theme.fg("dim", "  再输 /dteam 关闭面板"),
-        "",
-      ]
-    },
-    invalidate() {},
-  }
-}
+// ═══ 统一渲染入口 ═══
 
-/** 渲染进度面板（有活跃 run） */
-function buildProgressPanel(theme: any, width: number): { render(width: number): string[]; invalidate(): void } {
-  return {
-    render(_w: number) {
-      const state = uiStore.getState()
-      const sep = "─".repeat(Math.max(20, width - 4))
-      const lines: string[] = []
-      const innerW = Math.max(40, width - 4)
+function buildComponent(): (_tui: unknown, theme: any) => { render(w: number): string[]; invalidate(): void } {
+  return (_tui: unknown, theme: any) => {
+    return {
+      render(width: number) {
+        const state = uiStore.getState()
+        const innerW = Math.max(20, width - 4)
+        const sep = "─".repeat(innerW)
 
-      lines.push("")
-
-      // 标题行
-      const elapsed = Date.now() - (state.startedAt || Date.now())
-      const workers = state.workers ?? []
-      const done = workers.filter(w => w.status === "done").length
-      const failed = workers.filter(w => w.status === "failed").length
-      const summary = failed > 0
-        ? `${done}/${workers.length} 完成, ${failed} 失败`
-        : `${done}/${workers.length} 完成`
-      const goalText = truncText(state.goal ?? "", innerW - 30)
-
-      lines.push(theme.fg("accent", ` 📊 dteam · ${goalText} · ${formatDuration(elapsed)} · ${summary}`))
-      lines.push(theme.fg("borderMuted", sep))
-
-      // 每个 worker 详情
-      for (const w of workers) {
-        const icon = statusIcon(w.status)
-        const title = truncText(w.title ?? "", innerW - 10)
-
-        // 状态行
-        let detail = ""
-        if (w.status === "running" && w.currentTool) {
-          detail = ` · ${w.currentTool}`
-        }
-        lines.push(theme.fg("text", `  ${icon} ${title}${detail}`))
-
-        // 最新输出（最多 3 行）
-        if (w.recentOutput?.length) {
-          const recentLines = w.recentOutput.slice(-3)
-          for (const line of recentLines) {
-            lines.push(theme.fg("muted", `    ⎿ ${truncText(line, innerW - 8)}`))
+        // ── 展开态（/dteam 触发）──
+        if (panelExpanded) {
+          if (!state.goal) {
+            // 空态面板
+            return [
+              "",
+              theme.fg("accent", " 📊 dteam worker 进度"),
+              theme.fg("borderMuted", sep),
+              theme.fg("muted", "  （无 worker 正在工作）"),
+              "",
+              theme.fg("dim", "  启动 worker：让主 LLM 调 dteam(action=\"run\", goal=\"...\")"),
+              theme.fg("borderMuted", sep),
+              theme.fg("dim", "  再输 /dteam 关闭面板"),
+              "",
+            ]
           }
+
+          // 进度面板
+          const workers = state.workers ?? []
+          const elapsed = Date.now() - (state.startedAt || Date.now())
+          const done = workers.filter(w => w.status === "done").length
+          const failed = workers.filter(w => w.status === "failed").length
+          const summary = failed > 0
+            ? `${done}/${workers.length} 完成, ${failed} 失败`
+            : `${done}/${workers.length} 完成`
+          const goalText = truncText(state.goal, innerW - 30)
+
+          const lines: string[] = [
+            "",
+            theme.fg("accent", ` 📊 dteam · ${goalText} · ${formatDuration(elapsed)} · ${summary}`),
+            theme.fg("borderMuted", sep),
+          ]
+
+          for (const w of workers) {
+            const icon = statusIcon(w.status)
+            const title = truncText(w.title ?? "", innerW - 12)
+            const detail = w.status === "running" && w.currentTool ? ` · ${w.currentTool}` : ""
+            lines.push(theme.fg("text", `  ${icon} ${title}${detail}`))
+            if (w.recentOutput?.length) {
+              for (const line of w.recentOutput.slice(-2)) {
+                lines.push(theme.fg("muted", `    ⎿ ${truncText(line, innerW - 8)}`))
+              }
+            }
+          }
+
+          lines.push(theme.fg("borderMuted", sep))
+          lines.push(theme.fg("dim", "  再输 /dteam 关闭面板"))
+          lines.push("")
+          return lines
         }
 
-        // 结果（done 状态时取最近输出的最后一条）
-        if (w.status === "done" && w.recentOutput?.length) {
-          const lastLine = w.recentOutput[w.recentOutput.length - 1] ?? ""
-          lines.push(theme.fg("dim", `    ⎿ ${truncText(lastLine, innerW - 8)}`))
+        // ── 折叠态（run 进行中自动显示）──
+        if (!state.goal) {
+          // 没 run 也不展开 → 不显示
+          return []
         }
-      }
 
-      // 底部
-      lines.push(theme.fg("borderMuted", sep))
-      lines.push(theme.fg("dim", "  再输 /dteam 关闭面板"))
-      lines.push("")
+        const workers = state.workers ?? []
+        const elapsed = Date.now() - (state.startedAt || Date.now())
+        const done = workers.filter(w => w.status === "done").length
+        const failed = workers.filter(w => w.status === "failed").length
+        const goalText = truncText(state.goal, 25)
+        const summary = failed > 0 ? `${done}/${workers.length} 完成, ${failed} 失败` : `${done}/${workers.length} 完成`
 
-      return lines
-    },
-    invalidate() {},
+        const lines: string[] = [
+          theme.fg("dim", `⚙ dteam · ${goalText} · ${formatDuration(elapsed)} · ${summary}`),
+        ]
+
+        for (let i = 0; i < workers.length; i++) {
+          const w = workers[i]
+          const isLast = i === workers.length - 1
+          const branch = isLast ? "└" : "├"
+          const icon = statusIcon(w.status)
+          const title = truncText(w.title ?? "", 30)
+          lines.push(theme.fg("dim", `${branch} ${icon} ${title}`))
+        }
+
+        return lines
+      },
+      invalidate() {},
+    }
   }
 }
 
-/**
- * 切换面板（/dteam 命令入口）
- * 已展开 → 关闭；未展开 → 打开。
- */
+// ═══ 公开 API ═══
+
+/** 设置/刷新 widget（安全用于无 UI 模式） */
+export function renderWidget(ctx: any): void {
+  if (!ctx.hasUI) return
+  ctx.ui.setWidget(WIDGET_KEY, buildComponent())
+}
+
+/** 清除 widget */
+export function clearWidget(ctx: any): void {
+  panelExpanded = false
+  if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined)
+}
+
+/** toggle 面板（/dteam 命令入口） */
 export function togglePanel(ctx: any): void {
   if (!ctx.hasUI) return
 
-  if (panelActive) {
+  if (panelExpanded) {
     // 关闭
-    panelActive = false
-    ctx.ui.setWidget(PANEL_KEY, undefined)
-    return
-  }
-
-  // 打开
-  panelActive = true
-  renderPanel(ctx)
-}
-
-/**
- * 关闭面板（供外部调用，如 run 完成后）
- */
-export function closePanel(ctx: any): void {
-  if (!panelActive) return
-  panelActive = false
-  if (ctx.hasUI) ctx.ui.setWidget(PANEL_KEY, undefined)
-}
-
-/**
- * 渲染面板内容（刷新用）
- */
-export function renderPanel(ctx: any): void {
-  if (!panelActive || !ctx.hasUI) return
-
-  ctx.ui.setWidget(PANEL_KEY, (_tui: unknown, theme: any) => {
+    panelExpanded = false
+    // 如果有活跃 run，降级为折叠态；否则完全清除
     const state = uiStore.getState()
-    const width = (process.stdout.columns || 80)
-
     if (state.goal) {
-      return buildProgressPanel(theme, width)
+      renderWidget(ctx)
+    } else {
+      ctx.ui.setWidget(WIDGET_KEY, undefined)
     }
-    return buildEmptyPanel(theme, width)
-  })
+  } else {
+    // 打开
+    panelExpanded = true
+    renderWidget(ctx)
+  }
 }

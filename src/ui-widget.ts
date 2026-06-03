@@ -20,10 +20,9 @@ export function buildWidgetComponent(): (_tui: unknown, theme: any) => Component
 		const state = uiStore.getState()
 		const container = new Container()
 
-		// 没有在运行 → 显示"就绪"提示
+		// 没有在运行 → 不显示折叠 widget（面板负责空态）
 		if (!state.goal) {
-			container.addChild(new Text(theme.fg("dim", "⚙ dteam · 就绪"), 0, 0))
-			return container
+			return new Container()
 		}
 
 		// ── 有任务在跑 ──

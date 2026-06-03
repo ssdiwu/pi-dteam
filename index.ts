@@ -5,15 +5,14 @@
  *   - dteam(action="run", goal="...")  → 同步阻塞跑完一个 goal
  *
  * 注册 1 个命令：
- *   - /dteam → toggle 面板（有 run 显示详情，无 run 显示空态）
+ *   - /dteam → toggle 面板（展开/折叠/空态）
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { run } from "./src/orchestrator.js";
 import { uiStore } from "./src/ui-store.js";
-import { renderWidget, WIDGET_KEY } from "./src/ui-widget.js";
-import { togglePanel, closePanel, renderPanel, isPanelActive, PANEL_KEY } from "./src/ui-panel.js";
+import { renderWidget, clearWidget, togglePanel, WIDGET_KEY } from "./src/ui-panel.js";
 import { statusIcon, truncText } from "./src/ui-render.js";
 import type { RunResult } from "./src/tools.js";
 
@@ -22,14 +21,8 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 function startRefresh(ctx: any) {
   stopRefresh();
-  // 立即渲染一次
   renderWidget(ctx);
-  renderPanel(ctx);
-  // 每 500ms 刷新
-  refreshTimer = setInterval(() => {
-    renderWidget(ctx);
-    renderPanel(ctx);
-  }, 500);
+  refreshTimer = setInterval(() => renderWidget(ctx), 500);
 }
 
 function stopRefresh() {
@@ -124,22 +117,20 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify(`dteam: 开始执行 "${goal}"`, "info");
       ctx.ui.setStatus("dteam", `执行中: ${goal}`);
 
-      // 启动刷新（折叠 widget + 面板同步）
       startRefresh(ctx);
 
       try {
         const result = await run(goal, ctx);
         ctx.ui.setStatus("dteam", undefined);
-
-        // 最后刷新一次
         renderWidget(ctx);
-        renderPanel(ctx);
 
-        // 3 秒后停止刷新 + 关闭折叠 widget（面板保留）
+        // 3 秒后停止刷新 + 清除折叠态（展开面板不受影响）
         setTimeout(() => {
           stopRefresh();
-          if (ctx.hasUI && !isPanelActive()) {
-            ctx.ui.setWidget(WIDGET_KEY, undefined);
+          // 只在面板没展开时清除
+          const state = uiStore.getState();
+          if (!state.goal) {
+            if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined);
           }
         }, 3000);
 
@@ -150,6 +141,7 @@ export default function (pi: ExtensionAPI) {
       } catch (e) {
         ctx.ui.setStatus("dteam", undefined);
         stopRefresh();
+        clearWidget(ctx);
         return {
           content: [{ type: "text" as const, text: `dteam 失败: ${(e as Error).message}` }],
           isError: true,
