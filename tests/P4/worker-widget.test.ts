@@ -3,10 +3,12 @@
  *
  * 覆盖：
  *   - 折叠态：多 worker 单行 + 缩进 + 信号角标
- *   - 展开态：全屏覆盖层（Ctrl+O 切换）
+ *   - 展开态：多 worker Tab 面板（/dteam 触发）
  *   - 终态清理：registerWorkerTerminated + scheduleTerminationCleanup
  *   - 状态栏：极简计数
  *   - dispose / invalidate：内存泄漏防护
+ *
+ * 集成测试见 `tests/P4/worker-panel.test.ts`（showWorkerPanel 集成）。
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -411,10 +413,10 @@ describe("worker-widget", () => {
 	});
 
 	// ═══════════════════════════════════════════════════════════
-	// buildTabBar：多 worker Tab 栏（取代旧的 WorkerFullscreenView 展开态渲染）
+	// buildTabBar：多 worker Tab 栏
 	// ═══════════════════════════════════════════════════════════
 
-	describe("buildTabBar (旧 WorkerFullscreenView 的 replace)", () => {
+	describe("buildTabBar", () => {
 		it("多 worker tab 数量正确", () => {
 			setProgress(makeProgress({ workerId: "w-1" }));
 			setProgress(makeProgress({ workerId: "w-2" }));
@@ -428,10 +430,10 @@ describe("worker-widget", () => {
 	});
 
 	// ═══════════════════════════════════════════════════════════
-	// buildTabContent：Tab 内容渲染（取代旧的 WorkerFullscreenView render）
+	// buildTabContent：Tab 内容渲染
 	// ═══════════════════════════════════════════════════════════
 
-	describe("buildTabContent (旧 WorkerFullscreenView render 的 replace)", () => {
+	describe("buildTabContent", () => {
 		it("渲染完整进度信息（从 store）", () => {
 			const now = Date.now();
 			const p = makeProgress({
