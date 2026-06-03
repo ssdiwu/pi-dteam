@@ -306,6 +306,29 @@ describe("buildTabContent (纯函数)", () => {
 		expect(all).toContain("5s"); // formatDuration 输出
 	});
 
+	it("title 行和 divider 等宽（避免对齐错位）", () => {
+		const w = makeWorkerProgress({ workerId: "w-1", role: "build", task: "task" });
+		// 多个 width 都验证对齐
+		for (const width of [44, 60, 80, 100, 120]) {
+			const result = buildTabContent(makeMockTheme() as any, w, [], undefined, width, {});
+			// 无 Back to parent 时：result[0]=title, result[1]=divider
+			const titleLine = result[0];
+			const dividerLine = result[1];
+			// mock theme 返回原文本（无 ANSI），长度 = visibleWidth
+			expect(titleLine.length).toBe(width);
+			expect(dividerLine.length).toBe(width);
+		}
+	});
+
+	it("width=44 时 title 截断后 padEnd 补空格（不溢出）", () => {
+		const w = makeWorkerProgress({ workerId: "w-very-long-id-1234567890", role: "very-long-role", task: "这是一个非常长的任务描述" });
+		const result = buildTabContent(makeMockTheme() as any, w, [], undefined, 44, {});
+		// divider (result[1]) 还是 44 字符
+		expect(result[1].length).toBe(44);
+		// title (result[0]) 截断后 padEnd 到 44 字符
+		expect(result[0].length).toBe(44);
+	});
+
 	it("含子 worker 时渲染 Nested workers section", () => {
 		const team = makeWorkerProgress({ workerId: "team-1", role: "team", task: "team task" });
 		const child = makeWorkerProgress({ workerId: "team-1-a", role: "build", task: "子任务", parentWorkerId: "team-1" });

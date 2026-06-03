@@ -158,7 +158,8 @@ export function buildTabContent(
 	options: { showBackToParent?: boolean } = {},
 ): string[] {
 	const lines: string[] = [];
-	const divider = theme.fg("borderMuted", "─".repeat(Math.max(1, width - 2)));
+	// divider 跟内容等宽（之前用 width-2 导致错位）
+	const divider = theme.fg("borderMuted", "─".repeat(Math.max(1, width)));
 
 	// 1. 顶部"返回父"提示（子 worker 详情时显示）
 	if (options.showBackToParent) {
@@ -177,7 +178,13 @@ export function buildTabContent(
 		? ` │ ${SIGNAL_ICON[currentWorker.lastSignal.type]}${currentWorker.signalCount > 1 ? `×${currentWorker.signalCount}` : ""}`
 		: "";
 	const title = ` ${icon} ${currentWorker.role} │ ${currentWorker.status} │ ${formatDuration(currentWorker.elapsedMs)}${signalSuffix} `;
-	lines.push(theme.fg("accent", truncateToWidth(title, width)));
+	// 截断后补空格到 width，避免内容行比 divider 短造成错位（考虑 ANSI 颜色码）
+	const truncatedTitle = truncateToWidth(title, width);
+	const titleVisibleWidth = visibleWidth(truncatedTitle);
+	const paddedTitle = titleVisibleWidth < width
+		? truncatedTitle + " ".repeat(width - titleVisibleWidth)
+		: truncatedTitle;
+	lines.push(theme.fg("accent", paddedTitle));
 	lines.push(divider);
 
 	// 3. Task
