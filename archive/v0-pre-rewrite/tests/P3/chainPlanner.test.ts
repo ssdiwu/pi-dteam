@@ -1,11 +1,11 @@
 /**
  * P3-chainPlanner 单元测试
  *
- * 覆盖：5 种 task 类型的 plan 生成、解析逻辑、边界情况
+ * 覆盖：5 种 task 类型的 plan 生成、解析逻辑、边界情况、双层验收
  */
 
 import { describe, it, expect } from "vitest";
-import { generatePlan, type ChainPlan, type ChainStep } from "../../src/P3/chainPlanner.js";
+import { generatePlan, extractAcceptanceCriteria, type ChainPlan, type ChainStep } from "../../src/P3/chainPlanner.js";
 
 // ── 测试用 task Markdown 模板 ─────────────────────────────────
 
@@ -44,6 +44,43 @@ ${criteriaBlock}
 （待填写）
 
 ### 收口记录
+（待填写）
+`;
+}
+
+/** 双层验收结构 task 模板 */
+function makeDualLayerTaskMd(criteria: {
+  machine: string[];
+  human: string[];
+}): string {
+  const aBlock = criteria.machine.map((c) => `- [ ] ${c}`).join("\n");
+  const bBlock = criteria.human.map((c) => `- [ ] ${c}`).join("\n");
+  return `# 双层验收任务
+
+## 基本信息
+- ID: 20260601120000-abcd
+- 类型: refactor
+- 创建时间: 2026-06-01T12:00:00.000Z
+- 状态: todo
+
+## 目标
+- 为什么: 测试用途
+- 做什么: 实现 workItem v1 主干
+
+## 范围
+- 包含: src/
+- 排除: UI
+
+## 验收条件（分两层）
+
+### A. 可校验（机器可验证）
+${aBlock}
+
+### B. 人工裁决（需用户确认）
+${bBlock}
+
+## 阶段记录
+### 探索发现
 （待填写）
 `;
 }
@@ -199,6 +236,102 @@ describe("chainPlanner", () => {
       expect(() => generatePlan(content, "修复-20260601120000-abcd.md")).toThrow(
         /缺少「目标→做什么」描述/,
       );
+    });
+  });
+
+  describe("双层验收结构", () => {
+    it("应正确解析「## 验收条件（分两层）」标题", () => {
+      const content = makeDualLayerTaskMd({
+        machine: ["AC-1 typecheck 通过", "AC-2 测试全过"],
+        human: ["HR-1 UI 清晰", "HR-2 文档完整"],
+      });
+      const plan = generatePlan(content, "实施-20260601120000-abcd.md");
+
+      expect(plan.taskId).toBe("20260601120000-abcd");
+      expect(plan.taskType).toBe("refactor");
+    });
+
+    it("extractAcceptanceCriteria 只返回 A 层 acText", () => {
+      const content = makeDualLayerTaskMd({
+        machine: ["AC-1 typecheck 通过", "AC-2 测试全过"],
+        human: ["HR-1 UI 清晰", "HR-2 文档完整"],
+      });
+
+      const criteria = extractAcceptanceCriteria(content);
+
+      expect(criteria).toEqual([
+        "AC-1 typecheck 通过",
+        "AC-2 测试全过",
+      ]);
+    });
+
+    it("A 层项不会因为包含 B 层描述而被混入", () => {
+      const content = makeDualLayerTaskMd({
+        machine: [
+          "AC-1 build 集成",
+          "AC-2 check 全过",
+        ],
+        human: [
+          "HR-1 体验足够流畅",
+          "HR-2 与现有设计风格一致",
+        ],
+      });
+      const criteria = extractAcceptanceCriteria(content);
+
+      // B 层文本不应进入 criteria
+      for (const c of criteria) {
+        expect(c).not.toMatch(/HR-/);
+        expect(c).not.toMatch(/体验/);
+        expect(c).not.toMatch(/设计风格/);
+      }
+      expect(criteria).toHaveLength(2);
+    });
+
+    it("plan 中 step 描述只由 A 层驱动，B 层不会成为 step 任务", () => {
+      const content = makeDualLayerTaskMd({
+        machine: ["AC-1 build 集成", "AC-2 check 全过"],
+        human: ["HR-1 UI 体验"],
+      });
+      const plan = generatePlan(content, "实施-20260601120000-abcd.md");
+
+      const allTaskText = plan.steps.map((s) => s.task).join("\n");
+      expect(allTaskText).not.toMatch(/UI 体验/);
+      expect(allTaskText).not.toMatch(/HR-/);
+    });
+
+    it("兼容旧单层结构（无 A/B 子 section）→ 整段视作 A 层", () => {
+      const content = makeTaskMd("infra", "测试", [
+        "AC-1 build 集成",
+        "AC-2 check 全过",
+      ]);
+      const criteria = extractAcceptanceCriteria(content);
+      expect(criteria).toEqual(["AC-1 build 集成", "AC-2 check 全过"]);
+    });
+
+    it("旧单层结构仍能生成正常 plan（不抛错）", () => {
+      const content = makeTaskMd("infra", "实现编排器", [
+        "AC-1 build 集成",
+        "AC-2 check 全过",
+      ]);
+      const plan = generatePlan(content, "实施-20260601120000-abcd.md");
+      expect(plan.steps.length).toBeGreaterThan(0);
+    });
+
+    it("A 层无 AC id 前缀的项会被忽略（require acId）", () => {
+      const content = makeDualLayerTaskMd({
+        machine: [
+          "AC-1 build 集成",
+          "普通描述没 AC id", // 没有 AC 前缀
+          "AC-2 check 全过",
+        ],
+        human: [],
+      });
+      const criteria = extractAcceptanceCriteria(content);
+      // "普通描述没 AC id" 没有 AC id，应被忽略
+      expect(criteria).toEqual([
+        "AC-1 build 集成",
+        "AC-2 check 全过",
+      ]);
     });
   });
 });

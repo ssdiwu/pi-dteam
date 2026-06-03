@@ -9,8 +9,9 @@
 | `config.ts` | WorkerConfig 定义、options 读取与归一化工具（含 worktree/concurrencyMode 字段） |
 | `dteamConfig.ts` | dteam 三层配置加载（内置 → 全域 → 项目），支持 useCurrentModel |
 | `adaptiveConcurrency.ts` | 自适应并发控制器：状态机 + 系统采样器 + 过载保护 |
-| `signal.ts` | 信号类型（progress/blocked/found/help）和策略类型定义 |
-| `signalEvent.ts` | 信号事件类型 + TTL 工具（信息素层 P0 类型层） |
+| `signal.ts` | **信号（信息素）类型**：4 种 SignalType（progress/blocked/found/help）+ 5 种 StrategyType（retry/adjust/switch/replan/learn）；信号是 dteam 信息素系统的原子通信单元 |
+| `signalEvent.ts` | **信号事件（信息素数据单元）**：基于 SignalType 扩展的持久化形态，增加 TTL 衰减、taskId 关联、severity 分级、refs 依赖引用、artifacts 产出文件；提供 `computeExpiresAt()` / `isExpired()` 工具 |
+| `workItem.ts` | **workItem 数据模型**：运行态任务池的最小调度单元；包含 `WorkItem` / `RunState` / `WorkItemStatus` / `ExecutionStrategy` / `AcceptanceModel` 等类型，以及 `parseAcId()` / `extractAcceptanceModel()` 双层验收解析器（与 chainPlanner / contextBuilder 共用） |
 | `status.ts` | WorkerStatus 和 TaskStatus 类型定义 |
 | `stateMachine.ts` | 任务状态转换验证（终态、合法转换） |
 | `memory.ts` | MemoryAdapter 接口定义 |

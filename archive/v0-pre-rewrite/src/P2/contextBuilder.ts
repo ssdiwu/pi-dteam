@@ -13,6 +13,7 @@ import { join, relative, dirname } from "node:path";
 import { WorkerConfig, getRequiredOption, normalizeOptions } from "../P0/config.js";
 import { EnhancedSharedMemory } from "../P1/enhancedSharedMemory.js";
 import { SignalBus } from "../P1/signalBus.js";
+import { extractAcceptanceModel } from "../P0/workItem.js";
 
 // ── 类型定义 ──────────────────────────────────────────────────
 
@@ -283,13 +284,12 @@ export class ContextBuilder {
     const includeMatch = scopeContent.match(/包含:\s*(.*)/);
     const excludeMatch = scopeContent.match(/排除:\s*(.*)/);
     
-    // 解析验收条件
-    const acceptanceMatch = content.match(/## 验收条件\n([\s\S]*?)(?=\n## |$)/);
-    const acceptanceContent = acceptanceMatch ? acceptanceMatch[1] : '';
-    const acceptance = acceptanceContent
-      .split('\n')
-      .filter(line => line.trim().startsWith('- [ ]') || line.trim().startsWith('- [x]'))
-      .map(line => line.replace(/^-\s*\[.\]\s*/, '').trim());
+    // 解析验收条件（双层模型）
+    // 默认 `acceptance` 只放 A 层可校验项；B 层人工裁决项不进 acceptance，
+    // 但仍可通过 `sections["验收条件（分两层）"]` 拿到原文。
+    // 兼容旧单层结构（无 A/B 子 section）→ 整段视作 A 层。
+    const model = extractAcceptanceModel(content);
+    const acceptance = model.machine.map((m) => m.acText);
     
     // 解析所有 section
     const sections: Record<string, string> = {};

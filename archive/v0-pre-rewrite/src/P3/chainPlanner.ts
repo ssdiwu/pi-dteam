@@ -1,13 +1,19 @@
 /**
  * P3-组织层：task Markdown → chain plan 解析器
  *
- * 读取 task Markdown 文件，提取元数据、目标、验收条件，
+ * 读取 task Markdown 文件，提取元数据、目标、双层验收条件（A/B 分层），
  * 根据 task 类型选择默认链模板，生成 ChainPlan。
+ *
+ * v1 行为（双层验收）：
+ * - 从 `## 验收条件（分两层）` section 抽取 A 层可校验项 + B 层人工裁决项
+ * - plan 只用 A 层；B 层仅保留给最终 review，不进入 plan
+ * - 兼容旧单层结构（无 A/B 子 section）：整段 checklist 视作 A 层
  */
 
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { extractAcceptanceModel } from "../P0/workItem.js";
 
 // ── 类型定义 ──────────────────────────────────────────────────
 
@@ -102,20 +108,17 @@ function extractGoal(content: string): string {
   return match ? match[1].trim() : "";
 }
 
-/** 从「验收条件」section 提取 checklist 项 */
-function extractAcceptanceCriteria(content: string): string[] {
-  const acSection = extractSection(content, "验收条件");
-  if (!acSection) return [];
-
-  const items: string[] = [];
-  const lineRegex = /- \[[ x]\]\s*(.+)$/gm;
-  let match: RegExpExecArray | null;
-
-  while ((match = lineRegex.exec(acSection)) !== null) {
-    items.push(match[1].trim());
-  }
-
-  return items;
+/**
+ * 从「验收条件」section 提取 A 层可校验项的原始 AC 文本（供 plan / role 匹配使用）。
+ *
+ * 行为：
+ * - 优先用 `extractAcceptanceModel` 解析双层结构
+ * - 只返回 A 层 acText 列表（与 generatePlan 的 plan-only-A 行为一致）
+ * - 旧单层结构会自动视作 A 层
+ */
+export function extractAcceptanceCriteria(content: string): string[] {
+  const model = extractAcceptanceModel(content);
+  return model.machine.map((m) => m.acText);
 }
 
 // ── 核心：生成 ChainPlan ───────────────────────────────────────

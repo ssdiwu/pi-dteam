@@ -38,13 +38,15 @@ extensions/index.ts
 
 ## 关键设计
 
-### Worker Widget 多 worker 单行 + 嵌套 + 信号
+### Worker Widget 多 worker 单行 + 嵌套 + 信号（信息素）
 
 折叠态 widget 支持**多个后台 worker 并行显示**，每行单 worker：
 - 单行格式：`● build  实现功能  T:3 · edit  5.0s  📡`
 - team/chain 子 worker 缩进 2 空格 + `↳`
-- 信号角标：📡（progress）/ 🚧（blocked）/ 🔍（found）/ 🆘（help），可显示累计 ×N
+- **信号（信息素）角标**：📡（progress）/ 🚧（blocked）/ 🔍（found）/ 🆘（help），可显示累计 ×N
 - 状态栏极简计数：`N workers · M running`
+
+信号角标的数据来源是 **P1/signalBus → P4/installSignalBridge 自动桥接**，即每当任何 worker 通过 bus.emit() 发出信号时，widget 自动更新对应 worker 的角标显示。详见 [P1 README](../P1/README.md) 的「信息素系统」章节。
 
 ### Worker Tab 面板（/dteam 触发）
 

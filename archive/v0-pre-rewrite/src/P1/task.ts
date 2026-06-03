@@ -166,7 +166,9 @@ export async function taskCreate(
 	// 确保目录存在
 	await ensureDir(taskDir);
 
-	// 构建 task 内容
+	// 构建 task 内容（v2：双层验收结构）
+	// - A 层：可由 Root materialize 成 workItems[] 的可校验项
+	// - B 层：保留给最终用户裁决的人工项
 	const content = `# ${name}
 
 ## 基本信息
@@ -183,8 +185,13 @@ export async function taskCreate(
 - 包含: 
 - 排除: 
 
-## 验收条件（GWT + 测试）
-- [ ] 
+## 验收条件（分两层）
+
+### A. 可校验（机器可验证）
+- [ ] AC-1 
+
+### B. 人工裁决（需用户确认）
+- [ ] HR-1 
 
 ## 阶段记录
 ### 探索发现
