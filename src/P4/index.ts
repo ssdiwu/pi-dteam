@@ -40,7 +40,9 @@ function wrap(
 }
 
 // ── Worker Wrapper: 带TUI消息的worker工具包装 ────────────────
-function wrapWorker(
+// 导出 wrapWorker 仅供单测调用（tests/P4/wrapWorker-status.test.ts）
+// 生产代码不应直接使用此函数——worker_* 工具经 pi.registerTool 注册
+export function wrapWorker(
 	fn: (ctx: ExtensionContext, params: any) => Promise<{ content: string }>,
 	workerAction: "create" | "start" | "signal" | "cancel" | "status",
 	extensionApi: ExtensionAPI,
@@ -141,27 +143,35 @@ function wrapWorker(
 					case "create":
 						status = "pending";
 						task = parsed.config?.task || "Worker created";
+						// 更新 TUI 状态栏
+						emitWorkerProgress(extensionApi, workerId, status, task);
 						break;
 					case "start":
 						status = "running";
 						task = "Executing...";
+						// 更新 TUI 状态栏
+						emitWorkerProgress(extensionApi, workerId, status, task);
 						break;
 					case "signal":
 						status = "running";
 						task = `Signal: ${params.signalType}`;
+						// 更新 TUI 状态栏
+						emitWorkerProgress(extensionApi, workerId, status, task);
 						break;
 					case "cancel":
 						status = "failed";
 						task = "Cancelled";
+						// 更新 TUI 状态栏
+						emitWorkerProgress(extensionApi, workerId, status, task);
 						break;
 					case "status":
-						status = parsed.status || "unknown";
-						task = "Status check";
+						// status 是查询动作（read），不是生命周期事件（write）。
+						// 不调 emitWorkerProgress 避免污染 store：
+						//   1) 不存在的 workerId 不会再被创建"虚拟"记录
+						//   2) 已存在的 worker 不会被覆盖 task 文本为 "Status check"
+						// user-facing 反馈由 buildBriefReport 提供（"📊 Worker X: <status>"）
 						break;
 				}
-
-				// 更新 TUI 状态栏
-				emitWorkerProgress(extensionApi, workerId, status, task);
 
 				// 更新 worker widget
 				if (workerAction === "start" && parsed.background) {
