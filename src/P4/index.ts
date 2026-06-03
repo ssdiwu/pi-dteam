@@ -282,7 +282,7 @@ import {
 import { spawnAgent } from "../P1/spawn.js";
 
 import { registerRenderers, emitWorkerProgress } from "./renderers.js";
-import { showWorkerStatus, clearWorkerStatus, updateAgentProgress, registerWorkerTerminated, showWorkerPanel, installSignalBridge } from "./worker-widget.js";
+import { showWorkerStatus, clearWorkerStatus, updateAgentProgress, registerWorkerTerminated, showWorkerPanel, clearPendingPlan, getPendingPlan, setPendingPlan, cycleWidgetTab, installSignalBridge } from "./worker-widget.js";
 import { registerCompactionI18n } from "../P1/compaction.js";
 
 import {
@@ -1020,6 +1020,63 @@ export default async function (pi: ExtensionAPI) {
 		async handler(_args: string, ctx) {
 			// 展开/折叠多 worker Tab 面板
 			await showWorkerPanel(ctx);
+		},
+	});
+
+	// ── dteam plan 子命令（确认/跳过/取消）──
+	pi.registerCommand("dteam:confirm", {
+		description: "确认执行当前 pending plan",
+		async handler(_args: string, ctx) {
+			const plan = getPendingPlan();
+			if (!plan) {
+				ctx.ui.notify("没有待确认的 plan", "info");
+				return;
+			}
+			ctx.ui.notify(`✅ 已确认 plan: ${plan.goalSummary}`, "info");
+			clearPendingPlan();
+			// 后续接入 P3 启动 Phase 2
+		},
+	});
+
+	pi.registerCommand("dteam:skip", {
+		description: "跳过确认，直接执行（后续同类目标自动跳过）",
+		async handler(_args: string, ctx) {
+			const plan = getPendingPlan();
+			if (!plan) {
+				ctx.ui.notify("没有待确认的 plan", "info");
+				return;
+			}
+			ctx.ui.notify(`⏭ 跳过确认: ${plan.goalSummary}`, "info");
+			clearPendingPlan();
+			// 后续接入 P3 启动 Phase 2
+		},
+	});
+
+	pi.registerCommand("dteam:cancel", {
+		description: "取消当前 plan（清理临时文件）",
+		async handler(_args: string, ctx) {
+			const plan = getPendingPlan();
+			if (!plan) {
+				ctx.ui.notify("没有待确认的 plan", "info");
+				return;
+			}
+			ctx.ui.notify(`❌ 已取消 plan: ${plan.goalSummary}`, "info");
+			clearPendingPlan();
+			// 后续接入 P3 清理临时文件
+		},
+	});
+
+	// ── 全局快捷键：Tab 切换 dteam 面板 tab（仅在面板展开时生效）──
+	pi.registerShortcut("tab", {
+		description: "dteam 面板：切换到下一个 tab",
+		handler: (_ctx) => {
+			cycleWidgetTab(1);
+		},
+	});
+	pi.registerShortcut("shift+tab", {
+		description: "dteam 面板：反向切换 tab",
+		handler: (_ctx) => {
+			cycleWidgetTab(-1);
 		},
 	});
 }

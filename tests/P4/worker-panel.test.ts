@@ -14,6 +14,10 @@ import {
 	resetExpandedState,
 	resetThrottleState,
 	resetDisposedCount,
+	setPendingPlan,
+	clearPendingPlan,
+	cycleWidgetTab,
+	getCurrentTabIdx,
 } from "../../src/P4/worker-widget.js";
 import {
 	getStore,
@@ -51,13 +55,12 @@ function makeCapturingCtx(): { ctx: ExtensionContext; getCaptured: () => SetWidg
 	const ctx: any = {
 		hasUI: true,
 		ui: {
-			setWidget: vi.fn((_key: string, factory: any) => {
-				if (typeof factory === "function") {
+			setWidget: vi.fn((_key: string, factory: any) => {				if (typeof factory === "function") {
 					try {
 						const result = factory(makeMockTui(), makeMockTheme());
 						captured = result;
 					} catch (e) {
-						/* expected during cleanup / format mismatch */
+						/* expected */
 					}
 				}
 			}),
@@ -190,6 +193,95 @@ describe("showWorkerPanel (集成)", () => {
 		const { ctx } = makeCapturingCtx();
 		showWorkerPanel(ctx as any);
 		expect(ctx.ui.setWidget).toHaveBeenCalled();
+	});
+
+	// ── Plan tab 集成测试 ──
+	describe("Plan tab 集成", () => {
+		it("AC-1: pendingPlan 不存在时 Tab 栏不含 Plan", () => {
+			setProgress(makeWorkerProgress({ workerId: "w-1" }));
+			const { ctx, getCaptured } = makeCapturingCtx();
+			showWorkerPanel(ctx as any);
+			const panel = getCaptured()!;
+			const all = panel.render(120).join("\n");
+			expect(all).not.toContain("📋 Plan");
+		});
+
+		it("AC-2: pendingPlan 存在时 Tab 栏第一个是 Plan", () => {
+			setProgress(makeWorkerProgress({ workerId: "w-1" }));
+			const { ctx, getCaptured } = makeCapturingCtx();
+			showWorkerPanel(ctx as any);
+			setPendingPlan({
+				taskPath: "/tmp/test.md",
+				goalSummary: "实现登录",
+				goalFull: "实现登录",
+				machine: [{ acId: "AC-1", acText: "AC-1 test" }],
+				human: [],
+			});
+			const panel = getCaptured()!;
+			const all = panel.render(120).join("\n");
+			expect(all).toContain("📋 Plan");
+		});
+
+		it("AC-3: 选中 plan tab 时显示 Goal + checklist", () => {
+			const { ctx, getCaptured } = makeCapturingCtx();
+			showWorkerPanel(ctx as any);
+			setPendingPlan({
+				taskPath: "/tmp/test.md",
+				goalSummary: "实现登录",
+				goalFull: "实现用户登录功能",
+				machine: [
+					{ acId: "AC-1", acText: "AC-1 工具只显示一行概要" },
+					{ acId: "AC-2", acText: "AC-2 错误态视觉区分" },
+				],
+				human: ["是否需要密码强度提示"],
+			});
+			const panel = getCaptured()!;
+			const all = panel.render(120).join("\n");
+			expect(all).toContain("实现登录");
+			expect(all).toContain("AC-1");
+			expect(all).toContain("AC-2");
+			expect(all).toContain("A 层");
+			expect(all).toContain("B 层");
+		});
+
+		it("AC-4: plan tab 底部显示 confirm/skip/cancel 提示", () => {
+			const { ctx, getCaptured } = makeCapturingCtx();
+			showWorkerPanel(ctx as any);
+			setPendingPlan({
+				taskPath: "/tmp/test.md",
+				goalSummary: "test",
+				goalFull: "test",
+				machine: [],
+				human: [],
+			});
+			const panel = getCaptured()!;
+			const all = panel.render(120).join("\n");
+			expect(all).toContain("/dteam confirm");
+			expect(all).toContain("/dteam skip");
+			expect(all).toContain("/dteam cancel");
+		});
+
+		it("AC-7: clearPendingPlan 后 Tab 栏不再含 Plan", () => {
+			setProgress(makeWorkerProgress({ workerId: "w-1" }));
+			const { ctx, getCaptured } = makeCapturingCtx();
+			showWorkerPanel(ctx as any);
+			setPendingPlan({
+				taskPath: "/tmp/test.md",
+				goalSummary: "test",
+				goalFull: "test",
+				machine: [],
+				human: [],
+			});
+			clearPendingPlan();
+			const panel = getCaptured()!;
+			const all = panel.render(120).join("\n");
+			expect(all).not.toContain("📋 Plan");
+		});
+
+		it("AC-5/6: cycleWidgetTab 在面板未开时是 no-op", () => {
+			cycleWidgetTab(1); // 不应抛错
+			expect(getCurrentTabIdx()).toBe(0);
+		});
 	});
 });
 

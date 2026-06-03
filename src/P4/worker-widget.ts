@@ -31,6 +31,7 @@ import {
 type TuiRef = { requestRender: () => void };
 import type { AgentProgress } from "../P1/spawn.js";
 import type { SignalType } from "../P0/signal.js";
+import type { ParsedPlan } from "./parseChecklist.js";
 import {
 	getStore,
 	scheduleTerminationCleanup,
@@ -87,6 +88,10 @@ let currentPanelDone: ((result: PanelResult) => void) | null = null;
 const latestProgressByWorker = new Map<string, ExtendedProgressData>();
 /** 最新 ExtensionContext */
 let latestCtx: ExtensionContext | null = null;
+/** 待确认的 plan（dteam run 完成后写入，用户 confirm/skip/cancel 后清空） */
+let pendingPlan: ParsedPlan | null = null;
+/** Tab 栏当前选中索引（-1=未选中；plan tab 占据索引 0，如有） */
+let currentTabIdx = 0;
 /** Panel 刷新定时器（模块级单例，多 panel 不重复创建） */
 let panelRefreshTimer: ReturnType<typeof setInterval> | null = null;
 /** 折叠 widget 的全局 tick（1s 跳秒） */
@@ -131,6 +136,52 @@ export function buildTabBar(
 		// active tab 用 selectedBg 高亮（theme 装饰，没有 selectedBg 时降级为 accent）
 		const text = isActive ? label : label;
 		parts.push(isActive ? theme.fg("accent", text) : theme.fg("muted", text));
+	}
+
+	if (parents.length > MAX_TAB_LABELS) {
+		parts.push(theme.fg("muted", ` [+${parents.length - MAX_TAB_LABELS} more]`));
+	}
+
+	return truncateToWidth(parts.join(" "), width);
+}
+
+/**
+ * 构建完整 Tab 栏（含可选 plan tab 始终在第一位）。
+ *
+ * - pendingPlan 不为 null → Tab 栏最左是 [📋 Plan]
+ * - parents 为空且无 plan → 返回空提示
+ * - currentIdx 跟 plan/worker 索引一致（plan=0）
+ */
+export function buildFullTabBar(
+	theme: Theme,
+	parents: WorkerProgress[],
+	pendingPlan: ParsedPlan | null,
+	currentIdx: number,
+	width: number,
+): string {
+	const parts: string[] = [];
+
+	// Plan tab 永远在第一位
+	if (pendingPlan) {
+		const label = " 📋 Plan ";
+		const isActive = currentIdx === 0;
+		parts.push(isActive ? theme.fg("accent", label) : theme.fg("muted", label));
+	}
+
+	if (parents.length === 0 && !pendingPlan) {
+		return theme.fg("muted", "(no workers)");
+	}
+
+	const MAX_TAB_LABELS = 10;
+	const visibleCount = Math.min(parents.length, MAX_TAB_LABELS);
+	for (let i = 0; i < visibleCount; i++) {
+		const w = parents[i];
+		// worker tab 索引偏移：plan 占 0 则 worker 从 1 开始
+		const tabIdx = pendingPlan ? i + 1 : i;
+		const isActive = tabIdx === currentIdx;
+		const icon = w.status === "running" ? "●" : w.status === "done" ? "✓" : w.status === "failed" ? "✗" : "○";
+		const label = ` ${icon} ${w.workerId} `;
+		parts.push(isActive ? theme.fg("accent", label) : theme.fg("muted", label));
 	}
 
 	if (parents.length > MAX_TAB_LABELS) {
@@ -414,6 +465,67 @@ export class WorkerStatusList implements Component {
 }
 
 // ── 展开态辅助函数（与 buildTabContent 配合使用） ─────────────────────
+
+/**
+ * 渲染 Plan tab 内容（Goal + 双层 checklist + 文件路径 + 操作提示）。
+ *
+ * - theme：用于颜色
+ * - width：终端宽度（用于分隔线）
+ * - plan：parseChecklist 解析结果
+ *
+ * 返回 string[]，每行已带 ANSI 颜色。
+ */
+export function renderPlanContent(
+	theme: Theme,
+	width: number,
+	plan: ParsedPlan,
+): string[] {
+	const innerW = Math.max(40, width - 4);
+	const sep = "\u2500".repeat(innerW);
+	const lines: string[] = [];
+
+	// 1. 标题：📋 执行计划 · goal 摘要
+	const titleText = plan.goalSummary || "(无目标)";
+	lines.push(theme.fg("accent", ` 📋 执行计划 · ${truncateToWidth(titleText, Math.max(10, innerW - 12))}`));
+	lines.push(theme.fg("borderMuted", sep));
+
+	// 2. Goal 全文
+	lines.push(theme.fg("text", `Goal: ${truncateToWidth(plan.goalFull.replace(/\n/g, " "), Math.max(10, innerW - 6))}`));
+	lines.push("");
+
+	// 3. A 层可校验 checklist
+	if (plan.machine.length > 0) {
+		lines.push(theme.fg("accent", " A 层（可校验）:"));
+		for (const item of plan.machine) {
+			const checked = item.acText.startsWith("[x]");
+			const icon = checked ? "☑" : "☐";
+			const text = item.acText.replace(/^\[[ x]\]\s*/, "");
+			lines.push(theme.fg(checked ? "muted" : "text", `  ${icon} ${item.acId}: ${truncateToWidth(text, Math.max(10, innerW - 10))}`));
+		}
+	} else {
+		lines.push(theme.fg("muted", " A 层（可校验）: (空)"));
+	}
+	lines.push("");
+
+	// 4. B 层人工裁决
+	if (plan.human.length > 0) {
+		lines.push(theme.fg("warning", " B 层（人工裁决）:"));
+		for (const item of plan.human) {
+			lines.push(theme.fg("text", `  • ${truncateToWidth(item, Math.max(10, innerW - 6))}`));
+		}
+	}
+	lines.push(theme.fg("borderMuted", sep));
+
+	// 5. 文件路径
+	const filePath = plan.taskPath.replace(/^.*\/\.dteam\//, ".dteam/");
+	lines.push(theme.fg("dim", ` 📄 ${truncateToWidth(filePath, Math.max(10, innerW - 4))}`));
+	lines.push(theme.fg("borderMuted", sep));
+
+	// 6. 操作提示
+	lines.push(theme.fg("dim", "  /dteam confirm 执行 · /dteam skip 跳过 · /dteam cancel 取消"));
+
+	return lines;
+}
 
 /** 格式化持续时间 */
 function formatDuration(ms: number): string {
@@ -710,6 +822,8 @@ export function resetExpandedState(): void {
 	expandedActive = false;
 	currentPanelDone = null;
 	latestCtx = null;
+	pendingPlan = null;
+	currentTabIdx = 0;
 
 	// 清最新进度 Map + 同步从 store 移除
 	const store = getStore();
@@ -727,6 +841,141 @@ export function resetExpandedState(): void {
 /** 获取当前展开态（供测试用） */
 export function isExpanded(): boolean {
 	return expandedActive;
+}
+
+// ── Plan 面板状态管理 ──
+
+/** 设置待确认 plan（由 dteam run 完成后调用） */
+export function setPendingPlan(plan: ParsedPlan | null): void {
+	pendingPlan = plan;
+	if (plan) {
+		// 新 plan → 切到 plan tab
+		currentTabIdx = 0;
+	}
+	// 重建面板（close + show 避开幂等检查）
+	if (latestCtx) {
+		if (expandedActive) closeWorkerPanel();
+		showWorkerPanel(latestCtx);
+	}
+}
+
+/** 读取待确认 plan */
+export function getPendingPlan(): ParsedPlan | null {
+	return pendingPlan;
+}
+
+/** 清除 plan（用户 confirm/skip/cancel 后） */
+export function clearPendingPlan(): void {
+	pendingPlan = null;
+	// 切到第一个 worker tab（如果有）
+	if (latestCtx) {
+		const parents = Array.from(getStore().values()).filter((p) => !p.parentWorkerId);
+		currentTabIdx = parents.length > 0 ? 0 : 0;
+		refreshWidgetFromLatest();
+	}
+}
+
+/** 触发 widget 重新渲染（用于外部状态变化后让面板刷新） */
+function refreshWidgetFromLatest(): void {
+	if (!latestCtx) return;
+	const ctx = latestCtx;
+	// 重置 setWidget 闭包使其重新加载（不能调 showWorkerPanel，会被幂等检查关闭）
+	ctx.ui.setWidget(WIDGET_KEY, undefined);
+	// 重新调 setWidget 需重建场景：setPendingPlan 时 expandedActive=true
+	// 只需重新执行 setWidget setup
+	const store = getStore();
+	const parents = Array.from(store.values()).filter((p) => !p.parentWorkerId);
+	if (parents.length === 0) {
+		// 空态
+		ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => ({
+			render: (width: number) => {
+				const sep = "\u2500".repeat(Math.max(20, width - 4));
+				const emptyMsg = store.size === 0
+					? "（无 worker 正在工作）"
+					: "（无父 worker 正在工作）";
+				return [
+					"",
+					theme.fg("accent", " \ud83d\udcca dteam worker \u8fdb\u5ea6"),
+					theme.fg("borderMuted", sep),
+					theme.fg("muted", "  " + emptyMsg),
+					"",
+					theme.fg("dim", "  \u542f\u52a8 worker \u8bd5\u8bd5\uff1a"),
+					theme.fg("dim", "    /dteam run <\u76ee\u6807\u63cf\u8ff0>"),
+					theme.fg("borderMuted", sep),
+					theme.fg("dim", "  \u518d\u8f93 /dteam \u5173\u95ed"),
+					"",
+				];
+			},
+			invalidate: () => {},
+		}));
+	} else {
+		// 有 worker：复用 showWorkerPanel 中的 setWidget 逻辑
+		ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => {
+			const all = Array.from(getStore().values());
+			const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
+			return {
+				render: (width: number) => {
+					const innerW = Math.max(40, width - 4);
+					const sep = "\u2500".repeat(innerW);
+					const lines: string[] = [];
+					lines.push("");
+					lines.push(theme.fg("accent", " \ud83d\udcca dteam worker progress"));
+					const totalTabs = (pendingPlan ? 1 : 0) + parentsSorted.length;
+					if (totalTabs >= 1) {
+						lines.push("  " + buildFullTabBar(theme, parentsSorted, pendingPlan, currentTabIdx, innerW));
+					}
+					lines.push(theme.fg("borderMuted", sep));
+					const planOffset = pendingPlan ? 1 : 0;
+					if (pendingPlan && currentTabIdx === 0) {
+						lines.push(...renderPlanContent(theme, innerW, pendingPlan));
+					} else {
+						const workerIdx = currentTabIdx - planOffset;
+						const current = parentsSorted[workerIdx];
+						if (current) {
+							const extended = latestProgressByWorker.get(current.workerId);
+							const children = all.filter((c) => c.parentWorkerId === current.workerId);
+							const contentLines = buildTabContent(
+								theme, current, children, extended, innerW,
+								{ showBackToParent: false },
+							);
+							lines.push(...contentLines);
+						}
+					}
+					lines.push(theme.fg("borderMuted", sep));
+					lines.push(theme.fg("dim", "  \u518d\u8f93 /dteam \u5173\u95ed"));
+					lines.push("");
+					return lines;
+				},
+				invalidate: () => {},
+			};
+		});
+	}
+}
+
+/** 切换 Tab（供 registerShortcut handler 调用） */
+export function cycleWidgetTab(direction: 1 | -1): void {
+	if (!expandedActive) return;  // guard：面板未开不响应
+	const total = getTotalTabCount();
+	if (total <= 1) return;
+	currentTabIdx = (currentTabIdx + direction + total) % total;
+	refreshWidgetFromLatest();
+}
+
+/** 获取当前总 tab 数（plan + workers） */
+function getTotalTabCount(): number {
+	const parents = Array.from(getStore().values()).filter((p) => !p.parentWorkerId);
+	return pendingPlan ? 1 + parents.length : parents.length;
+}
+
+/** 导出当前 tab 索引（供测试用） */
+export function getCurrentTabIdx(): number {
+	return currentTabIdx;
+}
+
+/** 切换到指定 tab（0=plan 或第一个 worker） */
+export function setCurrentTabIdx(idx: number): void {
+	currentTabIdx = idx;
+	refreshWidgetFromLatest();
 }
 
 /** 获取 dispose 调用次数（供测试用） */
@@ -818,7 +1067,7 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 	// 仅看父 worker（无 parentWorkerId）作为 tab
 	const parents = Array.from(store.values()).filter((p) => !p.parentWorkerId);
 
-	if (parents.length === 0) {
+	if (parents.length === 0 && !pendingPlan) {
 		// ── 空态面板：用 setWidget 嵌入信息流（输入栏上方，不遮挡）──
 		expandedActive = true;
 		latestCtx = ctx;
@@ -855,8 +1104,6 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 	latestCtx = ctx;
 	ctx.ui.setWidget(WIDGET_KEY, undefined);
 
-	let currentTabIdx = 0;
-
 	ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => {
 		const all = Array.from(getStore().values());
 		const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
@@ -870,24 +1117,32 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 		lines.push("");
 		lines.push(theme.fg("accent", " \ud83d\udcca dteam worker progress"));
 
-		// Tab 栏
-		if (parentsSorted.length > 1) {
-			lines.push("  " + buildTabBar(theme, parentsSorted, currentTabIdx, 68));
+		// Tab 栏（含可选 plan tab）
+		const totalTabs = (pendingPlan ? 1 : 0) + parentsSorted.length;
+		if (totalTabs >= 1) {
+			lines.push("  " + buildFullTabBar(theme, parentsSorted, pendingPlan, currentTabIdx, innerW));
 		}
 
 		// 分隔线
 		lines.push(theme.fg("borderMuted", sep));
 
 		// 当前 tab 的内容
-		const current = parentsSorted[currentTabIdx];
-		if (current) {
-			const extended = latestProgressByWorker.get(current.workerId);
-			const children = all.filter((c) => c.parentWorkerId === current.workerId);
-			const contentLines = buildTabContent(
-				theme, current, children, extended, 68,
-				{ showBackToParent: false },
-			);
-			lines.push(...contentLines);
+		const planOffset = pendingPlan ? 1 : 0;
+		if (pendingPlan && currentTabIdx === 0) {
+			// Plan tab
+			lines.push(...renderPlanContent(theme, innerW, pendingPlan));
+		} else {
+			const workerIdx = currentTabIdx - planOffset;
+			const current = parentsSorted[workerIdx];
+			if (current) {
+				const extended = latestProgressByWorker.get(current.workerId);
+				const children = all.filter((c) => c.parentWorkerId === current.workerId);
+				const contentLines = buildTabContent(
+					theme, current, children, extended, innerW,
+					{ showBackToParent: false },
+				);
+				lines.push(...contentLines);
+			}
 		}
 
 		// 底部提示
