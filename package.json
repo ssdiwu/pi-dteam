@@ -25,7 +25,10 @@
     "README-zh.md"
   ],
   "pi": {
-    "name": "dteam"
+    "name": "dteam",
+    "extensions": [
+      "./extensions"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
