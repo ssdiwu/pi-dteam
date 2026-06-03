@@ -807,187 +807,93 @@ function closeWorkerPanel(): void {
 export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 	if (!ctx.hasUI) return;
 
-	// 幂等：已展开则关闭
+	// 幂等：已展开则关闭（重入口保护）
 	if (expandedActive) {
 		closeWorkerPanel();
 		return;
 	}
 
 	const store = getStore();
+
+	// 仅看父 worker（无 parentWorkerId）作为 tab
 	const parents = Array.from(store.values()).filter((p) => !p.parentWorkerId);
 
 	if (parents.length === 0) {
-		// ── 空态 overlay 面板 ──
+		// ── 空态面板：用 setWidget 嵌入信息流（输入栏上方，不遮挡）──
 		expandedActive = true;
 		latestCtx = ctx;
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
 
-		return ctx.ui.custom<PanelResult | null>((_tui, theme, _kb, done) => {
-			const container = new Container();
+		ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => {
 			const emptyMsg = store.size === 0
 				? "（无 worker 正在工作）"
 				: "（无父 worker 正在工作）";
-			const sep = "\u2500".repeat(56);  // ─
-
-			container.addChild(new Text(theme.fg("accent", " \ud83d\udcca dteam worker \u8fdb\u5ea6"), 1, 0));
-			container.addChild(new Text(theme.fg("borderMuted", sep), 1, 0));
-			container.addChild(new Text(theme.fg("muted", "  " + emptyMsg), 1, 0));
-			container.addChild(new Text("", 1, 0));
-			container.addChild(new Text(theme.fg("dim", "  \u542f\u52a8 worker \u8bd5\u8bd5\uff1a"), 1, 0));
-			container.addChild(new Text(theme.fg("dim", "    /dteam run <\u76ee\u6807\u63cf\u8ff0>"), 1, 0));
-			container.addChild(new Text(theme.fg("borderMuted", sep), 1, 0));
-			container.addChild(new Text(theme.fg("borderMuted", "  [Esc/q/Ctrl+C] \u5173\u95ed"), 1, 0));
-
-			currentPanelDone = done;
+			const sep = "\u2500".repeat(56);
 
 			return {
-				render: (w: number) => container.render(w),
-				invalidate: () => container.invalidate(),
-				handleInput: (data: string) => {
-					if (data === "q" || matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
-						done(null);
-					}
-				},
-				dispose: () => { container.clear(); currentPanelDone = null; },
+				render: () => [
+					"",
+					theme.fg("accent", " \ud83d\udcca dteam worker \u8fdb\u5ea6"),
+					theme.fg("borderMuted", sep),
+					theme.fg("muted", "  " + emptyMsg),
+					"",
+					theme.fg("dim", "  \u542f\u52a8 worker \u8bd5\u8bd5\uff1a"),
+					theme.fg("dim", "    /dteam run <\u76ee\u6807\u63cf\u8ff0>"),
+					theme.fg("borderMuted", sep),
+					theme.fg("borderMuted", "  [Esc/q/Ctrl+C] \u5173\u95ed"),
+					"",
+				],
+				invalidate: () => {},
 			};
-		}).then(() => {
-			expandedActive = false;
-			currentPanelDone = null;
-			if (latestCtx) renderWidget(latestCtx);
 		});
+		return;
 	}
 
-	// ── Tab 面板（多 worker）──
+	// ── Tab 面板（多 worker）：同样用 setWidget 嵌入信息流 ──
 	expandedActive = true;
 	latestCtx = ctx;
 	ctx.ui.setWidget(WIDGET_KEY, undefined);
 
-	return ctx.ui.custom<PanelResult>((tui, theme, _keybindings, done) => {
-		currentPanelDone = done;
+	let currentTabIdx = 0;
 
-		let currentTabIdx = 0;
-		let selectedChildId: string | undefined = undefined;
-		const container = new Container();
+	ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => {
+		const all = Array.from(getStore().values());
+		const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
+		const sep = "\u2500".repeat(56);
+		const lines: string[] = [];
 
-		function getCurrentChildren(): WorkerProgress[] {
-			const all = Array.from(getStore().values());
-			if (selectedChildId) {
-				const originalParent = all.find((p) => p.workerId === getCurrentParentId());
-				if (!originalParent) return [];
-				return all.filter((c) => c.parentWorkerId === originalParent.workerId);
-			}
-			const current = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime)[currentTabIdx];
-			if (!current) return [];
-			return all.filter((c) => c.parentWorkerId === current.workerId);
+		// 标题
+		lines.push("");
+		lines.push(theme.fg("accent", " \ud83d\udcca dteam worker progress"));
+
+		// Tab 栏
+		if (parentsSorted.length > 1) {
+			lines.push("  " + buildTabBar(theme, parentsSorted, currentTabIdx, 68));
 		}
 
-		function getCurrentParentId(): string | undefined {
-			if (selectedChildId) return selectedChildId;
-			const all = Array.from(getStore().values());
-			const sorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
-			return sorted[currentTabIdx]?.workerId;
+		// 分隔线
+		lines.push(theme.fg("borderMuted", sep));
+
+		// 当前 tab 的内容
+		const current = parentsSorted[currentTabIdx];
+		if (current) {
+			const extended = latestProgressByWorker.get(current.workerId);
+			const children = all.filter((c) => c.parentWorkerId === current.workerId);
+			const contentLines = buildTabContent(
+				theme, current, children, extended, 68,
+				{ showBackToParent: false },
+			);
+			lines.push(...contentLines);
 		}
 
-		function getCurrentWorker(): WorkerProgress | undefined {
-			if (selectedChildId) return getStore().get(selectedChildId);
-			const all = Array.from(getStore().values());
-			const sorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
-			return sorted[currentTabIdx];
-		}
-
-		function rebuild() {
-			container.clear();
-			const all = Array.from(getStore().values());
-			const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
-			const sep = "\u2500".repeat(56);
-
-			container.addChild(new Text(theme.fg("accent", " \ud83d\udcca dteam worker progress"), 1, 0));
-			container.addChild(new Text(
-				"  " + buildTabBar(theme, parentsSorted, currentTabIdx, 68),
-				1, 0,
-			));
-			container.addChild(new Text(theme.fg("borderMuted", sep), 1, 0));
-
-			const currentWorker = getCurrentWorker();
-			if (currentWorker) {
-				const extended = latestProgressByWorker.get(currentWorker.workerId);
-				const children = getCurrentChildren();
-				const contentLines = buildTabContent(
-					theme, currentWorker, children, extended, 68,
-					{ showBackToParent: !!selectedChildId },
-				);
-				for (const line of contentLines) {
-					container.addChild(new Text(line, 1, 0));
-				}
-			} else {
-				container.addChild(new Text(theme.fg("muted", "  (worker not found)"), 1, 0));
-			}
-
-			container.addChild(new Text(theme.fg("borderMuted", sep), 1, 0));
-			container.addChild(new Text(
-				theme.fg("dim", "  [Tab/\u21e7Tab \u00b7 \u2190/\u2192] switch \u00b7 [Enter] child \u00b7 [Esc/q/Ctrl+C] close"),
-				1, 0,
-			));
-		}
-
-		rebuild();
-
-		if (panelRefreshTimer) clearInterval(panelRefreshTimer);
-		panelRefreshTimer = setInterval(() => {
-			if (!expandedActive) return;
-			rebuild();
-			tui.requestRender();
-		}, FULLSCREEN_REFRESH_MS);
+		// 底部提示
+		lines.push(theme.fg("borderMuted", sep));
+		lines.push(theme.fg("dim", "  /dteam \u5207\u6362\u9762\u677f \u00b7 Esc/\u5173\u95ed"));
+		lines.push("");
 
 		return {
-			render: (width: number) => container.render(width),
-			invalidate: () => container.invalidate(),
-			handleInput: (data: string) => {
-				const all = Array.from(getStore().values());
-				const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
-				const totalTabs = parentsSorted.length;
-
-				if (matchesKey(data, Key.escape) || data === "q" || matchesKey(data, Key.ctrl("c"))) {
-					if (selectedChildId) { selectedChildId = undefined; rebuild(); tui.requestRender(); return; }
-					done({ action: "close" });
-					return;
-				}
-				if (selectedChildId) {
-					if (matchesKey(data, Key.tab) || matchesKey(data, Key.right) || matchesKey(data, Key.left)) {
-						selectedChildId = undefined; rebuild(); tui.requestRender(); return;
-					}
-				}
-				if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
-					if (totalTabs > 0) currentTabIdx = (currentTabIdx + 1) % totalTabs;
-					selectedChildId = undefined; rebuild(); tui.requestRender(); return;
-				}
-				if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.left)) {
-					if (totalTabs > 0) currentTabIdx = (currentTabIdx - 1 + totalTabs) % totalTabs;
-					selectedChildId = undefined; rebuild(); tui.requestRender(); return;
-				}
-				if (matchesKey(data, Key.enter)) {
-					const children = getCurrentChildren();
-					if (children.length > 0) {
-						selectedChildId = children[0].workerId;
-						rebuild();
-						done({ action: "select-child", childId: selectedChildId });
-					}
-				}
-			},
-			dispose: () => {
-				disposedCount += 1;
-				if (panelRefreshTimer) { clearInterval(panelRefreshTimer); panelRefreshTimer = null; }
-				currentPanelDone = null;
-				expandedActive = false;
-				if (latestCtx) {
-					latestCtx.ui.setWidget(WIDGET_KEY, (_tui, th) => new WorkerStatusList(th));
-				}
-			},
+			render: () => lines,
+			invalidate: () => {},
 		};
-	}).then(() => {
-		if (panelRefreshTimer) { clearInterval(panelRefreshTimer); panelRefreshTimer = null; }
-		currentPanelDone = null;
-		expandedActive = false;
-		if (latestCtx) renderWidget(latestCtx);
 	});
 }
