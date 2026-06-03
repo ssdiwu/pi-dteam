@@ -828,21 +828,22 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 			const emptyMsg = store.size === 0
 				? "（无 worker 正在工作）"
 				: "（无父 worker 正在工作）";
-			const sep = "\u2500".repeat(56);
-
 			return {
-				render: () => [
-					"",
-					theme.fg("accent", " \ud83d\udcca dteam worker \u8fdb\u5ea6"),
-					theme.fg("borderMuted", sep),
+				render: (width: number) => {
+					const sep = "\u2500".repeat(Math.max(20, width - 4));
+					return [
+						"",
+						theme.fg("accent", " \ud83d\udcca dteam worker \u8fdb\u5ea6"),
+						theme.fg("borderMuted", sep),
 					theme.fg("muted", "  " + emptyMsg),
 					"",
 					theme.fg("dim", "  \u542f\u52a8 worker \u8bd5\u8bd5\uff1a"),
 					theme.fg("dim", "    /dteam run <\u76ee\u6807\u63cf\u8ff0>"),
-					theme.fg("borderMuted", sep),
-					theme.fg("dim", "  \u518d\u8f93 /dteam \u5173\u95ed"),
-					"",
-				],
+						theme.fg("borderMuted", sep),
+						theme.fg("dim", "  \u518d\u8f93 /dteam \u5173\u95ed"),
+						"",
+					];
+				},
 				invalidate: () => {},
 			};
 		});
@@ -859,10 +860,13 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 	ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => {
 		const all = Array.from(getStore().values());
 		const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
-		const sep = "\u2500".repeat(56);
-		const lines: string[] = [];
+		return {
+			render: (width: number) => {
+				const innerW = Math.max(40, width - 4);
+				const sep = "\u2500".repeat(innerW);
+				const lines: string[] = [];
 
-		// 标题
+			// 标题
 		lines.push("");
 		lines.push(theme.fg("accent", " \ud83d\udcca dteam worker progress"));
 
@@ -888,11 +892,10 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 
 		// 底部提示
 		lines.push(theme.fg("borderMuted", sep));
-		lines.push(theme.fg("dim", "  /dteam \u5207\u6362\u9762\u677f \u00b7 Esc/\u5173\u95ed"));
-		lines.push("");
-
-		return {
-			render: () => lines,
+				lines.push(theme.fg("dim", "  \u518d\u8f93 /dteam \u5173\u95ed"));
+				lines.push("");
+				return lines;
+			},
 			invalidate: () => {},
 		};
 	});
