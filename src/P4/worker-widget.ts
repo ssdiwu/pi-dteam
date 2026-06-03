@@ -818,13 +818,18 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 	// 仅看父 worker（无 parentWorkerId）作为 tab
 	const parents = Array.from(store.values()).filter((p) => !p.parentWorkerId);
 	if (parents.length === 0) {
-		// 空 store 或所有 worker 都是嵌套的（无主 worker），都进异常分支弹提示 panel
+		// 根据 store 状态选文案：
+		// - store.size === 0: 真空 · 提示“未启动 worker”
+		// - store.size > 0 但全是嵌套子 worker: 异常 · 提示“无主 worker”
+		const emptyMsg = store.size === 0
+			? "  （无 worker 正在工作）"
+			: "  （无父 worker 正在工作）";
 		void ctx.ui.custom<PanelResult>(
 			(_tui, theme, _kb, done) => {
 				const container = new Container();
 				container.addChild(new Text(theme.fg("accent", " 📊 dteam worker 进度 "), 0, 0));
 				container.addChild(new Text(theme.fg("borderMuted", "─".repeat(Math.max(1, 60))), 0, 0));
-				container.addChild(new Text(theme.fg("muted", "  （无父 worker）"), 0, 0));
+				container.addChild(new Text(theme.fg("muted", emptyMsg), 0, 0));
 				container.addChild(new Text("", 0, 0));
 				container.addChild(new Text(theme.fg("dim", "  启动 worker 试试："), 0, 0));
 				container.addChild(new Text(theme.fg("dim", "    /dteam run <目标描述>"), 0, 0));
