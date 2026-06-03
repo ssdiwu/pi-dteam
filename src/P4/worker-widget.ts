@@ -825,7 +825,7 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 				const container = new Container();
 				container.addChild(new Text(theme.fg("accent", " 📊 dteam worker 进度 "), 0, 0));
 				container.addChild(new Text(theme.fg("borderMuted", "─".repeat(Math.max(1, 60))), 0, 0));
-				container.addChild(new Text(theme.fg("muted", "  （无 worker 正在工作）"), 0, 0));
+				container.addChild(new Text(theme.fg("muted", "  （无父 worker）"), 0, 0));
 				container.addChild(new Text("", 0, 0));
 				container.addChild(new Text(theme.fg("dim", "  启动 worker 试试："), 0, 0));
 				container.addChild(new Text(theme.fg("dim", "    /dteam run <目标描述>"), 0, 0));
