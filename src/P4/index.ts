@@ -1018,7 +1018,7 @@ export default async function (pi: ExtensionAPI) {
 		description: "Toggle worker progress panel (multi-worker Tab) — or use dteam tool for list/plan/run/status",
 		async handler(_args: string, ctx) {
 			// 展开/折叠多 worker Tab 面板
-			showWorkerPanel(ctx);
+			await showWorkerPanel(ctx);
 		},
 	});
 }
