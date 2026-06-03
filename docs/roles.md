@@ -1,0 +1,83 @@
+# dteam 角色系统
+
+> 5 个角色，各司其职。`build` 唯一能改代码。
+
+## 角色清单
+
+| 角色 | 职责 | 工具权限 | systemPrompt 来源 |
+|------|------|----------|-------------------|
+| `explore` | 探索者：搜集内外部信息 | 只读 + 联网 | `agents/explore.md` |
+| `design` | 方案者：制定实施方案 | 只读 | `agents/design.md` |
+| `build` | 实现者：写代码、改文件 | 全工具（含 edit/write） | `agents/build.md` |
+| `check` | 验收者：跑测试、验证质量 | 只读 + 跑命令 | `agents/check.md` |
+| `close` | 收口者：归档、记录经验 | 只读 + 写文档 | `agents/close.md` |
+
+## 工具权限矩阵
+
+| 工具 | explore | design | build | check | close |
+|------|:-------:|:------:|:-----:|:-----:|:-----:|
+| `read` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `bash` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `grep` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `find` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `ls` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `edit` | ❌ | ❌ | **✅** | ❌ | ❌ |
+| `write` | ✅ | ✅ | **✅** | ✅ | ✅ |
+| `tinyfish_search` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `tinyfish_fetch` | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+> **核心约束**：`edit` 只给 `build`。其他角色即便有 `write` 也只能写非代码文件（如 .md、.log）。
+
+## 角色在编排中的位置
+
+### 默认角色链
+
+| 目标类型 | 角色链 |
+|---------|--------|
+| 简单目标 | `build` |
+| 中等目标 | `explore → build` |
+| 编码目标 | `explore → build → check` |
+| 完整目标 | `explore → design → build → check → close` |
+
+### 角色使用规范
+
+- **explore** 第一个出场：先看清现状
+- **design** 可选：复杂任务需要方案时
+- **build** 唯一写代码角色：chain 中可出现多次（如 build1、build2 并行）
+- **check** 验证：build_check 策略中自动调，或作为 chain 末步
+- **close** 收口：任务完成时归档
+
+### 在 build_check 策略中
+
+```
+build → check → 修 → 再 check → 通过
+
+build 角色跑 build 任务
+check 角色跑验证任务（"验收 G1-G14"）
+如果 check 发现问题，把问题注入 build task → 再 build
+最多 3 轮
+```
+
+## 自定义角色
+
+修改 `src/session.ts` 的 `ROLE_DEFAULTS` 表：
+
+```typescript
+const ROLE_DEFAULTS: Record<RoleName, RoleConfig> = {
+  explore: { tools: [...], thinking: "high", description: "..." },
+  design:  { tools: [...], thinking: "high", description: "..." },
+  build:   { tools: [...], thinking: "high", description: "..." },
+  check:   { tools: [...], thinking: "high", description: "..." },
+  close:   { tools: [...], thinking: "high", description: "..." },
+}
+```
+
+或在 `agents/{role}.md` 改 systemPrompt（需 frontmatter + body）。
+
+## 添加新角色
+
+1. 在 `src/tools.ts` 的 `RoleName` 联合类型加成员
+2. 在 `src/session.ts` 的 `ROLE_DEFAULTS` 加配置
+3. 创建 `agents/{role}.md` 写 systemPrompt
+4. 更新 `planner.ts` 的 `normalizeRole` 加识别
+5. 更新 `docs/roles.md` 加文档

@@ -1,24 +1,29 @@
-# doc/ — v1 设计文档
+# doc/
 
-v1 的设计依据与决策文档。
+> 设计文档总览（面向贡献者）。
 
-## 目录
+## 核心设计
 
-| 文件 | 内容 |
+| 文件 | 说明 |
 |------|------|
-| [`design.md`](./design.md) | v1 最小闭环设计：从 ant-colony 到 dteam v1 的核心思路 |
-| [`vs-ant-colony.md`](./vs-ant-colony.md) | v1 与 ant-colony 的关键差异，为什么要重写 |
+| [design.md](./design.md) | v1 最小闭环设计（早期版本） |
+| [design-v2.md](./design-v2.md) | v2 二维编排设计稿（当前） |
+| [vs-ant-colony.md](./vs-ant-colony.md) | dteam vs ant-colony 关键差异 |
+| [gap-analysis.md](./gap-analysis.md) | v1 现状 vs ant-colony 能力差距 |
+| [exec-modes.md](./exec-modes.md) | solo/chain/team 模式设计稿 |
+| [roles-v1.md](./roles-v1.md) | 角色系统设计稿 |
+| [ui-v1.md](./ui-v1.md) | UI 规划 |
 
-## 阅读顺序
+## 用户面向文档（在 `../docs/`）
 
-1. 先看 [vs-ant-colony.md](./vs-ant-colony.md) — 了解"为什么 v0 不行"
-2. 再看 [design.md](./design.md) — 了解"v1 怎么行"
-3. 最后看 [`src/README.md`](../src/README.md) — 看代码结构
+- [../docs/architecture.md](../docs/architecture.md) — 架构
+- [../docs/roles.md](../docs/roles.md) — 角色
+- [../docs/api.md](../docs/api.md) — API
 
-## 与其它文档的关系
+## 阅读顺序建议
 
-- `src/README.md` — **v1 是什么**（代码视角）
-- `doc/design.md` — **v1 为什么这样设计**（设计视角）
-- `doc/vs-ant-colony.md` — **v0 vs v1 vs ant**（决策视角）
-- `archive/v0-pre-rewrite/README-archive.md` — v0 完整快照
-- `AGENTS.md` — 接手 AI 必读
+新人接手 dteam：
+1. [../README.md](../README.md) — 项目门面
+2. [../docs/architecture.md](../docs/architecture.md) — 怎么跑
+3. [../src/README.md](../src/README.md) — 代码组织
+4. [design-v2.md](./design-v2.md) — 当时为什么这样设计

@@ -2,7 +2,6 @@
 name: explore
 package: dteam
 description: 探索者，搜集内部和外部信息
-tools: read, grep, find, ls, bash, write, tinyfish_search, tinyfish_fetch, task.read, task.update
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false

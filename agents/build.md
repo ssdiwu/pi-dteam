@@ -2,8 +2,6 @@
 name: build
 package: dteam
 description: 实现者，执行计划、编写代码、更新文档、编写测试
-model: deepseek/deepseek-reasoner
-tools: read, grep, find, ls, bash, write, edit, task.read, task.update
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false

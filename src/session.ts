@@ -45,12 +45,12 @@ interface RoleConfig {
 // 角色默认配置（硬编码 v1 最小集，不依赖 parser）
 const ROLE_DEFAULTS: Record<RoleName, RoleConfig> = {
   explore: {
-    tools: ["read", "bash", "grep", "find", "ls"],
+    tools: ["read", "bash", "write", "grep", "find", "ls", "tinyfish_search", "tinyfish_fetch"],
     thinking: "high",
     description: "探索者，搜集内部和外部信息",
   },
   design: {
-    tools: ["read", "bash", "grep", "find", "ls"],
+    tools: ["read", "bash", "write", "grep", "find", "ls"],
     thinking: "high",
     description: "方案制定者，评估需求、制定方案",
   },
@@ -60,7 +60,7 @@ const ROLE_DEFAULTS: Record<RoleName, RoleConfig> = {
     description: "实现者，执行计划、编写代码",
   },
   check: {
-    tools: ["read", "bash", "grep", "find", "ls"],
+    tools: ["read", "bash", "write", "grep", "find", "ls"],
     thinking: "high",
     description: "验收者，检查代码质量、验证结果",
   },
@@ -147,31 +147,45 @@ function resolveModelStr(
 }
 
 /**
- * 公开：主模型找不到时降级到备选。
- * 返回实际能用的 model 字符串。
+ * 公开：解析当前可用的 model 字符串。
+ *
+ * 优先级：
+ *  1. 显式 primary：按原逻辑尝试 primary → fallback
+ *  2. 不传 primary/fallback：默认从 ctx.model 转字符串（会话同个模型）
+ *
+ * 返回实际能用的 model 字符串（"provider/id" 格式）。
  */
 export function pickAvailableModel(
   ctx: any,
-  primary: string,
-  fallback: string,
+  primary?: string,
+  fallback?: string,
 ): string {
   const registry = ctx?.modelRegistry;
-  if (!registry) return primary;
 
-  for (const m of [primary, fallback]) {
-    const slashIdx = m.indexOf("/");
-    if (slashIdx <= 0) continue;
-    const provider = m.slice(0, slashIdx);
-    const id = m.slice(slashIdx + 1);
-    if (registry.find?.(provider, id)) {
-      if (m !== primary) {
-        console.error(`[dteam] Primary model ${primary} not found, falling back to ${m}`);
+  // 1. 显式 primary：尝试 primary → fallback
+  if (primary) {
+    for (const m of [primary, fallback]) {
+      if (!m) continue;
+      const slashIdx = m.indexOf("/");
+      if (slashIdx <= 0) continue;
+      const provider = m.slice(0, slashIdx);
+      const id = m.slice(slashIdx + 1);
+      if (registry?.find?.(provider, id)) {
+        if (m !== primary) {
+          console.error(`[dteam] Primary model ${primary} not found, falling back to ${m}`);
+        }
+        return m;
       }
-      return m;
     }
+    return primary; // 都找不到，让 resolveModelStr 拋错
   }
 
-  return primary; // 都找不到，让 resolveModelStr 拋错
+  // 2. 默认从 ctx.model 转字符串
+  const m = ctx?.model;
+  if (!m?.provider || !m?.id) {
+    throw new Error("dteam: no model in ctx (and no primary/fallback given)");
+  }
+  return `${m.provider}/${m.id}`;
 }
 
 // ═══ 主工厂函数 ═══

@@ -26,7 +26,7 @@ export async function execute(
   const session = await createWorkerSession({
     role,
     cwd: ctx.cwd || process.cwd(),
-    modelStr: pickAvailableModel(ctx, "minimax-cn/MiniMax-M3", "minimax-cn/MiniMax-M2.7"),
+    modelStr: pickAvailableModel(ctx),
     ctx,
   });
 

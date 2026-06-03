@@ -1,12 +1,12 @@
 # dteam
 
-> **半自动多 worker 编排引擎**，作为 Pi 扩展运行。
-> 
-> v1 状态：alpha，最小闭环已落地，正在验证。
+> **半自动多角色编排引擎**，作为 Pi 扩展运行。
+>
+> v1 状态：核心功能落地 + 189 个测试通过，UI + 角色系统可用。
 
 ## 一句话
 
-dteam 暴露 1 个工具给主 LLM（`dteam`），把"派一个 worker"做成一棵递归的 worker 树——每个节点问 LLM "我做还是拆"，做就自己干，拆就派子节点，直到全做完。
+dteam 把"派一个 worker 干一件事"做成一棵二维编排的 worker 树——**组织形式**（solo / chain / team）× **执行策略**（direct / build_check / adaptive），每个 step 选 5 个角色之一（explore / design / build / check / close）执行。
 
 ## 快速开始
 
@@ -17,78 +17,108 @@ npm install
 # 2. 编译
 npm run build
 
-# 3. 安装到 Pi
-pi install .
+# 3. 运行测试（189 个用例）
+npm test
 
-# 4. 重载
-# 在 Pi 里按 /reload
+# 4. 安装到 Pi
+pi install "$(pwd)"
 
-# 5. 调 dteam 工具
+# 5. 在 Pi 里按 /reload 重载
+
+# 6. 调 dteam 工具
 # 让主 LLM 调 dteam(action="run", goal="你的目标")
+
+# 7. /dteam 命令
+# 在 Pi 里输 /dteam 打开进度面板
 ```
+
+## 用法
+
+### 通过主 LLM 调用
+
+dteam 暴露 1 个工具：
+
+```typescript
+dteam(action="run", goal="在 /tmp 下创建 hello.txt")
+```
+
+返回 `RunResult`：
+
+```json
+{
+  "status": "done",
+  "goal": "...",
+  "plan": { "mode": "chain", "steps": [...] },
+  "steps": [...],
+  "summary": "5/5 完成"
+}
+```
+
+### 通过 `/dteam` 命令
+
+在 Pi 里输入 `/dteam`：
+- 第一次：打开面板（有 run 显示进度，无 run 显示空态）
+- 第二次：关闭面板
+
+## 文档
+
+- [架构说明（二维编排模型）](./docs/architecture.md)
+- [角色系统（5 个角色职责）](./docs/roles.md)
+- [工具 API](./docs/api.md)
+- [src/ 内部架构](./src/README.md)
+- [设计文档总览](./doc/README.md)
+- [v1 vs ant-colony 差距](./doc/gap-analysis.md)
+- [v2 设计稿（二维编排）](./doc/design-v2.md)
 
 ## 目录结构
 
 ```
 .
-├── src/                 # v1 源码（4 核心文件 + 工具表 + README）
-│   ├── README.md        # ← 读这个看 v1 是什么
-│   ├── tools.ts         # 工具表：Pi 提供的 / dteam 暴露的 / 内部 helper
-│   ├── pool.ts          # 任务池
-│   ├── brancher.ts      # 问 LLM：要拆还是干
-│   ├── leaf.ts          # 调 LLM 干活
-│   ├── orchestrator.ts  # 主循环
-│   └── index.ts         # Pi 扩展入口
-│
-├── doc/                 # v1 设计文档
-│   ├── README.md        # 文档入口
-│   ├── design.md        # v1 最小闭环设计
-│   └── vs-ant-colony.md # 与 ant-colony 的对比
-│
-├── archive/             # v0 历史快照（参考用）
-│   └── v0-pre-rewrite/  # 完整归档
-│
-├── extensions/          # Pi 扩展入口文件
-│   └── index.ts         # 重新指向 src/index.ts
-│
-├── package.json
-├── tsconfig.json
-└── README.md            # 你正在读
+├── index.ts                # Pi 扩展入口
+├── src/
+│   ├── orchestrator.ts     # 三阶段：plan → execute → report
+│   ├── planner.ts          # Phase 1: 规则判断 + LLM 兜底
+│   ├── leaf.ts             # Phase 2: 用角色调 LLM 执行
+│   ├── brancher.ts         # 旧递归分解（保留备用）
+│   ├── pool.ts             # 任务池
+│   ├── session.ts          # createWorkerSession 工厂 + 角色系统
+│   ├── tools.ts            # 类型定义
+│   ├── ui-store.ts         # UI 全局状态
+│   ├── ui-panel.ts         # /dteam 面板
+│   ├── ui-render.ts        # 渲染工具函数
+│   └── ui-widget.ts        # 折叠态 widget
+├── agents/                 # 5 个角色定义
+│   ├── explore.md
+│   ├── design.md
+│   ├── build.md
+│   ├── check.md
+│   └── close.md
+├── tests/                  # 189 个测试
+├── doc/                    # 设计文档
+├── docs/                   # 用户文档
+├── archive/                # v0 历史归档
+└── ...
 ```
-
-## v0 → v1 的变化
-
-v0 是 40+ 个 TS 文件、5 层分层、文档超前实现的设计。
-
-v1 重写为 4 个核心文件：
-
-| 文件 | 角色 |
-|------|------|
-| `src/pool.ts` | 任务池（内存，无锁） |
-| `src/brancher.ts` | 问 LLM：要拆还是干 |
-| `src/leaf.ts` | 调 LLM 干活 |
-| `src/orchestrator.ts` | 主循环 |
-
-详细对比见 `doc/vs-ant-colony.md`。
 
 ## 设计哲学
 
-- **半自动**：人通过 Pi 主对话用 dteam，dteam 不替你决策
-- **单层工具暴露**：对 LLM 暴露 1 个 `dteam` 工具
-- **递归分解**：B 模式，每层都问 LLM "要拆吗"
-- **无 parser**：用 LLM 的 tool calling 做结构化输出
-- **极简**：v1 不做持久化、不做文件锁、不做并发控制、不做面板
+- **半自动**：人通过 Pi 主对话用 dteam，dteam 不替你拍板
+- **二维编排**：组织形式（solo/chain/team）× 执行策略（direct/build_check/adaptive），9 种组合
+- **角色系统**：5 个角色分工，build 唯一能改代码
+- **规则优先**：planner 用规则判断（零 LLM 成本），复杂情况才调 LLM
+- **同步阻塞**：dteam 工具调用不返回直到跑完
+- **MiniMax-M3 优先**：主模型找不到自动降级到 M2.7
 
-## 当前状态
+## 验证状态
 
-- [x] v1 核心代码落地
-- [x] `npm run build` 通过
-- [ ] 实际跑通 dteam 工具调用（待验证）
-- [ ] 接入真实文件操作工具（v1.1）
-- [ ] 跑通后写测试（v1.2）
+- ✅ v1 核心代码落地（11 个 TS 文件）
+- ✅ `npm run build` 通过
+- ✅ 189/189 单元测试通过
+- ✅ 4 个真实任务实测通过（solo/chain/team/adaptive 全部命中）
+- ⏳ UI 面板验证（需 /reload 后实测）
+- ⏳ v1.1：自适应并发、信息素、持久化（v2+）
 
 ## 相关链接
 
-- 设计文档：[`doc/`](./doc/README.md)
 - v0 历史归档：[`archive/v0-pre-rewrite/`](./archive/v0-pre-rewrite/README-archive.md)
-- Pi 扩展开发文档：<https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/extensions.md>
+- Pi 扩展开发：<https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/extensions.md>

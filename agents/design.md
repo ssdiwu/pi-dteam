@@ -2,7 +2,6 @@
 name: design
 package: dteam
 description: 方案制定者，评估需求、制定方案
-tools: read, grep, find, ls, bash, write, task.create, task.read, task.update, reference.architecture, reference.thinking
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false

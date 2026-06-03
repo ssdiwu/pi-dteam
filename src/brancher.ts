@@ -36,7 +36,7 @@ export async function decide(
 
   // 从 ctx 拿模型信息，优先用 MiniMax-M3，找不到就降级
   const model = ctx.model;
-  const modelStr = pickAvailableModel(ctx, "minimax-cn/MiniMax-M3", "minimax-cn/MiniMax-M2.7");
+  const modelStr = pickAvailableModel(ctx);
 
   const session = await createWorkerSession({
     systemPrompt,

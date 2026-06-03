@@ -2,7 +2,6 @@
 name: close
 package: dteam
 description: 收口者，整理归档、记录经验、关闭任务
-tools: read, grep, find, ls, bash, write, task.read, task.update, task.archive, task.list, task.search
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false

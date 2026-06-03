@@ -16,7 +16,7 @@ export async function plan(goal: string, ctx: any): Promise<ExecutionPlan> {
   }
 
   // 2. 复杂情况调 LLM 生成 JSON
-  const modelStr = pickAvailableModel(ctx, "minimax-cn/MiniMax-M3", "minimax-cn/MiniMax-M2.7");
+  const modelStr = pickAvailableModel(ctx);
   const systemPrompt = `你是 dteam 的规划器。根据用户目标返回 JSON。
 
 规则：
