@@ -5,7 +5,7 @@
  *   - dteam(action="run", goal="...")  → 同步阻塞跑完一个 goal
  *
  * 注册 1 个命令：
- *   - /dteam → 打开 worker 进度面板
+ *   - /dteam → 显示 worker 进度面板
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -13,44 +13,33 @@ import { Container, Text } from "@earendil-works/pi-tui";
 import { run } from "./src/orchestrator.js";
 import { uiStore } from "./src/ui-store.js";
 import { renderWidget, WIDGET_KEY } from "./src/ui-widget.js";
-import { statusIcon, formatDuration, truncText } from "./src/ui-render.js";
+import { statusIcon, truncText } from "./src/ui-render.js";
 import type { RunResult } from "./src/tools.js";
 
 /** widget 刷新定时器 */
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
-/** 刷新 widget（500ms 间隔调用） */
 function startWidgetRefresh(ctx: any) {
   stopWidgetRefresh();
   renderWidget(ctx);
-  refreshTimer = setInterval(() => {
-    renderWidget(ctx);
-  }, 500);
+  refreshTimer = setInterval(() => renderWidget(ctx), 500);
 }
 
 function stopWidgetRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
-  }
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
 }
 
-/** 构建 dteam 工具结果的自定义渲染（2 行摘要） */
-function renderDteamResult(
-  result: any,
-  options: { expanded: boolean },
-  theme: any,
-): any {
+/** dteam 工具结果的自定义渲染（中文化） */
+function renderDteamResult(result: any, options: { expanded: boolean }, theme: any): any {
   const c = new Container();
   const w = (process.stdout.columns || 80) - 4;
 
   if (result.isError) {
-    const text = result.content?.[0]?.text ?? "unknown error";
-    c.addChild(new Text(theme.fg("error", `✗ dteam failed: ${truncText(text, w - 20)}`), 0, 0));
+    const text = result.content?.[0]?.text ?? "未知错误";
+    c.addChild(new Text(theme.fg("error", `✗ dteam 失败: ${truncText(text, w - 20)}`), 0, 0));
     return c;
   }
 
-  // 解析 RunResult
   let parsed: RunResult | null = null;
   try {
     const raw = result.content?.[0]?.text;
@@ -58,7 +47,7 @@ function renderDteamResult(
   } catch { /* fallback */ }
 
   if (!parsed) {
-    c.addChild(new Text(theme.fg("success", `✓ dteam done`), 0, 0));
+    c.addChild(new Text(theme.fg("success", `✓ dteam 完成`), 0, 0));
     return c;
   }
 
@@ -66,36 +55,26 @@ function renderDteamResult(
   const icon = status === "done" ? "✓" : "✗";
   const color = status === "done" ? "success" : "error";
   const goal = workItems?.[0]?.title ?? "";
+  const done = workItems?.filter(t => t.status === "done").length ?? 0;
+  const failed = workItems?.filter(t => t.status === "failed").length ?? 0;
+  const total = workItems?.length ?? 0;
 
-  // 第一行：状态 + 摘要
-  c.addChild(new Text(
-    theme.fg(color, `${icon} dteam: ${summary}`),
-    0, 0,
-  ));
+  // 第一行：✓ dteam · 4/4 完成
+  const summaryCn = failed > 0 ? `${done}/${total} 完成, ${failed} 失败` : `${done}/${total} 完成`;
+  c.addChild(new Text(theme.fg(color, `${icon} dteam · ${summaryCn}`), 0, 0));
 
-  // 展开时：列出每个 worker
   if (options.expanded && workItems?.length) {
     for (const item of workItems) {
       const si = statusIcon(item.status);
       const title = truncText(item.title, w - 10);
-      const line = `${si} ${title}`;
-      c.addChild(new Text(theme.fg("dim", `  ${line}`), 0, 0));
-
-      // 有结果的显示最后一行
+      c.addChild(new Text(theme.fg("dim", `  ${si} ${title}`), 0, 0));
       if (item.result) {
-        const resultLine = truncText(
-          item.result.split("\n")[0] ?? "",
-          w - 8,
-        );
+        const resultLine = truncText(item.result.split("\n")[0] ?? "", w - 8);
         c.addChild(new Text(theme.fg("dim", `    ⎿ ${resultLine}`), 0, 0));
       }
     }
   } else {
-    // 折叠时：只显示 goal
-    c.addChild(new Text(
-      theme.fg("dim", `  ⎿ ${truncText(goal, w - 6)}`),
-      0, 0,
-    ));
+    c.addChild(new Text(theme.fg("dim", `  ⎿ ${truncText(goal, w - 6)}`), 0, 0));
   }
 
   return c;
@@ -107,15 +86,13 @@ export default function (pi: ExtensionAPI) {
     name: "dteam",
     label: "dteam",
     description:
-      "Run a goal end-to-end through dteam's recursive worker tree. " +
-      "The root worker decomposes the goal by asking an LLM at each level, " +
-      "then dispatches leaf workers to do the work. " +
-      "Synchronous: returns when everything is done or failed.",
+      "通过 dteam 递归 worker 树端到端执行一个目标。根 worker 在每一层通过 LLM 决定是否分解，" +
+      "然后派发叶子 worker 执行。同步阻塞：全部完成或失败后返回。",
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["run"] },
-        goal: { type: "string", description: "The goal to accomplish" },
+        action: { type: "string", enum: ["run"], description: "执行动作，目前只支持 run" },
+        goal: { type: "string", description: "要完成的目标" },
       },
       required: ["action", "goal"],
     } as const,
@@ -124,7 +101,7 @@ export default function (pi: ExtensionAPI) {
 
       if (action !== "run") {
         return {
-          content: [{ type: "text" as const, text: `dteam: unknown action "${action}"` }],
+          content: [{ type: "text" as const, text: `dteam: 未知操作 "${action}"` }],
           isError: true,
           details: {},
         };
@@ -132,26 +109,22 @@ export default function (pi: ExtensionAPI) {
 
       if (!ctx.model) {
         return {
-          content: [{ type: "text" as const, text: "dteam: no session model available" }],
+          content: [{ type: "text" as const, text: "dteam: 当前会话没有可用模型" }],
           isError: true,
           details: {},
         };
       }
 
-      ctx.ui.notify(`dteam: running "${goal}"`, "info");
-      ctx.ui.setStatus("dteam", `running: ${goal}`);
+      ctx.ui.notify(`dteam: 开始执行 "${goal}"`, "info");
+      ctx.ui.setStatus("dteam", `执行中: ${goal}`);
 
-      // 启动 widget 刷新
       startWidgetRefresh(ctx);
 
       try {
         const result = await run(goal, ctx);
         ctx.ui.setStatus("dteam", undefined);
-
-        // 最后刷一次 widget，显示完成态
         renderWidget(ctx);
 
-        // 3 秒后清除 widget
         setTimeout(() => {
           if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined);
         }, 3000);
@@ -164,13 +137,12 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.setStatus("dteam", undefined);
         stopWidgetRefresh();
         return {
-          content: [{ type: "text" as const, text: `dteam failed: ${(e as Error).message}` }],
+          content: [{ type: "text" as const, text: `dteam 失败: ${(e as Error).message}` }],
           isError: true,
           details: {},
         };
       }
     },
-    // 自定义结果渲染：折叠 2 行，展开列出所有 worker
     renderResult(result: any, options: { expanded: boolean }, theme: any) {
       return renderDteamResult(result, options, theme);
     },
@@ -178,17 +150,12 @@ export default function (pi: ExtensionAPI) {
 
   // ═══ 注册 /dteam 命令 ═══
   pi.registerCommand("dteam", {
-    description: "Show dteam worker progress panel",
+    description: "显示 dteam worker 进度面板",
     async handler(_args, ctx) {
-      const state = uiStore.getState();
-      if (!state.goal) {
-        ctx.ui.notify("dteam: no active run", "info");
-        return;
-      }
-
-      // 切换 widget
+      // 无论有没有活跃 run，都启动 widget 刷新
+      // 有 run 显示进度，无 run 显示"就绪"
       startWidgetRefresh(ctx);
-      ctx.ui.notify("dteam: widget refresh started", "info");
+      ctx.ui.notify("dteam: 面板已启动", "info");
     },
   });
 }

@@ -30,13 +30,11 @@ export async function execute(
     `Use them to actually complete the task. Do not just describe what you would do — DO it.\n` +
     `When done, provide a brief summary of what you accomplished.`;
 
-  // 从 ctx 拿模型信息
-  const model = ctx.model;
-  const modelStr = model ? `${model.provider}/${model.id}` : null;
-  if (!modelStr) throw new Error("Leaf: no model available in ctx");
+  // 从 ctx 拿模型信息，优先用 MiniMax-M3
+  const modelStr = "minimax-cn/MiniMax-M3";
 
   const session = await createWorkerSession({
-    systemPrompt,
+    role: "build",
     cwd: ctx.cwd || process.cwd(),
     modelStr,
     ctx,

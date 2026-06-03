@@ -34,10 +34,9 @@ export async function decide(
     `\n` +
     `You MUST call the decide tool with the structured decision. Do not output any other text.`;
 
-  // 从 ctx 拿模型信息
+  // 从 ctx 拿模型信息，优先用 MiniMax-M3
   const model = ctx.model;
-  const modelStr = model ? `${model.provider}/${model.id}` : null;
-  if (!modelStr) throw new Error("Brancher: no model available in ctx");
+  const modelStr = "minimax-cn/MiniMax-M3";
 
   const session = await createWorkerSession({
     systemPrompt,
