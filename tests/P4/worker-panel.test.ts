@@ -198,7 +198,7 @@ describe("showWorkerPanel (集成)", () => {
 		// 父 worker 在 tab 栏 + 内容
 		expect(all).toContain("team-1");
 		// Nested workers section 存在
-		expect(all).toMatch(/Nested workers/);
+		expect(all).toMatch(/嵌套 worker/);
 		// ↳ 缩进渲染子 worker
 		expect(all).toContain("↳");
 		// 子 worker 角色在嵌套 section（不是 workerId 本身，formatWorkerRow 不显示 workerId）

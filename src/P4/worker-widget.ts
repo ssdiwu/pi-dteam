@@ -189,53 +189,53 @@ export function buildTabContent(
 
 	// 3. Task
 	const task = currentWorker.task || "(no task)";
-	lines.push(theme.fg("text", `Task: ${truncateToWidth(task, Math.max(1, width - 6))}`));
+	lines.push(theme.fg("text", `任务: ${truncateToWidth(task, Math.max(1, width - 6))}`));
 	lines.push("");
 
 	// 4. Current Tool
 	const currentTool = extended?.currentTool ?? currentWorker.currentTool;
 	if (currentTool) {
 		const toolLine = extended?.currentToolDuration
-			? `Current Tool: ${currentTool} (${formatDuration(extended.currentToolDuration)})`
-			: `Current Tool: ${currentTool}`;
+			? `当前工具: ${currentTool} (${formatDuration(extended.currentToolDuration)})`
+			: `当前工具: ${currentTool}`;
 		lines.push(theme.fg("warning", truncateToWidth(toolLine, width)));
 	} else {
-		lines.push(theme.fg("muted", "Current Tool: (none)"));
+		lines.push(theme.fg("muted", "当前工具: 无"));
 	}
 	lines.push(divider);
 
 	// 5. Recent Output
-	lines.push(theme.fg("text", `Recent Output (${currentWorker.toolCount} tools):`));
+	lines.push(theme.fg("text", `最近输出 (${currentWorker.toolCount} 次工具调用):`));
 	if (extended?.recentOutput) {
 		const outputLines = extended.recentOutput.split("\n").slice(-8);
 		for (const line of outputLines) {
 			lines.push(theme.fg("muted", `  > ${truncateToWidth(line, Math.max(1, width - 4))}`));
 		}
 	} else {
-		lines.push(theme.fg("muted", "  (no output yet)"));
+		lines.push(theme.fg("muted", "  （暂无输出）"));
 	}
 	lines.push(divider);
 
 	// 6. Token Count + Activity
 	const tokenStr = extended?.tokenCount?.toLocaleString() ?? "—";
-	lines.push(theme.fg("text", `Token Count: ${tokenStr}`));
+	lines.push(theme.fg("text", `Token 数量: ${tokenStr}`));
 	if (extended?.activityFreshness) {
-		lines.push(theme.fg("text", `Activity: ${formatFreshness(extended.activityFreshness)}`));
+		lines.push(theme.fg("text", `活动: ${formatFreshness(extended.activityFreshness)}`));
 	}
 
 	// 7. Final error
 	if (currentWorker.status === "failed" && currentWorker.finalError) {
 		lines.push("");
-		lines.push(theme.fg("error", `Error: ${truncateToWidth(currentWorker.finalError, Math.max(1, width - 8))}`));
+		lines.push(theme.fg("error", `错误: ${truncateToWidth(currentWorker.finalError, Math.max(1, width - 8))}`));
 	}
 
 	// 8. 嵌套 worker section（子 worker 列表）
 	if (children.length > 0) {
 		lines.push("");
 		lines.push(divider);
-		lines.push(theme.fg("text", `Nested workers (${children.length}):`));
+		lines.push(theme.fg("text", `嵌套 worker（${children.length}）:`));
 		lines.push(...formatNestedWorkers(theme, currentWorker, children, width));
-		lines.push(theme.fg("dim", truncateToWidth("  Press Enter on a child to view its detail", width)));
+		lines.push(theme.fg("dim", truncateToWidth("  按 Enter 查看子 worker 详情", width)));
 	}
 
 	return lines;
@@ -281,7 +281,7 @@ function formatSignalBadge(progress: WorkerProgress): string {
 
 /**
  * 格式化单行 worker 进度：
- *   "● build  实现功能  Tools:3 edit  5.0s  📡"
+ *   "● build  实现功能  工具:3 edit  5.0s  📡"
  *   "  ↳ step1/3 探索  2.1s  ✓"
  *
  * indent: 0=父, 2=子
@@ -309,7 +309,7 @@ export function formatWorkerRow(
 	const toolSuffix = currentTool ? ` · ${currentTool}` : "";
 	const badge = formatSignalBadge(progress);
 
-	const line = `${indentStr}${icon} ${role}  ${chainPrefix}${task}  T:${toolCount}${toolSuffix}  ${elapsed}${badge ? "  " + badge : ""}`;
+	const line = `${indentStr}${icon} ${role}  ${chainPrefix}${task}  工具:${toolCount}${toolSuffix}  ${elapsed}${badge ? "  " + badge : ""}`;
 
 	return truncateToWidth(line, width);
 }

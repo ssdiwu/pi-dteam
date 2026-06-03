@@ -274,12 +274,12 @@ describe("worker-widget", () => {
 	// ═══════════════════════════════════════════════════════════
 
 	describe("formatWorkerRow", () => {
-		it("基本格式：statusIcon + role + task + T:n + elapsed", () => {
+		it("基本格式：statusIcon + role + task + 工具:n + elapsed", () => {
 			const p = makeProgress({ role: "build", task: "实现功能", toolCount: 3, elapsedMs: 5000 });
 			const line = formatWorkerRow(p, 80, 0);
 			expect(line).toContain("build");
 			expect(line).toContain("实现功能");
-			expect(line).toContain("T:3");
+			expect(line).toContain("工具:3");
 			expect(line).toContain("5.0s");
 		});
 
@@ -462,18 +462,18 @@ describe("worker-widget", () => {
 
 			// Task + Current Tool + Output
 			const all = lines.join("\n");
-			expect(all).toContain("Task: 实现功能");
-			expect(all).toContain("Current Tool: bash");
+			expect(all).toContain("任务: 实现功能");
+			expect(all).toContain("当前工具: bash");
 			expect(all).toContain("npm test");
 			expect(all).toContain("138 tests passed");
-			expect(all).toContain("Token Count: 12,345");
+			expect(all).toContain("Token 数量: 12,345");
 		});
 
 		it("failed 状态显示 finalError", () => {
 			const p = makeProgress({ workerId: "w-1", status: "failed", finalError: "model 404" });
 			const lines = buildTabContent(makeMockTheme() as any, p, [], undefined, 60);
 			const all = lines.join("\n");
-			expect(all).toContain("Error: model 404");
+			expect(all).toContain("错误: model 404");
 		});
 
 		it("信号徽章在标题行", () => {

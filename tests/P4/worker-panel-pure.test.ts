@@ -159,9 +159,9 @@ describe("buildTabContent (纯函数)", () => {
 		const all = lines.join("\n");
 		expect(all).toContain("build");
 		expect(all).toContain("running");
-		expect(all).toContain("Task: 实现功能");
-		expect(all).toContain("Current Tool: bash");
-		expect(all).toContain("Token Count: 1,234");
+		expect(all).toContain("任务: 实现功能");
+		expect(all).toContain("当前工具: bash");
+		expect(all).toContain("Token 数量: 1,234");
 	});
 
 	it("Recent Output：每行 > 前缀，最多 8 行", () => {
@@ -191,7 +191,7 @@ describe("buildTabContent (纯函数)", () => {
 		});
 		const lines = buildTabContent(makeMockTheme() as any, p, [], undefined, 80);
 		const all = lines.join("\n");
-		expect(all).toContain("Error: spawn failed");
+		expect(all).toContain("错误: spawn failed");
 	});
 
 	it("showBackToParent=true：顶部有 '◀ Back to parent' 提示", () => {
@@ -207,11 +207,11 @@ describe("buildTabContent (纯函数)", () => {
 		expect(lines[0]).toContain("Back to parent");
 	});
 
-	it("无 extended：Recent Output 显示 '(no output yet)'", () => {
+	it("无 extended：Recent Output 显示 '（暂无输出）'", () => {
 		const p = makeProgress({ workerId: "w-1" });
 		const lines = buildTabContent(makeMockTheme() as any, p, [], undefined, 80);
 		const all = lines.join("\n");
-		expect(all).toContain("(no output yet)");
+		expect(all).toContain("（暂无输出）");
 	});
 
 	it("children 非空：底部追加 'Nested workers' 区域", () => {
@@ -222,11 +222,11 @@ describe("buildTabContent (纯函数)", () => {
 		];
 		const lines = buildTabContent(makeMockTheme() as any, p, kids, undefined, 80);
 		const all = lines.join("\n");
-		expect(all).toContain("Nested workers (2)");
+		expect(all).toContain("嵌套 worker（2）");
 		expect(all).toContain("子任务 0");
 		expect(all).toContain("子任务 1");
 		// 提示 Enter 进入详情
-		expect(all).toContain("Press Enter");
+		expect(all).toContain("按 Enter");
 	});
 
 	it("信号徽章：标题行包含信号 emoji + ×N", () => {
