@@ -1,76 +1,30 @@
 /**
  * dteam v1 — 编排器 (orchestrator)
  *
- * 唯一职责：驱动主循环。
- *
- * 对应工具表 C-1 / C-2。
- *
- * 主循环（v1）：
- *   1. 写根 task
- *   2. loop:
- *      a. claimNext() 拿一个 pending task
- *      b. 没有 → break
- *      c. 让 brancher.decide(task) 问 LLM 要拆还是干
- *      d. 拆 → 写子 task，当前 task 标 done
- *      e. 干 → 让 leaf.execute(task)，当前 task 标 done
- *   3. 返回 summary
- *
- * 同步阻塞模式：dteam 整个跑完才返回。
+ * 主循环：
+ *   1. 把 goal 写成 root task
+ *   2. 循环 claimNext → dispatch
+ *   3. dispatch = brancher.decide → decompose | leaf.execute
+ *   4. 全部 done 后返回 RunResult
  */
 
+import { TaskPool } from "./pool.js";
 import { decide } from "./brancher.js";
 import { execute } from "./leaf.js";
-import { TaskPool } from "./pool.js";
-import type { RunResult, Task } from "./tools.js";
+import type { Task, RunResult } from "./tools.js";
 
 /**
- * v1 单步：处理一个 task。
- */
-async function dispatch(
-  task: Task,
-  pool: TaskPool,
-  model: any,
-  goal: string,
-): Promise<void> {
-  // 1. 问 brancher：要拆还是干
-  const decision = await decide(task, model, goal);
-
-  if (decision.kind === "decompose") {
-    // 2a. 拆：写子 task
-    for (const sub of decision.subTasks) {
-      pool.write({
-        id: makeId(),
-        parentId: task.id,
-        title: sub.title,
-        description: sub.description,
-        status: "pending",
-        createdAt: Date.now(),
-      });
-    }
-    // 当前 task 标 done（"已分解"）
-    pool.update(task.id, {
-      status: "done",
-      result: `[decomposed into ${decision.subTasks.length} sub-tasks] ${decision.reason}`,
-    });
-  } else {
-    // 2b. 干：调 leaf
-    const result = await execute(task, model, goal);
-    pool.update(task.id, { status: "done", result });
-  }
-}
-
-/**
- * v1 入口：跑完一个 goal 才返回。
+ * 跑一个 goal。
  *
- * @param goal  用户目标
- * @param model 当前会话的 Model 对象
+ * @param goal 用户目标
+ * @param ctx Pi 扩展上下文（有 model, modelRegistry, cwd, ui）
  */
-export async function run(goal: string, model: any): Promise<RunResult> {
+export async function run(goal: string, ctx: any): Promise<RunResult> {
   const pool = new TaskPool();
 
-  // 1. 写根 task
+  // 1. 写入 root task
   pool.write({
-    id: makeId(),
+    id: `t-${Math.random().toString(36).slice(2, 14)}`,
     parentId: null,
     title: goal,
     description: goal,
@@ -79,35 +33,50 @@ export async function run(goal: string, model: any): Promise<RunResult> {
   });
 
   // 2. 主循环
-  while (true) {
+  let safety = 0;
+  const MAX_ITERATIONS = 50;
+
+  while (safety++ < MAX_ITERATIONS) {
     const task = pool.claimNext();
-    if (!task) break;
+    if (!task) break; // 没有 pending 任务了
+
+    // claimNext 已经标记了 in_progress，不需要再 update
+
     try {
-      await dispatch(task, pool, model, goal);
+      // 3. 问 LLM：拆还是干
+      const decision = await decide(task, ctx, goal);
+
+      if (decision.kind === "decompose") {
+        // 拆成子任务，写回池
+        for (const sub of decision.subTasks) {
+          pool.write({
+            id: `t-${Math.random().toString(36).slice(2, 14)}`,
+            parentId: task.id,
+            title: sub.title,
+            description: sub.description,
+            status: "pending",
+            createdAt: Date.now(),
+          });
+        }
+        pool.update(task.id, { status: "done", result: `decomposed into ${decision.subTasks.length} sub-tasks` });
+      } else {
+        // 叶子执行
+        const result = await execute(task, ctx, goal);
+        pool.update(task.id, { status: "done", result });
+      }
     } catch (e) {
-      // 任一 task 失败：标 failed，继续下一个（v1 简化：不停）
-      pool.update(task.id, {
-        status: "failed",
-        result: `Error: ${(e as Error).message}`,
-      });
+      pool.update(task.id, { status: "failed", result: (e as Error).message });
     }
   }
 
-  // 3. 收尾
-  const tasks = pool.getAll();
-  const c = pool.count();
-  const summary = `${c.done}/${c.total} done${c.failed ? `, ${c.failed} failed` : ""}`;
-  return {
-    status: c.failed > 0 && c.done === 0 ? "failed" : "done",
-    workItems: tasks,
-    summary,
-  };
-}
+  // 4. 汇总
+  const items = pool.getAll();
+  const done = items.filter((t) => t.status === "done").length;
+  const failed = items.filter((t) => t.status === "failed").length;
 
-/**
- * 生成 task id。
- * v1 简化：时间戳 + 短随机。
- */
-function makeId(): string {
-  return `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  return {
+    status: failed > 0 ? "failed" : "done",
+    workItems: items,
+    summary: `${done}/${items.length} done, ${failed} failed`,
+  };
 }

@@ -1,28 +1,21 @@
 /**
  * dteam v1 — 叶子器 (leaf)
  *
- * 唯一职责：让 LLM 实际干活。
+ * 唯一职责：调 LLM 实际执行一个 subTask。
  *
- * v1 实现：用 `completeSimple` 调 LLM，让 LLM 完成被 brancher 判定为可执行的 subTask。
- *
- * v1 简化：不接 read/bash/edit/write 工具（v1 最小闭环，先证明树跑通）。
- * 后续迭代再让 leaf 真正能改文件。
+ * v1 用 createAgentSession，目前不暴露额外工具（v1.1 加）。
+ * LLM 只描述"会怎么做"，不直接改文件。
  */
 
-import { completeSimple } from "@earendil-works/pi-ai";
+import { createWorkerSession } from "./session.js";
 import type { Task } from "./tools.js";
 
 /**
- * 让 LLM 完成一个 subTask。
- *
- * @param task 当前 subTask（已被 brancher 判定可执行）
- * @param model 当前会话的 Model 对象
- * @param goal 原始 goal
- * @returns LLM 的最终输出文本
+ * 执行一个 leaf task。
  */
 export async function execute(
   task: Task,
-  model: any,
+  ctx: any,
   goal: string,
 ): Promise<string> {
   const systemPrompt =
@@ -30,32 +23,43 @@ export async function execute(
     `\n` +
     `The user originally asked: "${goal}"\n` +
     `\n` +
-    `Your job: complete this specific sub-task:\n` +
+    `You are now executing this sub-task:\n` +
     `  Title: ${task.title}\n` +
     `  Description: ${task.description}\n` +
     `\n` +
-    `Briefly describe what you would do to complete this sub-task.\n` +
-    `Be specific and concrete. Do not output code blocks.`;
+    `Describe concisely what you would do to complete this task. Be specific.` +
+    `\n` +
+    `In v1, you cannot modify files. Just describe the action plan.`;
 
-  const context = {
+  // 从 ctx 拿模型信息
+  const model = ctx.model;
+  const modelStr = model ? `${model.provider}/${model.id}` : null;
+  if (!modelStr) throw new Error("Leaf: no model available in ctx");
+
+  const session = await createWorkerSession({
     systemPrompt,
-    messages: [
-      {
-        role: "user" as const,
-        content: task.description,
-        timestamp: Date.now(),
-      },
-    ],
-  };
+    cwd: ctx.cwd || process.cwd(),
+    modelStr,
+    ctx,
+    // v1 不暴露工具；v1.1 加 read/bash/edit/write
+    tools: [],
+  });
 
-  const result: any = await completeSimple(model, context);
+  // 发 prompt
+  await session.prompt("Execute now.");
 
-  // 抽 text 内容
-  const content = Array.isArray(result.content) ? result.content : [];
-  for (const part of content) {
-    if (part?.type === "text" && typeof part.text === "string") {
-      return part.text;
+  // 从 session.messages 取最终文本
+  const messages = session.messages;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "assistant") continue;
+    const content = Array.isArray(msg.content) ? msg.content : [];
+    for (const part of content) {
+      if ((part as any).type === "text") {
+        return (part as any).text;
+      }
     }
   }
+
   return "(no output)";
 }

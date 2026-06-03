@@ -9,7 +9,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { run } from "./src/orchestrator.js";
 
 export default function (pi: ExtensionAPI) {
-  // ═══ 注册 dteam 工具 ═══
   pi.registerTool({
     name: "dteam",
     label: "dteam",
@@ -27,7 +26,6 @@ export default function (pi: ExtensionAPI) {
       required: ["action", "goal"],
     } as const,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      // params 是任意类型，这里窄化
       const { action, goal } = params as { action: string; goal: string };
 
       if (action !== "run") {
@@ -38,10 +36,8 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      // 拿当前 session 的 model 对象
-      // ctx.model 是当前 session 使用的 model
-      const model = (ctx as any).model;
-      if (!model) {
+      // 检查 ctx 上有 model + modelRegistry
+      if (!ctx.model) {
         return {
           content: [{ type: "text" as const, text: "dteam: no session model available" }],
           isError: true,
@@ -49,17 +45,12 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      // 1. 通知用户开始
       ctx.ui.notify(`dteam: running "${goal}"`, "info");
       ctx.ui.setStatus("dteam", `running: ${goal}`);
 
       try {
-        // 2. 同步阻塞跑完
-        const result = await run(goal, model);
-
-        // 3. 清理状态栏
+        const result = await run(goal, ctx);
         ctx.ui.setStatus("dteam", undefined);
-
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
           details: {},
