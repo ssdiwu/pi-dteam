@@ -122,8 +122,11 @@ describe("showWorkerPanel (集成)", () => {
 	it("store 空时弹提示 panel（AC9 修复）", () => {
 		const { ctx, getCaptured } = makeCapturingCtx();
 		showWorkerPanel(ctx as any);
-		expect(ctx.ui.custom).not.toHaveBeenCalled();
-		expect(getCaptured()).toBeNull();
+		// 修复后空 store 也弹 panel
+		expect(ctx.ui.custom).toHaveBeenCalled();
+		expect(getCaptured()).not.toBeNull();
+		const lines = getCaptured()!.render(80);
+		expect(lines.join("\n")).toContain("无 worker 正在工作");
 	});
 
 	it("只有子 worker（无 parent）时弹异常分支 panel", () => {
