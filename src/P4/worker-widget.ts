@@ -522,7 +522,7 @@ export function renderPlanContent(
 	lines.push(theme.fg("borderMuted", sep));
 
 	// 6. 操作提示
-	lines.push(theme.fg("dim", "  /dteam confirm 执行 · /dteam skip 跳过 · /dteam cancel 取消"));
+	lines.push(theme.fg("dim", "  /dteam confirm 执行 · /dteam skip 跳过 · /dteam cancel 取消  ·  F5/F6 切 tab"));
 
 	return lines;
 }

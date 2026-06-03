@@ -1066,14 +1066,15 @@ export default async function (pi: ExtensionAPI) {
 		},
 	});
 
-	// ── 全局快捷键：Tab 切换 dteam 面板 tab（仅在面板展开时生效）──
-	pi.registerShortcut("tab", {
+	// ── 全局快捷键：F5/F6 切换 dteam 面板 tab（仅在面板展开时生效）──
+	// F5/F6 不与 pi 内置快捷键冲突（tab 被 tui.input.tab 占用）
+	pi.registerShortcut("f5", {
 		description: "dteam 面板：切换到下一个 tab",
 		handler: (_ctx) => {
 			cycleWidgetTab(1);
 		},
 	});
-	pi.registerShortcut("shift+tab", {
+	pi.registerShortcut("f6", {
 		description: "dteam 面板：反向切换 tab",
 		handler: (_ctx) => {
 			cycleWidgetTab(-1);
