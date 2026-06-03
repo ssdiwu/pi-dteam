@@ -44,11 +44,12 @@ export async function runSolo(
       conclusion,
     };
   } catch (error) {
-    bus.emit("blocked", workerId, { error: (error as Error).message });
+    const err = error as Error & { signalData?: Record<string, unknown> };
+    bus.emit("blocked", workerId, err.signalData ?? { error: err.message });
 
     return {
       status: "failed",
-      error: (error as Error).message,
+      error: err.message,
     };
   }
 }

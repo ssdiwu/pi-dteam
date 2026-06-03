@@ -276,6 +276,7 @@ import {
 	getSessionModel,
 	setSessionModel,
 	getConfigForContext,
+	WorkerExecutionError,
 	bus as workerBus,
 } from "../P2/worker.js";
 import { spawnAgent } from "../P1/spawn.js";
@@ -328,7 +329,7 @@ export default async function (pi: ExtensionAPI) {
 	//    显式注册“llm”仅为“明确用 LLM executor”的语义。
 	registerExecutor("llm", async (context) => {
 		const r = await loadAgentRole(context.role);
-		if (!r) return "[ERROR] agents/<role>.md not found";
+		if (!r) throw new WorkerExecutionError("agents/<role>.md not found");
 		const sessionModel = getSessionModel();
 		const config = getConfigForContext(context);
 		const result = await spawnAgent({
@@ -341,14 +342,14 @@ export default async function (pi: ExtensionAPI) {
 			cwd: context.cwd,
 		});
 		if (result.exitCode !== 0 || result.errorMessage) {
-			const prefix = result.isModelError ? "[MODEL_ERROR]" : "[ERROR]";
-			context.bus.emit("blocked", context.role, {
+			const errText = result.errorMessage || "spawn failed";
+			throw new WorkerExecutionError(errText, {
 				status: result.isModelError ? "model_error" : "spawn_error",
-				error: result.errorMessage || "spawn failed",
+				error: errText,
 				model: result.model,
 				isModelError: result.isModelError ?? false,
+				partialOutput: result.output || "",
 			});
-			return `${prefix} ${result.errorMessage || "spawn failed"}\n\n[Partial]:\n${result.output || "(empty)"}`;
 		}
 		return result.output || "(empty)";
 	});

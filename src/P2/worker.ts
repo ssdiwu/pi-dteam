@@ -119,6 +119,22 @@ const workers = new Map<string, {
 export const bus = new SignalBus();
 export const memory = createEnhancedSharedMemory();
 
+/**
+ * 执行器层面的显式失败。
+ *
+ * - message: 给 worker/result/lastError 用的人类可读错误
+ * - signalData: 供 runSolo / chain / team emit blocked 时透传更结构化的 payload
+ */
+export class WorkerExecutionError extends Error {
+  signalData?: Record<string, unknown>;
+
+  constructor(message: string, signalData?: Record<string, unknown>) {
+    super(message);
+    this.name = "WorkerExecutionError";
+    this.signalData = signalData;
+  }
+}
+
 // ── 执行器注册 ────────────────────────────────────────────────
 
 /**
@@ -212,15 +228,14 @@ function getExecutor(name?: string): (context: ExecutionContext) => Promise<stri
     });
 
     if (result.exitCode !== 0 || result.errorMessage) {
-      const prefix = result.isModelError ? "[MODEL_ERROR]" : "[ERROR]";
       const errText = result.errorMessage || "spawn failed";
-      context.bus.emit("blocked", context.role, {
+      throw new WorkerExecutionError(errText, {
         status: result.isModelError ? "model_error" : "spawn_error",
         error: errText,
         model: result.model,
         isModelError: result.isModelError ?? false,
+        partialOutput: result.output || "",
       });
-      return `${prefix} ${errText}\n\n[Partial output]:\n${result.output || "(empty)"}`;
     }
     return result.output || "(empty)";
   };
@@ -437,6 +452,9 @@ export async function workerStart(
       // 保证 P4 store 的主键与 wrapWorker 传入的 outer ID 一致（多 worker 不互相覆盖）。
       const result = await runWorker(worker.config, worker.bus, worker.memory, wrappedExecutor, workerId);
       if (signal?.aborted) throw new Error(`Worker cancelled: ${workerId}`);
+      if (result.status !== "done") {
+        throw new WorkerExecutionError(result.error || "worker execution failed");
+      }
       worker.status = "done";
       
       // worktree 自动清理

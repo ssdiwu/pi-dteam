@@ -49,6 +49,10 @@ describe("Worker 工具集成测试", () => {
 
   describe("workerStart", () => {
     it("应该启动 worker 并返回结果", async () => {
+      registerExecutor("success-executor", async (context: ExecutionContext) => {
+        return `[${context.role}] success: ${context.task}`;
+      });
+
       // 创建 worker
       const config: WorkerConfig = {
         type: "solo",
@@ -61,7 +65,7 @@ describe("Worker 工具集成测试", () => {
       const { workerId } = JSON.parse(createResult.content);
 
       // 启动 worker
-      const startResult = await workerStart(ctx, { workerId });
+      const startResult = await workerStart(ctx, { workerId, executorName: "success-executor" });
       const parsed = JSON.parse(startResult.content);
 
       expect(parsed.workerId).toBe(workerId);
@@ -99,6 +103,38 @@ describe("Worker 工具集成测试", () => {
       expect(parsed.result).toBeDefined();
       expect(parsed.result.conclusion).toContain("自定义执行器");
       expect(parsed.result.conclusion).toContain("测试自定义执行器");
+    });
+
+    it("执行器抛错时应返回 failed，而不是误报 completed", async () => {
+      registerExecutor("failing-executor", async (_context: ExecutionContext) => {
+        throw new Error("model unavailable");
+      });
+
+      const config: WorkerConfig = {
+        type: "solo",
+        task: "测试失败路径",
+        style: "explore",
+        options: [{ type: "role", value: "build" }],
+      };
+
+      const createResult = await workerCreate(ctx, { config });
+      const { workerId } = JSON.parse(createResult.content);
+
+      const startResult = await workerStart(ctx, {
+        workerId,
+        executorName: "failing-executor",
+      });
+      const parsed = JSON.parse(startResult.content);
+
+      expect(parsed.workerId).toBe(workerId);
+      expect(parsed.status).toBe("failed");
+      expect(String(parsed.error)).toContain("model unavailable");
+      expect(String(parsed.message)).toContain("Worker failed");
+
+      const diag = await workerGetMemory(ctx, { namespace: `worker-${workerId}` });
+      const diagParsed = JSON.parse(diag.content);
+      expect(diagParsed.values.status).toBe("failed");
+      expect(String(diagParsed.values.lastError)).toContain("model unavailable");
     });
   });
 
