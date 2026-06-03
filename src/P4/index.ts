@@ -11,6 +11,8 @@ import type {
 	ToolCallEvent,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Text, Markdown } from "@earendil-works/pi-tui";
+import { keyHint, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -184,9 +186,16 @@ function wrapWorker(
 		
 		// 生成简洁报告
 		const brief = buildBriefReport(result.content, workerAction);
+		// 解析原始 JSON，供给 renderResult 展开态用（details.full）
+		let parsedJson: unknown = null;
+		try {
+			parsedJson = JSON.parse(result.content);
+		} catch {
+			parsedJson = null;
+		}
 		return {
 			content: [{ type: "text" as const, text: brief }],
-			details: undefined,
+			details: { brief, full: parsedJson },
 		};
 	};
 }
@@ -374,6 +383,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(taskCreate),
+		renderResult: makeTextRenderer((p) => `✓ Task created: ${p?.id ?? "?"}`),
 	});
 
 	pi.registerTool({
@@ -396,6 +406,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(taskRead),
+		renderResult: makeMarkdownRenderer((p) => `✓ Read ${p?.section ?? "section"}`),
 	});
 
 	pi.registerTool({
@@ -415,6 +426,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(taskUpdate),
+		renderResult: makeTextRenderer(() => "✓ Task updated"),
 	});
 
 	pi.registerTool({
@@ -433,6 +445,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(taskComplete),
+		renderResult: makeTextRenderer(() => "✓ Item completed"),
 	});
 
 	pi.registerTool({
@@ -450,6 +463,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(taskArchive),
+		renderResult: makeTextRenderer(() => "✓ Task archived"),
 	});
 
 	pi.registerTool({
@@ -470,6 +484,10 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(taskList),
+		renderResult: makeTextRenderer((p) => {
+			const n = Array.isArray(p?.tasks) ? p.tasks.length : 0;
+			return `✓ ${n} task${n === 1 ? "" : "s"}`;
+		}),
 	});
 
 	pi.registerTool({
@@ -487,6 +505,10 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(taskSearch),
+		renderResult: makeTextRenderer((p) => {
+			const n = Array.isArray(p?.tasks) ? p.tasks.length : 0;
+			return `✓ ${n} task${n === 1 ? "" : "s"} found`;
+		}),
 	});
 
 	// ═══════════════════════════════════════════════════════════
@@ -508,6 +530,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(referenceArchitecture),
+		renderResult: makeMarkdownRenderer(() => "✓ Reference loaded"),
 	});
 
 	// ═══════════════════════════════════════════════════════════
@@ -557,6 +580,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrapWorker(workerCreate, "create", pi),
+		renderResult: makeWorkerRenderer(),
 	});
 
 	pi.registerTool({
@@ -580,6 +604,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrapWorker(workerStart, "start", pi),
+		renderResult: makeWorkerRenderer(),
 	});
 
 	pi.registerTool({
@@ -603,6 +628,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrapWorker(workerSendSignal, "signal", pi),
+		renderResult: makeWorkerRenderer(),
 	});
 
 	pi.registerTool({
@@ -620,6 +646,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrapWorker(workerCancel, "cancel", pi),
+		renderResult: makeWorkerRenderer(),
 	});
 
 	pi.registerTool({
@@ -637,6 +664,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrapWorker(workerStatus, "status", pi),
+		renderResult: makeWorkerRenderer(),
 	});
 
 	pi.registerTool({
@@ -654,6 +682,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(workerSaveMemory),
+		renderResult: makeTextRenderer(() => "✓ Worker memory saved"),
 	});
 
 	pi.registerTool({
@@ -671,6 +700,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(workerLoadMemory),
+		renderResult: makeTextRenderer(() => "✓ Loaded worker memory"),
 	});
 
 	pi.registerTool({
@@ -693,6 +723,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(workerGetMemory),
+		renderResult: makeTextRenderer(() => "✓ Got worker memory"),
 	});
 
 	// ═══════════════════════════════════════════════════════════
@@ -715,6 +746,11 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(memoryGet),
+		renderResult: makeTextRenderer((p) => {
+			const v = p?.value;
+			if (typeof v === "string") return `✓ ${v.length > 60 ? v.slice(0, 57) + "…" : v}`;
+			return "✓ Value retrieved";
+		}),
 	});
 
 	pi.registerTool({
@@ -735,6 +771,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(memorySet),
+		renderResult: makeTextRenderer(() => "✓ Memory set"),
 	});
 
 	pi.registerTool({
@@ -752,6 +789,10 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(memoryKeys),
+		renderResult: makeTextRenderer((p) => {
+			const n = Array.isArray(p?.keys) ? p.keys.length : 0;
+			return `✓ ${n} key${n === 1 ? "" : "s"}`;
+		}),
 	});
 
 	pi.registerTool({
@@ -770,6 +811,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(memoryHas),
+		renderResult: makeTextRenderer((p) => p?.value === true ? "✓ Exists" : p?.value === false ? "✗ Absent" : "✓ Checked"),
 	});
 
 	pi.registerTool({
@@ -788,6 +830,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(memoryDelete),
+		renderResult: makeTextRenderer(() => "✓ Memory deleted"),
 	});
 
 	pi.registerTool({
@@ -805,6 +848,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(memoryClear),
+		renderResult: makeTextRenderer(() => "✓ Memory cleared"),
 	});
 
 	pi.registerTool({
@@ -822,6 +866,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(memorySave),
+		renderResult: makeTextRenderer(() => "✓ Memory saved"),
 	});
 
 	pi.registerTool({
@@ -839,6 +884,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(memoryLoad),
+		renderResult: makeTextRenderer((p) => `✓ Loaded ${p?.keys?.length ?? 0} keys`),
 	});
 
 	// ═══════════════════════════════════════════════════════════
@@ -862,6 +908,7 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(signalEmit),
+		renderResult: makeTextRenderer((p) => `✓ Signal ${p?.type ?? "?"} emitted`),
 	});
 
 	pi.registerTool({
@@ -878,6 +925,10 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(signalHistory),
+		renderResult: makeTextRenderer((p) => {
+			const n = Array.isArray(p?.history) ? p.history.length : 0;
+			return `✓ ${n} signal${n === 1 ? "" : "s"}`;
+		}),
 	});
 
 	// ═══════════════════════════════════════════════════════════
@@ -943,6 +994,14 @@ export default async function (pi: ExtensionAPI) {
 			additionalProperties: false,
 		} as const,
 		execute: wrap(handleDteamAction),
+		renderResult: makeTextRenderer((p) => {
+			const a = p?.action;
+			if (a === "list") return `✓ ${p?.count ?? 0} agents`;
+			if (a === "plan") return `✓ Plan: ${p?.chainPlan?.steps?.length ?? 0} steps`;
+			if (a === "run") return `✓ Worker ${p?.workerId ?? "?"} started`;
+			if (a === "status") return `📊 Worker ${p?.workerId ?? "?"}: ${p?.status ?? "?"}`;
+			return `✓ dteam ${a ?? "?"}`;
+		}),
 	});
 
 	pi.registerCommand("dteam", {
@@ -952,4 +1011,128 @@ export default async function (pi: ExtensionAPI) {
 			showWorkerPanel(ctx);
 		},
 	});
+}
+
+// ── 工具输出渲染辅助函数（项目内，不导出） ────────────────────
+
+/** 提取 result.content[0].text */
+function getResultText(result: { content?: Array<{ type: string; text?: string }> }): string {
+	if (!Array.isArray(result.content)) return "";
+	const first = result.content[0];
+	if (first?.type === "text" && typeof first.text === "string") return first.text;
+	return "";
+}
+
+/** 错误摘要：parsed.error 字符串或 null */
+function getErrorSummary(parsed: any): string | null {
+	if (parsed && typeof parsed === "object" && typeof parsed.error === "string") return parsed.error;
+	return null;
+}
+
+/** JSON 美化：失败回原样 */
+function beautifyJson(raw: string): string {
+	try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
+}
+
+/** 行数截断：超过 max 行则截断并加 "... (N more lines)" */
+function expandLines(text: string, max: number): string {
+	if (!text) return "";
+	const lines = text.split("\n");
+	if (lines.length <= max) return text;
+	return lines.slice(0, max).join("\n") + `\n… (${lines.length - max} more lines)`;
+}
+
+/** 展开态提示文本（折叠态用） */
+function expandHint(theme: any): string {
+	return theme.fg("dim", ` (${keyHint("app.tools.expand", "to expand")})`);
+}
+
+/**
+ * Text 渲染器：默认一行 + 展开后美化 JSON。适用 25 个返回 JSON 的工具。
+ */
+function makeTextRenderer(summaryFn: (parsed: any) => string) {
+	return (
+		result: { content: Array<{ type: string; text?: string }> },
+		options: { expanded: boolean; isPartial: boolean },
+		theme: any,
+	) => {
+		if (options.isPartial) {
+			return new Text(theme.fg("warning", "⏳ Processing…"), 0, 0);
+		}
+		const text = getResultText(result);
+		let parsed: any = null;
+		try { parsed = JSON.parse(text); } catch {}
+		const err = getErrorSummary(parsed);
+		if (err) {
+			return new Text(theme.fg("error", `✗ ${err}`) + (options.expanded ? "" : expandHint(theme)), 0, 0);
+		}
+		let line = theme.fg("success", summaryFn(parsed));
+		if (!options.expanded) line += expandHint(theme);
+		if (options.expanded) {
+			const body = expandLines(beautifyJson(text), 30);
+			for (const l of body.split("\n")) line += "\n" + theme.fg("dim", l);
+		}
+		return new Text(line, 0, 0);
+	};
+}
+
+/**
+ * Markdown 渲染器：展开后用 Markdown 渲染 .md 内容。适用 task_read / reference_architecture。
+ */
+function makeMarkdownRenderer(summaryFn: (parsed: any) => string) {
+	return (
+		result: { content: Array<{ type: string; text?: string }> },
+		options: { expanded: boolean; isPartial: boolean },
+		theme: any,
+	) => {
+		if (options.isPartial) {
+			return new Text(theme.fg("warning", "⏳ Processing…"), 0, 0);
+		}
+		const text = getResultText(result);
+		let parsed: any = null;
+		try { parsed = JSON.parse(text); } catch {}
+		const err = getErrorSummary(parsed);
+		if (err) {
+			return new Text(theme.fg("error", `✗ ${err}`) + (options.expanded ? "" : expandHint(theme)), 0, 0);
+		}
+		const summary = theme.fg("success", summaryFn(parsed));
+		if (!options.expanded) return new Text(summary + expandHint(theme), 0, 0);
+		// 展开：抽出 .md 文本（parsed.content / parsed.body / text）
+		const md = (parsed && typeof parsed === "object"
+			? (typeof parsed.content === "string" ? parsed.content
+				: typeof parsed.body === "string" ? parsed.body
+				: typeof parsed.text === "string" ? parsed.text : text)
+			: text);
+		const truncated = expandLines(md, 30);
+		return new Markdown(truncated, 0, 0, getMarkdownTheme());
+	};
+}
+
+/**
+ * Worker 渲染器：默认显示 brief，展开显示 details.full 美化。适用 5 个 wrapWorker 工具。
+ */
+function makeWorkerRenderer() {
+	return (
+		result: { content: Array<{ type: string; text?: string }>; details?: { brief?: string; full?: unknown } },
+		options: { expanded: boolean; isPartial: boolean },
+		theme: any,
+	) => {
+		if (options.isPartial) {
+			return new Text(theme.fg("warning", "⏳ Processing…"), 0, 0);
+		}
+		const text = getResultText(result);
+		const details = result.details;
+		const fullJson = details?.full;
+		const err = getErrorSummary(fullJson);
+		if (err) {
+			return new Text(theme.fg("error", `✗ ${err}`) + (options.expanded ? "" : expandHint(theme)), 0, 0);
+		}
+		const brief = text;
+		if (!options.expanded) return new Text(theme.fg("success", brief) + expandHint(theme), 0, 0);
+		let line = theme.fg("success", brief);
+		const fullStr = fullJson !== null && fullJson !== undefined ? JSON.stringify(fullJson, null, 2) : text;
+		const body = expandLines(beautifyJson(fullStr), 30);
+		for (const l of body.split("\n")) line += "\n" + theme.fg("dim", l);
+		return new Text(line, 0, 0);
+	};
 }

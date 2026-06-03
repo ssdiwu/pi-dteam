@@ -370,12 +370,13 @@ describe("worker-widget", () => {
 	// ═══════════════════════════════════════════════════════════
 
 	describe("showWorkerPanel", () => {
-		it("无 worker 状态时不展开（AC9 早返回）", () => {
+		it("无 worker 状态时也弹提示 panel（AC9 修复）", () => {
 			const ctx = makeMockCtx();
 			showWorkerPanel(ctx as any);
 
-			expect(ctx.ui.custom).not.toHaveBeenCalled();
-			expect(isExpanded()).toBe(false);
+			// 修复后空 store 也弹 panel
+			expect(ctx.ui.custom).toHaveBeenCalled();
+			expect(isExpanded()).toBe(true);
 		});
 
 		it("有 worker 状态时展开调用 custom", () => {

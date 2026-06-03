@@ -812,9 +812,8 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 		return;
 	}
 
-	// 空 store：直接 return（AC9 早返回）
+	// 不管 store 是否为空，都弹 panel（AC9：空 store 也显示提示，不静默失败）
 	const store = getStore();
-	if (store.size === 0) return;
 
 	// 仅看父 worker（无 parentWorkerId）作为 tab
 	const parents = Array.from(store.values()).filter((p) => !p.parentWorkerId);

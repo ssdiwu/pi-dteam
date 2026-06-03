@@ -80,3 +80,64 @@ Pi 工具 JSON 序列化层可能把数组变成 `{ item: ... }` 或普通对象
 // 输出
 ["a", "b"]           // 统一数组
 ```
+
+### 自定义工具渲染（renderResult）
+
+27 个 `pi.registerTool(...)` 全部补充 `renderResult`，沿用 pi 官方 `built-in-tool-renderer.ts` 模式——**默认一行概要 + `ctrl+o` 展开详情**，避免完整 JSON 挤占屏幕。
+
+#### 三种渲染器
+
+文件末尾定义 3 个项目内辅助函数（不导出）：
+
+| 渲染器 | 适用工具 | 加工策略 |
+|---|---|---|
+| `makeTextRenderer(summaryFn)` | 20 个返回 JSON 的工具 | `JSON.parse` + `JSON.stringify(_, null, 2)` 美化；按 `\n` 拆行渲染 |
+| `makeMarkdownRenderer(summaryFn)` | `task_read` / `reference_architecture`（返回 .md 内容） | 原样保留代码块/列表/标题/链接 |
+| `makeWorkerRenderer()` | 5 个 `worker_*` | 默认显示 `buildBriefReport` 简要（中文简短）；展开显示 `details.full` 美化 JSON |
+
+#### 状态与约定
+
+- **流式态**：`isPartial=true` → `⏳ Processing…`
+- **错误态**：`parsed.error` 存在 → `✗ {error摘要}`，与正常态视觉区分
+- **折叠态**：概要行末尾追加 `(ctrl+o to expand)`，用 `keyHint("app.tools.expand", "to expand")` 输出（绑定 pi keybindings 配置）
+- **展开态**：内容超过 30 行自动截断，末尾 `… (N more lines)`
+- **wrapWorker return shape 扩展**：`{ content, details: { brief, full: parsedJson } }`——让 worker 工具的 renderResult 展开时能拿到原始 JSON
+
+#### 27 个工具分布
+
+- Markdown 渲染：2 个（`task_read`、`reference_architecture`）
+- Text 渲染：20 个
+- Worker 渲染：5 个（`worker_create` / `worker_start` / `worker_sendSignal` / `worker_cancel` / `worker_status`）
+
+> 合计 27。参考官方 [extensions.md](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/extensions.md) 2030-2100 行的 `renderResult` API 规范。
+### 自定义工具渲染（默认折叠 + ctrl+o 展开）
+
+所有 27 个 dteam 工具（`task_*` / `memory_*` / `signal_*` / `worker_*` / `reference_*` / `dteam`）都提供 `renderResult`，不依赖 pi fallback（避免 dump 完整 JSON 挤占屏幕）：
+
+- **默认一行概要 + `(ctrl+o to expand)` 提示**：用 `keyHint("app.tools.expand", "to expand")` 输出快捷键提示，跟用户 keybinding 配置走
+- **`ctrl+o` 展开后**显示完整内容（JSON 美化或 Markdown 渲染）
+- **错误态**用 `✗ {error}` 前缀，与正常态视觉区分
+- **流式 partial 态**显示 `⏳ Processing...`
+
+#### 渲染器选择
+
+| 工具 | 渲染器 | 展开内容 |
+|---|---|---|
+| `task_read` | `Markdown` | `parsed.content` 字段（.md 文本）保留代码块 / 列表 / 标题 |
+| `reference_architecture` | `Text` + beautifyJson | 美化 JSON |
+| 其他 25 个工具 | `Text` + beautifyJson | 美化 JSON |
+
+#### 辅助函数（项目内，不导出）
+
+- `makeTextRenderer(summaryFn)` — Text 渲染器工厂
+- `makeMarkdownRenderer(summaryFn)` — Markdown 渲染器工厂
+- `makeWorkerRenderer()` — Worker 工具渲染器（用 `details.brief` / `details.full`）
+- `truncate(text, max)` / `beautifyJson(raw)` / `expandLines(text, max)` / `getErrorSummary(parsed)` — 基础工具
+
+#### 行数截断
+
+展开态内容超过 30 行则截断，末尾追加 `… (N more lines)`。`task_read` 的 Markdown 渲染也走相同截断（先 `split('\n').slice(0, 30).join('\n')` 再 `new Markdown(...)`）。
+
+#### wrapWorker 的 details 扩展
+
+为支持 worker 工具的"展开显示原始 JSON"语义，`wrapWorker` 的 return shape 从 `details: undefined` 改为 `details: { brief, full: parsedJson }`。`brief` 是 `buildBriefReport` 生成的简短中文文本（默认显示），`full` 是原始 JSON（展开显示）。这是**纯增量**，对其他消费方零影响（其他代码只读 `result.content[0].text`）。

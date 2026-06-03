@@ -119,7 +119,7 @@ describe("showWorkerPanel (集成)", () => {
 		resetDisposedCount();
 	});
 
-	it("store 空时直接 return（不弹 panel）", () => {
+	it("store 空时弹提示 panel（AC9 修复）", () => {
 		const { ctx, getCaptured } = makeCapturingCtx();
 		showWorkerPanel(ctx as any);
 		expect(ctx.ui.custom).not.toHaveBeenCalled();
