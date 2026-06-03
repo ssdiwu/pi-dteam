@@ -376,18 +376,18 @@ describe("worker-widget", () => {
 			void showWorkerPanel(ctx as any);
 
 			// 修复后空 store 也弹 panel
-			expect(ctx.ui.custom).toHaveBeenCalled();
+			expect(ctx.ui.setWidget).toHaveBeenCalled();
 			expect(isExpanded()).toBe(true);
 		});
 
-		it("有 worker 状态时展开调用 custom", () => {
+		it("有 worker 状态时展开调用 setWidget", () => {
 			const ctx = makeMockCtx();
 			setProgress(makeProgress({ workerId: "w-1" }));
 			ctx.ui.setWidget.mockClear();
 
 			void showWorkerPanel(ctx as any);
 
-			expect(ctx.ui.custom).toHaveBeenCalled();
+			expect(ctx.ui.setWidget).toHaveBeenCalled();
 			expect(isExpanded()).toBe(true);
 		});
 
