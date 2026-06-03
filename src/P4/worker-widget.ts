@@ -18,6 +18,7 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import {
+	Box,
 	Container,
 	Key,
 	matchesKey,
@@ -826,15 +827,23 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 			: "  （无父 worker 正在工作）";
 		void ctx.ui.custom<PanelResult>(
 			(_tui, theme, _kb, done) => {
-				const container = new Container();
-				container.addChild(new Text(theme.fg("accent", " 📊 dteam worker 进度 "), 0, 0));
-				container.addChild(new Text(theme.fg("borderMuted", "─".repeat(Math.max(1, 60))), 0, 0));
-				container.addChild(new Text(theme.fg("muted", emptyMsg), 0, 0));
-				container.addChild(new Text("", 0, 0));
-				container.addChild(new Text(theme.fg("dim", "  启动 worker 试试："), 0, 0));
-				container.addChild(new Text(theme.fg("dim", "    /dteam run <目标描述>"), 0, 0));
-				container.addChild(new Text(theme.fg("borderMuted", "─".repeat(Math.max(1, 60))), 0, 0));
-				container.addChild(new Text(
+				const boxW = Math.min(56, Math.max(30, 56)); // 默认 56 列宽
+				const innerW = boxW - 4; // Box paddingX=2 两侧
+				const divider = "─".repeat(Math.max(1, innerW));
+
+				const box = new Box(
+					2, // paddingX
+					1, // paddingY
+					(s) => theme.bg("customMessageBg", s), // 不透明背景
+				);
+				box.addChild(new Text(theme.fg("accent", " 📊 dteam worker 进度 "), 0, 0));
+				box.addChild(new Text(theme.fg("borderMuted", divider), 0, 0));
+				box.addChild(new Text(theme.fg("muted", emptyMsg), 0, 0));
+				box.addChild(new Text("", 0, 0));
+				box.addChild(new Text(theme.fg("dim", "  启动 worker 试试："), 0, 0));
+				box.addChild(new Text(theme.fg("dim", "    /dteam run <目标描述>"), 0, 0));
+				box.addChild(new Text(theme.fg("borderMuted", divider), 0, 0));
+				box.addChild(new Text(
 					theme.fg("borderMuted", "  [Esc/q/Ctrl+C] 关闭"),
 					1,
 					0,
@@ -842,19 +851,19 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 				// 暴露 done 出口供 closeWorkerPanel 外部触发
 				currentPanelDone = done;
 				return {
-					render: (w: number) => container.render(w),
-					invalidate: () => container.invalidate?.(),
+					render: (w: number) => box.render(w),
+					invalidate: () => box.invalidate?.(),
 					handleInput: (data: string) => {
 						if (data === "q" || matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
 							done(null);
 						}
 					},
-					dispose: () => { container.clear(); currentPanelDone = null; },
+					dispose: () => { box.clear(); currentPanelDone = null; },
 				};
 			},
 			{
 				overlay: true,
-				overlayOptions: { anchor: "center", width: "60%", maxHeight: "40%" },
+				overlayOptions: { anchor: "center", width: 60, maxHeight: 16 },
 				onHandle: (_handle) => { /* currentPanelDone 已是 done 出口 */ },
 			},
 		);
@@ -877,7 +886,12 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 			// ── 闭包状态 ──
 			let currentTabIdx = 0;
 			let selectedChildId: string | undefined = undefined;
-			const container = new Container();
+			const box = new Box(
+				2, // paddingX
+				1, // paddingY
+				(s) => theme.bg("customMessageBg", s), // 不透明背景
+			);
+			let panelInnerW = 72; // rebuild 时根据 tui.columns 更新
 
 			// 找出当前 tab 的 child worker 列表
 			function getCurrentChildren(): WorkerProgress[] {
@@ -909,25 +923,26 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 				return sorted[currentTabIdx];
 			}
 
-			// rebuild container 内容
+			// rebuild box 内容
 			function rebuild() {
-				// Container.clear() 会自动 dispose 各子 component
-				container.clear();
+				// Box.clear() 会自动 dispose 各子 component
+				box.clear();
 
 				const all = Array.from(getStore().values());
+				panelInnerW = Math.min(76, Math.max(30, 72)); // 固定默认值，Box 会自适应
 				const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
 
 				// 1. 标题行
-				container.addChild(new Text(theme.fg("accent", " 📊 dteam worker progress "), 0, 0));
+				box.addChild(new Text(theme.fg("accent", " 📊 dteam worker progress "), 0, 0));
 
 				// 2. Tab 栏
-				container.addChild(new Text(
-					"  " + buildTabBar(theme, parentsSorted, currentTabIdx, 78),
+				box.addChild(new Text(
+					"  " + buildTabBar(theme, parentsSorted, currentTabIdx, panelInnerW),
 					0, 0,
 				));
 
-				// 3. 分隔线
-				container.addChild(new Text(theme.fg("borderMuted", "─".repeat(80)), 0, 0));
+				// 3. 分隔线（动态宽度）
+				box.addChild(new Text(theme.fg("borderMuted", "─".repeat(Math.max(1, panelInnerW))), 0, 0));
 
 				// 4. Tab 内容
 				const currentWorker = getCurrentWorker();
@@ -939,20 +954,20 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 						currentWorker,
 						children,
 						extended,
-						80,
+						panelInnerW,
 						{ showBackToParent: !!selectedChildId },
 					);
 					for (const line of contentLines) {
-						container.addChild(new Text(line, 0, 0));
+						box.addChild(new Text(line, 0, 0));
 					}
 				} else {
-					container.addChild(new Text(theme.fg("muted", "  (worker not found)"), 0, 0));
+					box.addChild(new Text(theme.fg("muted", "  (worker not found)"), 0, 0));
 				}
 
 				// 5. 底部提示
-				container.addChild(new Text("", 0, 0));
-				container.addChild(new Text(
-					theme.fg("borderMuted", "  [Tab/⇧Tab · ←/→] switch worker · [Enter] view child · [Esc/q/Ctrl+C] close"),
+				box.addChild(new Text("", 0, 0));
+				box.addChild(new Text(
+					theme.fg("borderMuted", "  [Tab/⇧Tab · ←/→] switch · [Enter] child · [Esc/q/Ctrl+C] close"),
 					0, 0,
 				));
 			}
@@ -1037,8 +1052,8 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 			}
 
 			return {
-				render: (width: number) => container.render(width),
-				invalidate: () => container.invalidate?.(),
+				render: (width: number) => box.render(width),
+				invalidate: () => box.invalidate?.(),
 				handleInput,
 				dispose: () => {
 					disposedCount += 1;
@@ -1054,10 +1069,14 @@ export function showWorkerPanel(ctx: ExtensionContext): void {
 					if (latestCtx) {
 						latestCtx.ui.setWidget(WIDGET_KEY, (_tui, theme) =>
 							new WorkerStatusList(theme),
-						);
-					}
-				},
-			};
-		},
-	);
+					);
+				}
+			},
+		};
+	},
+{
+	overlay: true,
+	overlayOptions: { anchor: "center", width: 80, maxHeight: "70%" },
+},
+);
 }

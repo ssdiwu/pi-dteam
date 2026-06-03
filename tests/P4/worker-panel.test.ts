@@ -27,6 +27,7 @@ import {
 function makeMockTheme() {
 	return {
 		fg: (_color: string, text: string) => text,
+		bg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		italic: (text: string) => text,
 		underline: (text: string) => text,
