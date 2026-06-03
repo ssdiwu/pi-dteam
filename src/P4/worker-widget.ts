@@ -825,44 +825,36 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 		const emptyMsg = store.size === 0
 			? "  （无 worker 正在工作）"
 			: "  （无父 worker 正在工作）";
-		await ctx.ui.custom<PanelResult>(
-			(_tui, theme, _kb, done) => {
-				const boxW = Math.min(56, Math.max(30, 56)); // 默认 56 列宽
-				const innerW = boxW - 4; // Box paddingX=2 两侧
-				const divider = "─".repeat(Math.max(1, innerW));
+		// 用 setWidget 在信息流中渲染空态面板（aboveEditor）
+		expandedActive = true;
+		latestCtx = ctx;
+		ctx.ui.setWidget(WIDGET_KEY, undefined);
 
-				const box = new Box(
-					2, // paddingX
-					1, // paddingY
-					(s) => theme.bg("customMessageBg", s), // 不透明背景
-				);
-				box.addChild(new Text(theme.fg("accent", " 📊 dteam worker 进度 "), 0, 0));
-				box.addChild(new Text(theme.fg("borderMuted", divider), 0, 0));
-				box.addChild(new Text(theme.fg("muted", emptyMsg), 0, 0));
-				box.addChild(new Text("", 0, 0));
-				box.addChild(new Text(theme.fg("dim", "  启动 worker 试试："), 0, 0));
-				box.addChild(new Text(theme.fg("dim", "    /dteam run <目标描述>"), 0, 0));
-				box.addChild(new Text(theme.fg("borderMuted", divider), 0, 0));
-				box.addChild(new Text(
-					theme.fg("borderMuted", "  [Esc/q/Ctrl+C] 关闭"),
-					1,
-					0,
-				));
-				// 暴露 done 出口供 closeWorkerPanel 外部触发
-				currentPanelDone = done;
-				return {
-					render: (w: number) => box.render(w),
-					invalidate: () => box.invalidate?.(),
-					handleInput: (data: string) => {
-						if (data === "q" || matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
-							done(null);
-						}
-					},
-					dispose: () => { box.clear(); currentPanelDone = null; },
-				};
-			},
-			// inline 模式：无 overlay，面板渲染在信息流中
-		);
+		ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => {
+			const innerW = 68;
+			const divider = "─".repeat(Math.max(1, innerW));
+
+			const box = new Box(2, 1, (s) => theme.bg("customMessageBg", s));
+			box.addChild(new Text(theme.fg("accent", " 📊 dteam worker 进度 "), 0, 0));
+			box.addChild(new Text(theme.fg("borderMuted", divider), 0, 0));
+			box.addChild(new Text(theme.fg("muted", emptyMsg), 0, 0));
+			box.addChild(new Text("", 0, 0));
+			box.addChild(new Text(theme.fg("dim", "  启动 worker 试试："), 0, 0));
+			box.addChild(new Text(theme.fg("dim", "    /dteam run <目标描述>"), 0, 0));
+			box.addChild(new Text(theme.fg("borderMuted", divider), 0, 0));
+			box.addChild(new Text(theme.fg("borderMuted", "  [Esc/q/Ctrl+C] 关闭"), 1, 0));
+
+			return {
+				render: (width: number) => box.render(width),
+				invalidate: () => box.invalidate?.(),
+				handleInput: (data: string) => {
+					if (data === "q" || matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
+						closeWorkerPanel();
+					}
+				},
+			};
+		}, { placement: "aboveEditor" });
+
 		expandedActive = true;
 		latestCtx = ctx;
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
@@ -875,204 +867,116 @@ export async function showWorkerPanel(ctx: ExtensionContext): Promise<void> {
 	// 移除折叠态 widget
 	ctx.ui.setWidget(WIDGET_KEY, undefined);
 
-	await ctx.ui.custom<PanelResult>(
-		(tui, theme, _keybindings, done) => {
-			// 暴露 done 出口供 closeWorkerPanel 外部触发
-			currentPanelDone = done;
-			// ── 闭包状态 ──
-			let currentTabIdx = 0;
-			let selectedChildId: string | undefined = undefined;
-			const box = new Box(
-				2, // paddingX
-				1, // paddingY
-				(s) => theme.bg("customMessageBg", s), // 不透明背景
-			);
-			let panelInnerW = 72; // rebuild 时根据 tui.columns 更新
+	let panelTui: any = null;
 
-			// 找出当前 tab 的 child worker 列表
-			function getCurrentChildren(): WorkerProgress[] {
-				const all = Array.from(getStore().values());
-				if (selectedChildId) {
-					// 在子详情页：以子 worker 为"当前"，但仍以原父的 child 列表为 children
-					const originalParent = all.find((p) => p.workerId === getCurrentParentId());
-					if (!originalParent) return [];
-					return all.filter((c) => c.parentWorkerId === originalParent.workerId);
-				}
-				const current = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime)[currentTabIdx];
-				if (!current) return [];
-				return all.filter((c) => c.parentWorkerId === current.workerId);
+	ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => {
+		panelTui = tui;
+		const innerW = 68;
+
+		let currentTabIdx = 0;
+		let selectedChildId: string | undefined = undefined;
+		const box = new Box(2, 1, (s) => theme.bg("customMessageBg", s));
+
+		function getCurrentChildren(): WorkerProgress[] {
+			const all = Array.from(getStore().values());
+			if (selectedChildId) {
+				const originalParent = all.find((p) => p.workerId === getCurrentParentId());
+				if (!originalParent) return [];
+				return all.filter((c) => c.parentWorkerId === originalParent.workerId);
+			}
+			const current = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime)[currentTabIdx];
+			if (!current) return [];
+			return all.filter((c) => c.parentWorkerId === current.workerId);
+		}
+
+		function getCurrentParentId(): string | undefined {
+			if (selectedChildId) return selectedChildId;
+			const all = Array.from(getStore().values());
+			const sorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
+			return sorted[currentTabIdx]?.workerId;
+		}
+
+		function getCurrentWorker(): WorkerProgress | undefined {
+			if (selectedChildId) return getStore().get(selectedChildId);
+			const all = Array.from(getStore().values());
+			const sorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
+			return sorted[currentTabIdx];
+		}
+
+		function rebuild() {
+			box.clear();
+			const all = Array.from(getStore().values());
+			const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
+
+			box.addChild(new Text(theme.fg("accent", " 📊 dteam worker progress "), 0, 0));
+			box.addChild(new Text(
+				"  " + buildTabBar(theme, parentsSorted, currentTabIdx, innerW),
+				0, 0,
+			));
+			box.addChild(new Text(theme.fg("borderMuted", "─".repeat(Math.max(1, innerW))), 0, 0));
+
+			const currentWorker = getCurrentWorker();
+			if (currentWorker) {
+				const extended = latestProgressByWorker.get(currentWorker.workerId);
+				const children = getCurrentChildren();
+				const contentLines = buildTabContent(
+					theme, currentWorker, children, extended, innerW,
+					{ showBackToParent: !!selectedChildId },
+				);
+				for (const line of contentLines) { box.addChild(new Text(line, 0, 0)); }
+			} else {
+				box.addChild(new Text(theme.fg("muted", "  (worker not found)"), 0, 0));
 			}
 
-			// 取得当前 tab 顶级 worker 的 id（主 tab 或父 tab）
-			function getCurrentParentId(): string | undefined {
-				if (selectedChildId) return selectedChildId; // 子详情时仍保留原父
-				const all = Array.from(getStore().values());
-				const sorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
-				return sorted[currentTabIdx]?.workerId;
-			}
+			box.addChild(new Text("", 0, 0));
+			box.addChild(new Text(
+				theme.fg("borderMuted", "  [Tab/⇧Tab · ←/→] switch · [Enter] child · [Esc/q/Ctrl+C] close"),
+				0, 0,
+			));
+		}
 
-			// 取得当前显示的 worker 记录
-			function getCurrentWorker(): WorkerProgress | undefined {
-				if (selectedChildId) return getStore().get(selectedChildId);
-				const all = Array.from(getStore().values());
-				const sorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
-				return sorted[currentTabIdx];
-			}
+		rebuild();
 
-			// rebuild box 内容
-			function rebuild() {
-				// Box.clear() 会自动 dispose 各子 component
-				box.clear();
-
-				const all = Array.from(getStore().values());
-				panelInnerW = Math.min(76, Math.max(30, 72)); // 固定默认值，Box 会自适应
-				const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
-
-				// 1. 标题行
-				box.addChild(new Text(theme.fg("accent", " 📊 dteam worker progress "), 0, 0));
-
-				// 2. Tab 栏
-				box.addChild(new Text(
-					"  " + buildTabBar(theme, parentsSorted, currentTabIdx, panelInnerW),
-					0, 0,
-				));
-
-				// 3. 分隔线（动态宽度）
-				box.addChild(new Text(theme.fg("borderMuted", "─".repeat(Math.max(1, panelInnerW))), 0, 0));
-
-				// 4. Tab 内容
-				const currentWorker = getCurrentWorker();
-				if (currentWorker) {
-					const extended = latestProgressByWorker.get(currentWorker.workerId);
-					const children = getCurrentChildren();
-					const contentLines = buildTabContent(
-						theme,
-						currentWorker,
-						children,
-						extended,
-						panelInnerW,
-						{ showBackToParent: !!selectedChildId },
-					);
-					for (const line of contentLines) {
-						box.addChild(new Text(line, 0, 0));
-					}
-				} else {
-					box.addChild(new Text(theme.fg("muted", "  (worker not found)"), 0, 0));
-				}
-
-				// 5. 底部提示
-				box.addChild(new Text("", 0, 0));
-				box.addChild(new Text(
-					theme.fg("borderMuted", "  [Tab/⇧Tab · ←/→] switch · [Enter] child · [Esc/q/Ctrl+C] close"),
-					0, 0,
-				));
-			}
-
-			// 初次填充
+		if (panelRefreshTimer) clearInterval(panelRefreshTimer);
+		panelRefreshTimer = setInterval(() => {
+			if (!expandedActive) return;
 			rebuild();
+			if (panelTui) panelTui.requestRender();
+		}, FULLSCREEN_REFRESH_MS);
 
-			// 500ms 跳秒（复用模块级单例 timer）
-			// 先清旧 timer 避免多 panel 叠加
-			if (panelRefreshTimer) clearInterval(panelRefreshTimer);
-			panelRefreshTimer = setInterval(() => {
-				if (!expandedActive) return;
-				rebuild();
-				tui.requestRender();
-			}, FULLSCREEN_REFRESH_MS);
-
-			// 键盘路由
-			function handleInput(data: string) {
+		return {
+			render: (width: number) => box.render(width),
+			invalidate: () => box.invalidate?.(),
+			handleInput: (data: string) => {
 				const all = Array.from(getStore().values());
 				const parentsSorted = all.filter((p) => !p.parentWorkerId).sort((a, b) => a.startTime - b.startTime);
 				const totalTabs = parentsSorted.length;
 
-				// 关闭快捷键
 				if (matchesKey(data, Key.escape) || data === "q" || matchesKey(data, Key.ctrl("c"))) {
-					if (selectedChildId) {
-						// 在子详情页：Esc 先返回父，不关闭 panel
-						selectedChildId = undefined;
-						rebuild();
-						tui.requestRender();
-						return;
-					}
-					done({ action: "close" });
+					if (selectedChildId) { selectedChildId = undefined; rebuild(); return; }
+					closeWorkerPanel();
 					return;
 				}
 
-				// 子详情页时：Right/Left/Tab 也可以返回父
 				if (selectedChildId) {
-					if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
-						selectedChildId = undefined;
-						rebuild();
-						tui.requestRender();
-						return;
-					}
-					if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.left)) {
-						selectedChildId = undefined;
-						rebuild();
-						tui.requestRender();
-						return;
-					}
+					if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) { selectedChildId = undefined; rebuild(); return; }
+					if (matchesKey(data, Key.left)) { selectedChildId = undefined; rebuild(); return; }
 				}
 
-				// Tab 切换
 				if (matchesKey(data, Key.tab) || matchesKey(data, Key.right)) {
-					if (totalTabs === 0) return;
-					currentTabIdx = (currentTabIdx + 1) % totalTabs;
-					selectedChildId = undefined;
-					rebuild();
-					tui.requestRender();
-					return;
+					if (totalTabs > 0) currentTabIdx = (currentTabIdx + 1) % totalTabs;
+					selectedChildId = undefined; rebuild(); return;
 				}
 				if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.left)) {
-					if (totalTabs === 0) return;
-					currentTabIdx = (currentTabIdx - 1 + totalTabs) % totalTabs;
-					selectedChildId = undefined;
-					rebuild();
-					tui.requestRender();
-					return;
+					if (totalTabs > 0) currentTabIdx = (currentTabIdx - 1 + totalTabs) % totalTabs;
+					selectedChildId = undefined; rebuild(); return;
 				}
 
-				// Enter：进入子 worker 详情
 				if (matchesKey(data, Key.enter)) {
 					const children = getCurrentChildren();
-					if (children.length > 0) {
-						// 选中第一个 child（简化：可后续加 child 列表光标）
-						selectedChildId = children[0].workerId;
-						rebuild();
-						tui.requestRender();
-						done({ action: "select-child", childId: selectedChildId });
-						return;
-					}
-				}
-			}
-
-			return {
-				render: (width: number) => box.render(width),
-				invalidate: () => box.invalidate?.(),
-				handleInput,
-				dispose: () => {
-					disposedCount += 1;
-					// dispose 兑底清理：清 timer + done 出口 + 折叠 widget 恢复
-					// 避免 Pi 内部清理 widget 时 timer 泄漏
-					if (panelRefreshTimer) {
-						clearInterval(panelRefreshTimer);
-						panelRefreshTimer = null;
-					}
-					currentPanelDone = null;
-					expandedActive = false;
-					// 恢复折叠 widget（如果最新 ctx 还在）
-					if (latestCtx) {
-						latestCtx.ui.setWidget(WIDGET_KEY, (_tui, theme) =>
-							new WorkerStatusList(theme),
-					);
+					if (children.length > 0) { selectedChildId = children[0].workerId; rebuild(); }
 				}
 			},
 		};
-	},
-{
-	overlay: true,
-	overlayOptions: { anchor: "center", width: 80, maxHeight: "70%" },
-},
-);
+	}, { placement: "aboveEditor" });
 }

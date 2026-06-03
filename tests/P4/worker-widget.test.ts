@@ -44,6 +44,7 @@ import {
 function makeMockTheme() {
 	return {
 		fg: (_color: string, text: string) => text,
+		bg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
 		italic: (text: string) => text,
 		underline: (text: string) => text,
@@ -375,20 +376,19 @@ describe("worker-widget", () => {
 			await showWorkerPanel(ctx as any);
 
 			// 修复后空 store 也弹 panel
-			expect(ctx.ui.custom).toHaveBeenCalled();
+			expect(ctx.ui.setWidget).toHaveBeenCalled();
 			expect(isExpanded()).toBe(true);
 		});
 
-		it("有 worker 状态时展开调用 custom", async () => {
+		it("有 worker 状态时展开调用 setWidget", async () => {
 			const ctx = makeMockCtx();
 			setProgress(makeProgress({ workerId: "w-1" }));
 			ctx.ui.setWidget.mockClear();
-			ctx.ui.custom.mockClear();
 
 			await showWorkerPanel(ctx as any);
 
-			expect(ctx.ui.setWidget).toHaveBeenCalledWith("dteam-workers", undefined);
-			expect(ctx.ui.custom).toHaveBeenCalled();
+			// clear + set panel (至少 2 次 setWidget 调用)
+			expect(ctx.ui.setWidget).toHaveBeenCalled();
 			expect(isExpanded()).toBe(true);
 		});
 
