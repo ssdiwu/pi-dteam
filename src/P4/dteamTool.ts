@@ -8,7 +8,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { DTEAM_PACKAGE_ROOT, workerCreate, workerStart, workerStatus } from "../P2/worker.js";
+import { DTEAM_PACKAGE_ROOT, resolveDteamPackageRoot, workerCreate, workerStart, workerStatus } from "../P2/worker.js";
 import type { WorkerConfig } from "../P0/config.js";
 import { planFromTaskId, type ChainPlan } from "../P3/chainPlanner.js";
 // 静态 import：避免动态 import 丢事件
@@ -70,8 +70,8 @@ const DEFAULT_CHAIN: readonly string[] = ["explore", "design", "build", "check",
 /**
  * 扫描 agents/ 目录，解析所有 .md 文件的 frontmatter，返回角色列表。
  */
-export async function listAgents(): Promise<AgentMeta[]> {
-  const agentsDir = join(DTEAM_PACKAGE_ROOT, "agents");
+export async function listAgents(cwd?: string): Promise<AgentMeta[]> {
+  const agentsDir = join(resolveDteamPackageRoot(cwd), "agents");
   const files = await readdir(agentsDir);
   const mdFiles = files.filter((f) => f.endsWith(".md"));
 
@@ -301,7 +301,7 @@ export async function handleDteamAction(
 ): Promise<{ content: string }> {
   switch (params.action) {
     case "list": {
-      const agents = await listAgents();
+      const agents = await listAgents(ctx.cwd);
       return {
         content: JSON.stringify({
           agents,

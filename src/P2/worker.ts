@@ -20,6 +20,7 @@ import { spawnAgent, type SpawnResult } from "../P1/spawn.js";
 import { createWorktree, cleanupWorktree, isGitRepo } from "../P1/worktree.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
@@ -29,6 +30,30 @@ import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 const __worker_filename = fileURLToPath(import.meta.url);
 const __worker_dirname = dirname(__worker_filename);
 export const DTEAM_PACKAGE_ROOT = join(__worker_dirname, "../..");
+
+/**
+ * 解析 dteam package 根目录。
+ *
+ * 场景：
+ * - 正常安装/构建运行时，`DTEAM_PACKAGE_ROOT` 有效
+ * - `/reload` 场景下，Pi 可能把 TS 编译到临时目录，`import.meta.url` 不再指向真实仓库
+ * - 这时需要回退到当前项目 cwd
+ */
+export function resolveDteamPackageRoot(cwd?: string): string {
+  const candidates = [
+    DTEAM_PACKAGE_ROOT,
+    cwd,
+    process.cwd(),
+  ].filter((v, idx, arr): v is string => typeof v === "string" && v.length > 0 && arr.indexOf(v) === idx);
+
+  for (const root of candidates) {
+    if (existsSync(join(root, "agents")) && existsSync(join(root, "package.json"))) {
+      return root;
+    }
+  }
+
+  return DTEAM_PACKAGE_ROOT;
+}
 
 /**
  * 读当前 sessionModel（由 P4 入口的 model_select 事件更新）。
@@ -61,8 +86,9 @@ export function getConfigForContext(
  */
 export async function loadAgentRole(
   role: string,
+  cwd?: string,
 ): Promise<{ systemPrompt: string; tools?: string[]; model?: string; fallbackModels?: string[] } | null> {
-  const filePath = join(DTEAM_PACKAGE_ROOT, "agents", `${role}.md`);
+  const filePath = join(resolveDteamPackageRoot(cwd), "agents", `${role}.md`);
   try {
     const content = await readFile(filePath, "utf-8");
     const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
@@ -172,7 +198,7 @@ function getExecutor(name?: string): (context: ExecutionContext) => Promise<stri
     const config = _configByContext.get(context);
 
     // 加载 role 对应的 agents/<role>.md
-    const roleData = await loadAgentRole(role);
+    const roleData = await loadAgentRole(role, cwd);
     let systemPrompt: string;
     let tools: string[] | undefined;
     let modelFromRole: string | undefined;

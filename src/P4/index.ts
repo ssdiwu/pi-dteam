@@ -328,7 +328,7 @@ export default async function (pi: ExtensionAPI) {
 	//    默认 executor 已走真路径（步骤 2 改造 P2/worker.ts）；
 	//    显式注册“llm”仅为“明确用 LLM executor”的语义。
 	registerExecutor("llm", async (context) => {
-		const r = await loadAgentRole(context.role);
+		const r = await loadAgentRole(context.role, context.cwd);
 		if (!r) throw new WorkerExecutionError("agents/<role>.md not found");
 		const sessionModel = getSessionModel();
 		const config = getConfigForContext(context);
