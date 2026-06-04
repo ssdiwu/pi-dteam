@@ -67,8 +67,7 @@ dteam(action="run", goal="在 /tmp 下创建 hello.txt")
 - [工具 API](./doc/API参考.md)
 - [src/ 内部架构](./src/README.md)
 - [设计文档总览](./doc/README.md)
-- [v1 vs ant-colony 差距](./doc/差距分析.md)
-- [v2 设计稿（二维编排）](./doc/设计-v2.md)
+- [v2 设计 + 实施现状](./doc/设计-v2.md)
 
 ## 目录结构
 
