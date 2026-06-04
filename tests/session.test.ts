@@ -212,26 +212,39 @@ describe("pickAvailableModel", () => {
 // ═══ getRoleTools ═══
 
 describe("getRoleTools", () => {
-  it("explore 角色 → 含 read/bash/write/grep/find/ls + tinyfish", () => {
+  it("explore 角色 → 含 read/bash/grep/find/ls + tinyfish + dteam", () => {
     expect(getRoleTools("explore")).toEqual([
-      "read", "bash", "write", "grep", "find", "ls", "tinyfish_search", "tinyfish_fetch",
+      "read", "bash", "grep", "find", "ls", "tinyfish_search", "tinyfish_fetch",
+      "worker_sendSignal", "reference_architecture",
     ]);
   });
 
-  it("design 角色 → 同 explore", () => {
-    expect(getRoleTools("design")).toEqual(["read", "bash", "write", "grep", "find", "ls"]);
+  it("design 角色 → 含 read/bash/write/grep/find/ls + dteam", () => {
+    expect(getRoleTools("design")).toEqual([
+      "read", "bash", "write", "grep", "find", "ls",
+      "worker_sendSignal", "reference_architecture",
+    ]);
   });
 
-  it("build 角色 → 多 edit 和 write（顺序：read, bash, edit, write, ...）", () => {
-    expect(getRoleTools("build")).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+  it("build 角色 → 多 edit + dteam", () => {
+    expect(getRoleTools("build")).toEqual([
+      "read", "bash", "edit", "write", "grep", "find", "ls",
+      "worker_sendSignal", "reference_architecture",
+    ]);
   });
 
-  it("check 角色 → 同 explore/design", () => {
-    expect(getRoleTools("check")).toEqual(["read", "bash", "write", "grep", "find", "ls"]);
+  it("check 角色 → 含 dteam", () => {
+    expect(getRoleTools("check")).toEqual([
+      "read", "bash", "write", "grep", "find", "ls",
+      "worker_sendSignal", "reference_architecture",
+    ]);
   });
 
-  it("close 角色 → write 在末尾", () => {
-    expect(getRoleTools("close")).toEqual(["read", "bash", "grep", "find", "ls", "write"]);
+  it("close 角色 → write + dteam", () => {
+    expect(getRoleTools("close")).toEqual([
+      "read", "bash", "grep", "find", "ls", "write",
+      "worker_sendSignal", "reference_architecture",
+    ]);
   });
 
   it("多次调用返回相同引用（来自 ROLE_DEFAULTS 静态配置）", () => {
@@ -262,12 +275,11 @@ describe("getRoleTools", () => {
     }
   });
 
-  it("close 和 explore/design/build/check 的 write 位置不同", () => {
-    // close 的 write 在末尾，其他在中间
+  it("close 的 write 在末尾，其他角色没有", () => {
     const explore = getRoleTools("explore");
     const close = getRoleTools("close");
-    expect(explore.indexOf("write")).toBe(2);
-    expect(close.indexOf("write")).toBe(close.length - 1);
+    expect(explore.includes("write")).toBe(false);
+    expect(close.indexOf("write")).toBe(close.length - 1 - 2); // 倒数第 3（倒数 2 是 dteam tools）
   });
 });
 
@@ -450,7 +462,10 @@ describe("createWorkerSession 集成", () => {
     });
 
     const callArgs = mockCreateAgentSession.mock.calls[0][0];
-    expect(callArgs.tools).toEqual(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+    expect(callArgs.tools).toEqual([
+      "read", "bash", "edit", "write", "grep", "find", "ls",
+      "worker_sendSignal", "reference_architecture",
+    ]);
   });
 
   it("显式 builtInTools 覆盖 role 默认", async () => {
@@ -477,7 +492,10 @@ describe("createWorkerSession 集成", () => {
     });
 
     const callArgs = mockCreateAgentSession.mock.calls[0][0];
-    expect(callArgs.customTools).toBe(customTools);
+    // customTools 被 spread（加入 worker_sendSignal），检查原始工具仍在
+    expect(callArgs.customTools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "decide" })]),
+    );
   });
 
   it("无 modelRegistry → 抛错", async () => {
