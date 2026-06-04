@@ -48,56 +48,110 @@ function statusIcon(s: string): string {
 }
 
 function renderDteamResult(result: any, options: { expanded: boolean }, theme: any): any {
-  const c = new Container();
   const w = (process.stdout.columns || 80) - 4;
 
   if (result.isError) {
     const text = result.content?.[0]?.text ?? "未知错误";
-    c.addChild(new Text(truncateToWidth(theme.fg("error", `✗ dteam 失败: ${text}`), w), 0, 0));
-    return c;
+    return new Text(theme.fg("error", `✗ dteam 失败: ${text}`), 0, 0);
   }
 
-  let parsed: RunResult | null = null;
+  let parsed: any = null;
   try {
     const raw = result.content?.[0]?.text;
     if (raw) parsed = JSON.parse(raw);
   } catch { /* fallback */ }
 
   if (!parsed) {
-    c.addChild(new Text(theme.fg("success", `✓ dteam 完成`), 0, 0));
-    return c;
+    return new Text(theme.fg("success", `✓ dteam 完成`), 0, 0);
   }
 
+  // 后台运行中（action=run 立即返回）
+  if (parsed.status === "running") {
+    const goalText = truncateToWidth(parsed.goal ?? "", w - 20, "…");
+    const expandHint = theme.fg("dim", ` (Ctrl+O 展开)`);
+    if (!options.expanded) {
+      return new Text(
+        theme.fg("info", `⚙ dteam 后台执行中`) +
+        (parsed.runId ? theme.fg("dim", ` · runId ${parsed.runId}`) : "") +
+        expandHint,
+        0, 0,
+      );
+    }
+    // expanded：显示完整信息
+    const lines = [
+      theme.fg("info", "⚙ dteam 后台执行中"),
+      theme.fg("dim", `  目标: ${goalText}`),
+      theme.fg("dim", `  runId: ${parsed.runId ?? ""}`),
+      theme.fg("dim", "  输入 /dteam 查看实时进度面板"),
+    ];
+    return new Text(lines.join("\n"), 0, 0);
+  }
+
+  // 完整 RunResult（run 完成时 dteam 在 tool 内部不返回，但理论上可能）
   const { status, goal: runGoal, plan, steps } = parsed;
   const icon = status === "done" ? "✓" : "✗";
   const color = status === "done" ? "success" : "error";
-  const done = steps?.filter(t => t.status === "done").length ?? 0;
-  const failed = steps?.filter(t => t.status === "failed").length ?? 0;
+  const done = steps?.filter((t: any) => t.status === "done").length ?? 0;
+  const failed = steps?.filter((t: any) => t.status === "failed").length ?? 0;
   const total = steps?.length ?? 0;
   const goalText = runGoal ?? "";
 
   const summaryCn = failed > 0 ? `${done}/${total} 完成, ${failed} 失败` : `${done}/${total} 完成`;
   const modeLabel = plan?.mode ? `${plan.mode} · ` : "";
-  c.addChild(new Text(truncateToWidth(theme.fg(color, `${icon} dteam · ${modeLabel}${summaryCn}`), w), 0, 0));
+  const expandHint = theme.fg("dim", ` (Ctrl+O 展开)`);
 
+  if (!options.expanded) {
+    return new Text(
+      theme.fg(color, `${icon} dteam · ${modeLabel}${summaryCn}`) + expandHint,
+      0, 0,
+    );
+  }
+
+  // expanded：完整
+  const lines = [
+    theme.fg(color, `${icon} dteam · ${modeLabel}${summaryCn}`),
+    theme.fg("dim", `  目标: ${truncateToWidth(goalText, w, "…")}`),
+  ];
   if (options.expanded && steps?.length) {
     for (const item of steps) {
       const si = statusIcon(item.status);
       const roleLabel = item.role ? `${item.role}: ` : "";
       const stratLabel = item.strategy && item.strategy !== "direct" ? ` (${item.strategy}${item.rounds ? `×${item.rounds}` : ""})` : "";
       const title = truncateToWidth(`${roleLabel}${item.task}`, w - 10, "…");
-      c.addChild(new Text(truncateToWidth(theme.fg("dim", `  ${si} ${title}${stratLabel}`), w), 0, 0));
+      lines.push(theme.fg("dim", `  ${si} ${title}${stratLabel}`));
       if (item.output) {
         const resultLine = truncateToWidth(item.output.split("\n")[0] ?? "", w - 8, "…");
-        c.addChild(new Text(truncateToWidth(theme.fg("dim", `    ⎿ ${resultLine}`), w), 0, 0));
+        lines.push(theme.fg("dim", `    ⎿ ${resultLine}`));
       }
     }
   } else {
-    const goalTrunc = truncateToWidth(goalText, w - 6, "…");
-    c.addChild(new Text(truncateToWidth(theme.fg("dim", `  ⎿ ${goalTrunc}`), w), 0, 0));
+    lines.push(theme.fg("dim", `  ⎿ ${truncateToWidth(goalText, w - 6, "…")}`));
   }
+  return new Text(lines.join("\n"), 0, 0);
+}
 
-  return c;
+// ---------------------------------------------------------------------------
+// 后台 Run 管理
+// ---------------------------------------------------------------------------
+
+interface ActiveRun {
+  runId: string;
+  goal: string;
+  ctx: any;
+  dteam: import("./src/tools.js").DteamContext;
+  promise: Promise<import("./src/tools.js").RunResult>;
+  resolveResult: ((result: import("./src/tools.js").RunResult) => void) | null;
+  status: "running" | "done" | "failed";
+  result?: import("./src/tools.js").RunResult;
+}
+
+const activeRuns = new Map<string, ActiveRun>();
+
+function cleanupRun(runId: string) {
+  const run = activeRuns.get(runId);
+  if (!run) return;
+  delete run.ctx.dteam;
+  activeRuns.delete(runId);
 }
 
 // ---------------------------------------------------------------------------
@@ -110,74 +164,155 @@ export default function (pi: ExtensionAPI) {
     name: "dteam",
     label: "dteam",
     description:
-      "通过 dteam 递归 worker 树端到端执行一个目标。根 worker 在每一层通过 LLM 决定是否分解，" +
-      "然后派发叶子 worker 执行。同步阻塞：全部完成或失败后返回。",
+      "通过 dteam 递归 worker 树端到端执行一个目标。支持后台运行，不阻塞前台。" +
+      "action=run 启动后台执行，立即返回 runId；" +
+      "action=continue 用户回复后注入信息让暂停的叶子继续。",
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["run"], description: "执行动作，目前只支持 run" },
-        goal: { type: "string", description: "要完成的目标" },
+        action: { type: "string", enum: ["run", "continue"], description: "run=启动后台执行，continue=用户回复后注入" },
+        goal: { type: "string", description: "要完成的目标（仅 run 需要）" },
+        runId: { type: "string", description: "run ID（仅 continue 需要）" },
+        message: { type: "string", description: "用户给 dteam 的回复（仅 continue 需要）" },
       },
-      required: ["action", "goal"],
+      required: ["action"],
     } as const,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const { action, goal } = params as { action: string; goal: string };
+      const { action, goal, runId, message } = params as {
+        action: string; goal?: string; runId?: string; message?: string;
+      };
 
+      // ── continue：用户回复后注入到暂停的叶子 ──
+      if (action === "continue") {
+        if (!runId || !message) {
+          return { content: [{ type: "text" as const, text: "dteam: continue 需要 runId 和 message" }], isError: true, details: {} };
+        }
+        const run = activeRuns.get(runId);
+        if (!run) {
+          return { content: [{ type: "text" as const, text: `dteam: run ${runId} 不存在或已结束` }], isError: true, details: {} };
+        }
+
+        // 找到所有等待中的 pendingSupplements，resolve 第一个
+        // （通常只有一个叶子在等人类）
+        for (const [workerId, resolve] of run.dteam.pendingSupplements) {
+          run.dteam.pendingSupplements.delete(workerId);
+          resolve(message);
+          break;
+        }
+
+        return { content: [{ type: "text" as const, text: `已注入到 run ${runId}，叶子继续执行` }], details: {} };
+      }
+
+      // ── run：启动后台执行 ──
       if (action !== "run") {
-        return {
-          content: [{ type: "text" as const, text: `dteam: 未知操作 "${action}"` }],
-          isError: true,
-          details: {},
-        };
+        return { content: [{ type: "text" as const, text: `dteam: 未知操作 "${action}"` }], isError: true, details: {} };
       }
 
       if (!ctx.model) {
-        return {
-          content: [{ type: "text" as const, text: "dteam: 当前会话没有可用模型" }],
-          isError: true,
-          details: {},
-        };
+        return { content: [{ type: "text" as const, text: "dteam: 当前会话没有可用模型" }], isError: true, details: {} };
       }
 
-      ctx.ui.notify(`dteam: 开始执行 "${goal}"`, "info");
-      ctx.ui.setStatus("dteam", `执行中: ${goal}`);
+      if (!goal) {
+        return { content: [{ type: "text" as const, text: "dteam: run 需要 goal 参数" }], isError: true, details: {} };
+      }
 
-      startRefresh(ctx);
-
+      // 创建信号通路
       const signalBus = new SignalBus();
       const runsStore = new RunsStore();
-      const runId = runsStore.createRun();
-      ctx.dteam = { signalBus, runsStore, runId, workerId: "orchestrator" };
+      const newRunId = runsStore.createRun();
+      const dteamCtx = { signalBus, runsStore, runId: newRunId, workerId: "orchestrator", pendingSupplements: new Map<string, (value: string | null) => void>(), injectionQueue: new Map<string, string[]>() };
 
-      try {
-        const result = await run(goal, ctx);
-        ctx.ui.setStatus("dteam", undefined);
-        renderWidget(ctx);
+      // 构建 run context（浅拷贝，不污染主对话 ctx）
+      const runCtx = { ...ctx, dteam: dteamCtx };
 
-        setTimeout(() => {
+      ctx.ui.notify(`dteam: 后台开始执行 "${goal}"`, "info");
+      ctx.ui.setStatus("dteam", `执行中: ${goal}`);
+      startRefresh(runCtx);
+
+      // 后台跑（不 await）
+      let activeRunResolve: ((result: import("./src/tools.js").RunResult) => void) | null = null;
+      const activeRun: ActiveRun = {
+        runId: newRunId,
+        goal: goal!,
+        ctx: runCtx,
+        dteam: dteamCtx,
+        promise: new Promise<import("./src/tools.js").RunResult>((resolve) => { activeRunResolve = resolve; }),
+        resolveResult: null,
+        status: "running",
+      };
+      activeRun.resolveResult = activeRunResolve;
+      activeRuns.set(newRunId, activeRun);
+
+      // 异步执行
+      (async () => {
+        try {
+          const result = await run(goal!, runCtx);
+          activeRun.status = "done";
+          activeRun.result = result;
+          activeRunResolve!(result);
+
+          ctx.ui.setStatus("dteam", undefined);
+          ctx.ui.notify(`dteam: 完成 "${goal}" — ${result.summary}`, "info");
           stopRefresh();
-          const state = uiStore.getState();
-          if (!state.goal) {
-            if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined);
-          }
-        }, 3000);
 
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          details: {},
-        };
-      } catch (e) {
-        ctx.ui.setStatus("dteam", undefined);
-        stopRefresh();
-        clearWidget(ctx);
-        return {
-          content: [{ type: "text" as const, text: `dteam 失败: ${(e as Error).message}` }],
-          isError: true,
-          details: {},
-        };
-      } finally {
-        delete ctx.dteam;
-      }
+          // 清空 uiStore + 重新渲染 widget（让面板内容变空）
+          uiStore.reset();
+          if (ctx.hasUI) {
+            ctx.ui.setWidget(WIDGET_KEY, undefined);
+            // renderWidget 会在 uiStore 为空时返回空内容
+            renderWidget(ctx);
+          }
+
+          // 把结果注入回主对话，让主 LLM 知道发生了什么
+          try {
+            const signals = dteamCtx.signalBus.getHistory();
+            const blocked = signals.filter(s => s.type === "blocked").length;
+            const help = signals.filter(s => s.type === "help").length;
+            const progress = signals.filter(s => s.type === "progress").length;
+            const found = signals.filter(s => s.type === "found").length;
+
+            const report = [
+              `## dteam 后台 run ${newRunId} 已完成`,
+              ``,
+              `**目标**: ${goal}`,
+              `**结果**: ${result.status} — ${result.summary}`,
+              `**步骤**: ${result.steps.length}`,
+              `**信号**: ${progress} progress · ${found} found · ${blocked} blocked · ${help} help`,
+              ``,
+              `### 各步骤输出`,
+              ...result.steps.map((s: any, i: number) =>
+                `**${i + 1}. ${s.role} (${s.strategy})** — ${s.status}\n${s.output?.slice(0, 500) ?? ""}${s.output && s.output.length > 500 ? "..." : ""}`,
+              ),
+            ].join("\n\n");
+
+            pi.sendMessage(
+              { customType: "dteam-report", content: report, display: true },
+              { triggerTurn: true, deliverAs: "followUp" },
+            );
+          } catch (e) {
+            // sendMessage 失败不影响主流程
+            console.error("[dteam] sendMessage 失败:", e);
+          }
+        } catch (e) {
+          activeRun.status = "failed";
+          activeRunResolve!({
+            status: "failed", goal: goal!, plan: { mode: "solo" as const, reason: `异常: ${(e as Error).message}`, steps: [] },
+            steps: [], summary: (e as Error).message,
+          });
+          ctx.ui.setStatus("dteam", undefined);
+          ctx.ui.notify(`dteam: 失败 — ${(e as Error).message}`, "error");
+          stopRefresh();
+          clearWidget(runCtx);
+        } finally {
+          cleanupRun(newRunId);
+        }
+      })();
+
+      // 立即返回 runId
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ status: "running", runId: newRunId, goal }, null, 2) }],
+        details: {},
+      };
     },
     renderResult(result: any, options: { expanded: boolean }, theme: any) {
       return renderDteamResult(result, options, theme);
