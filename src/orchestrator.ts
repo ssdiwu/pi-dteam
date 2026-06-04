@@ -62,10 +62,123 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
     parentId: null,
     title: `📋 ${executionPlan.mode} · ${executionPlan.reason}`,
   });
+  uiStore.updateWorker("plan", { status: "running", recentOutput: executionPlan.reason ?? "" });
   uiStore.updateWorker("plan", { status: "done" });
 
   // Phase 2: Execute
   const stepResults: StepResult[] = [];
+
+  // 实时信号监听：progress/found/blocked/help → 更新 UI + 记录信号
+  const signalUnsubs: (() => void)[] = [];
+  if (dteam) {
+    signalUnsubs.push(
+      dteam.signalBus.on("progress", (s) => {
+        const data = s.data as any;
+        const msg = data.summary ?? data.action ?? "";
+        uiStore.updateWorker(s.workerId, { recentOutput: msg.slice(0, 200) });
+        uiStore.addSignal(s.workerId, { type: "progress", workerId: s.workerId, summary: msg, timestamp: s.timestamp });
+      }),
+    );
+    signalUnsubs.push(
+      dteam.signalBus.on("found", (s) => {
+        const data = s.data as any;
+        const msg = `发现: ${data.summary ?? ""}`;
+        uiStore.updateWorker(s.workerId, { recentOutput: msg.slice(0, 200) });
+        uiStore.addSignal(s.workerId, { type: "found", workerId: s.workerId, summary: data.summary ?? "", timestamp: s.timestamp });
+      }),
+    );
+    signalUnsubs.push(
+      dteam.signalBus.on("blocked", (s) => {
+        const data = s.data as any;
+        const msg = `阻塞: ${data.message ?? ""}`;
+        uiStore.updateWorker(s.workerId, { recentOutput: msg.slice(0, 200) });
+        uiStore.addSignal(s.workerId, { type: "blocked", workerId: s.workerId, summary: data.message ?? "", timestamp: s.timestamp });
+      }),
+    );
+
+    // 实时转发：found/progress 信号 → 注入到正在跑的其他叶子
+    signalUnsubs.push(
+      dteam.signalBus.on("found", (s) => {
+        forwardSignalToPeers(dteam, s, s.data as any);
+      }),
+    );
+    signalUnsubs.push(
+      dteam.signalBus.on("progress", (s) => {
+        // 限流：仅转发带动作词的 progress
+        const data = s.data as any;
+        const summary = data.summary ?? data.action ?? "";
+        if (/完成|新建|修改|创建|delete|create|modify|done/i.test(summary)) {
+          forwardSignalToPeers(dteam, s, data);
+        }
+      }),
+    );
+
+    // help 自愈次数追踪（每个 worker 最多 1 次自愈）
+    const helpSelfHealed = new Set<string>();
+
+    signalUnsubs.push(
+      dteam.signalBus.on("help", async (s) => {
+        const data = s.data as any;
+        const msg = `求助: ${data.whatMissing ?? ""}`;
+        uiStore.updateWorker(s.workerId, { recentOutput: msg.slice(0, 200) });
+        uiStore.addSignal(s.workerId, { type: "help", workerId: s.workerId, summary: data.whatMissing ?? "", timestamp: s.timestamp });
+
+        // 已经自愈过 1 次 → 升级到人类
+        if (helpSelfHealed.has(s.workerId)) {
+          uiStore.addStrategy({
+            action: "升级到人类",
+            target: s.workerId,
+            detail: `自愈后仍需帮助: ${data.whatMissing ?? ""}`,
+            timestamp: Date.now(),
+          });
+          // 通知用户，不 resolve → 叶子继续等
+          // 等用户通过 dteam(action="continue") 注入
+          try {
+            ctx.ui.notify(
+              `🆘 dteam 需要你的判断（run ${dteam.runId}）:\n` +
+              `叶子 ${s.workerId} 需要帮助: ${data.whatMissing ?? "未知"}\n` +
+              `上下文: ${data.context ?? ""}\n` +
+              `请在回复中说 /dteam continue`,
+              "warning",
+            );
+          } catch { /* ui 可能不可用 */ }
+          return;
+        }
+
+        // 首次 help → 自愈 1 次
+        helpSelfHealed.add(s.workerId);
+        try {
+          const supplementTask = [
+            `## 主目标: ${goal}`,
+            `## Worker 求助`,
+            `- 缺什么: ${data.whatMissing ?? "未知"}`,
+            `- 上下文: ${data.context ?? ""}`,
+            `- 建议方向: ${data.suggestedDirection ?? "无"}`,
+            ``,
+            `请搜索和收集缺失信息，输出简洁的补充报告。`,
+          ].join("\n");
+          const supplement = await runSolo("explore", supplementTask, ctx, goal);
+          uiStore.addStrategy({
+            action: "help自愈",
+            target: `explore → ${s.workerId}`,
+            detail: `补充: ${data.whatMissing ?? ""}`,
+            timestamp: Date.now(),
+          });
+          const resolve = dteam.pendingSupplements.get(s.workerId);
+          if (resolve) {
+            dteam.pendingSupplements.delete(s.workerId);
+            resolve(supplement);
+          }
+        } catch {
+          const resolve = dteam.pendingSupplements.get(s.workerId);
+          if (resolve) {
+            dteam.pendingSupplements.delete(s.workerId);
+            resolve(null);
+          }
+        }
+      }),
+    );
+  }
 
   try {
     switch (executionPlan.mode) {
@@ -79,6 +192,9 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
     }
   } catch {
     // 致命错误，继续到 report
+  } finally {
+    // 清理信号监听
+    for (const unsub of signalUnsubs) unsub();
   }
 
   // Phase 3: Report
@@ -126,9 +242,14 @@ async function executeSteps(
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
-      const taskWithPrev = prevOutput
-        ? `${step.task}\n\n## 上一步输出\n${prevOutput}`
-        : step.task;
+      // 链式继承：派 step 前拼上：
+      //  1. 上一步输出
+      //  2. 前序 step 期间收集的 found/progress 信号
+      const historyContext = dteam ? buildHistoryContext(dteam, i, step.role) : null;
+      const taskWithPrev =
+        `${step.task}` +
+        (prevOutput ? `\n\n## 上一步输出\n${prevOutput}` : "") +
+        (historyContext ? `\n\n${historyContext}` : "");
       const enhancedStep = { ...step, task: taskWithPrev };
 
       // claim task
@@ -142,12 +263,6 @@ async function executeSteps(
         taskPool.complete(`task-${i}`, result.output);
       } else {
         taskPool.update(`task-${i}`, { status: "failed", result: result.output });
-      }
-
-      // 检查信号：help → 自愈一次
-      if (dteam && result.status === "done") {
-        const helped = await handleHelpSignals(dteam, goal, ctx, prevOutput);
-        if (helped) prevOutput = helped;
       }
 
       if (result.status === "failed") break;
@@ -184,12 +299,16 @@ async function runStepWithStrategy(
   dteam: DteamContext | undefined,
 ): Promise<StepResult> {
   const stepId = `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const workerId = `w-${step.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   uiStore.addWorker({
     id: stepId,
     parentId: null,
-    title: `${roleIcon(step.role)} ${step.role}: ${step.task.slice(0, 50)}`,
+    title: `${roleIcon(step.role)} ${step.role}: ${step.task}`,
   });
   uiStore.updateWorker(stepId, { status: "running" });
+
+  // 把 workerId 挂到 dteam context，让 leaf 用它发信号
+  if (dteam) dteam.currentStepId = workerId;
 
   let result: StepResult;
 
@@ -220,6 +339,9 @@ async function runStepWithStrategy(
     status: result.status,
     recentOutput: result.output?.slice(0, 200) ?? "",
   });
+
+  // 清除 currentStepId
+  if (dteam) dteam.currentStepId = undefined;
 
   return result;
 }
@@ -328,42 +450,105 @@ async function runAdaptive(
 
 // ═══ 信号自愈（help → 派 explore 补充一次） ═══
 
+// ═══ 实时转发：found/progress → 其他正在跑的叶子 ═══
+
 /**
- * 检查 help 信号，如果有就派 explore 补充一次信息。
- * 返回补充的输出，供下一步参考。没有 help 信号返回 null。
+ * 将一个信号转发给同 run 下所有“正在跑”的其他叶子。
+ * 注入方式：写入 dteam.injectionQueue[targetWorkerId] 的入队。
+ * 【可观察】测试可验证：
+ *   - injectionQueue 长度 + 1
+ *   - uiStore.strategies 末尾出现 "转发 <type> from X → Y" 记录
+ *   - 跳过发送者自身
  */
-async function handleHelpSignals(
+export function forwardSignalToPeers(
   dteam: DteamContext,
-  goal: string,
-  ctx: any,
-  prevOutput: string,
-): Promise<string | null> {
-  const helpSignals = dteam.signalBus.getHistory()
-    .filter(s => s.type === "help" && s.runId === dteam.runId);
-  if (helpSignals.length === 0) return null;
+  sourceSignal: import("./tools.js").Signal,
+  data: any,
+): void {
+  const summary = data.summary ?? data.action ?? "";
+  if (!summary) return;
+  const message = `[转发 ${sourceSignal.type} from ${sourceSignal.workerId}] ${summary}`;
 
-  const latest = helpSignals[helpSignals.length - 1];
-  const data = latest.data as any;
-  const supplementTask = [
-    `## 主目标: ${goal}`,
-    prevOutput ? `## 上一步输出\n${prevOutput}` : "",
-    `## Worker 求助`,
-    `- 缺什么: ${data.whatMissing ?? "未知"}`,
-    `- 上下文: ${data.context ?? ""}`,
-    `- 建议方向: ${data.suggestedDirection ?? "无"}`,
-    ``,
-    `请用 explore 角色搜索和收集缺失信息，补充给下一步。`,
-  ].filter(Boolean).join("\n");
+  // 查找同 run 下所有 running worker（排除发送者）
+  const workers = dteam.runsStore.getAllWorkers(dteam.runId);
+  for (const w of workers) {
+    if (w.id === sourceSignal.workerId) continue;
+    if (w.status !== "running") continue;
 
-  try {
-    const supplement = await runSolo("explore", supplementTask, ctx, goal);
-    return `## 补充信息（来自 help 信号）\n${supplement}`;
-  } catch {
-    return null;
+    // 1. 写队列（叶子轮询/下次循环会拿到）
+    const queue = dteam.injectionQueue.get(w.id) ?? [];
+    queue.push(message);
+    dteam.injectionQueue.set(w.id, queue);
+
+    // 2. UI 记录
+    uiStore.addStrategy({
+      action: `转发 ${sourceSignal.type}`,
+      target: `${sourceSignal.workerId} → ${w.id}`,
+      detail: summary,
+      timestamp: sourceSignal.timestamp,
+    });
   }
 }
 
-// ═══ 工具函数 ═══
+// ═══ 链式继承：拼前序 step 的发现/进度 ═══
+
+/**
+ * 构建前序 step 的发现/进度摘要，注入到下一个 step 的 prompt。
+ *
+ * 采集规则：
+ *  - found 信号 → 一律包含（信号本身就是“重要发现”的语义）
+ *  - progress 信号 → 只保留 "完成"、"新建"、"修改"、"创建" 这类动作词
+ *  - blocked/help 信号 → 不包含（这些是告警）
+ *
+ * 返回 null 表示没有可注入的内容。
+ *
+ * 【可观察测试点】返回的字符串里会带上 "[L<id> <type>]" 前缀，
+ *  以及行末的 "(总计 X 条)"。这两个特征可作为测试断言。
+ */
+export function buildHistoryContext(
+  dteam: DteamContext,
+  currentStepIdx: number,
+  currentStepRole: RoleName,
+): string | null {
+  const allSignals = dteam.signalBus.getHistory();
+  // 拼上 prevOutput 的 index 一样靠"时间 < currentStep 起始"过滤
+  // 这里简单：取所有未在 currentStep 期间产生的信号
+  //（v1 简化：仅在 serial 模式调用，currentStepIdx 对应 steps 数组下标）
+
+  const relevant = allSignals.filter((s) => {
+    if (s.type !== "found" && s.type !== "progress") return false;
+    // 过滤掉当前 step 期间的（仅在并行模式下存在；serial 模式不会）
+    // 简化：仅看 type + summary
+    return true;
+  });
+
+  if (relevant.length === 0) return null;
+
+  // 过滤 progress 动作词
+  const interesting = relevant.filter((s) => {
+    if (s.type === "found") return true;
+    if (s.type === "progress") {
+      const data = s.data as any;
+      const summary = data.summary ?? data.action ?? "";
+      // 只保留“完成/新建/修改/创建”类动作词
+      return /完成|新建|修改|创建|delete|create|modify|done/i.test(summary);
+    }
+    return false;
+  });
+
+  if (interesting.length === 0) return null;
+
+  // 按 workerId + type 分组
+  const lines: string[] = [];
+  lines.push(`## 前序发现（链式 step ${currentStepIdx}，角色 ${currentStepRole}）`);
+  for (const s of interesting) {
+    const data = s.data as any;
+    const summary = data.summary ?? data.action ?? "";
+    lines.push(`- [${s.workerId} ${s.type}] ${summary}`);
+  }
+  lines.push(`(总计 ${interesting.length} 条)`);
+  return lines.join("\n");
+}
 
 function roleIcon(role: RoleName): string {
   const icons: Record<RoleName, string> = {
