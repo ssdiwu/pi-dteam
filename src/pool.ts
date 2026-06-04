@@ -76,6 +76,45 @@ class TaskPool {
       failed: tasks.filter((t) => t.status === "failed").length,
     };
   }
+
+  /**
+   * 按 ID 获取单个任务（只读快照）。
+   */
+  read(id: string): Task | null {
+    const task = this.tasks.get(id);
+    return task ? { ...task } : null;
+  }
+
+  /**
+   * 文本搜索（title + description 模糊匹配）。
+   */
+  search(query: string): Task[] {
+    const q = query.toLowerCase();
+    return this.getAll().filter(
+      (t) => t.title.toLowerCase().includes(q) || t.description.toLowerCase().includes(q),
+    );
+  }
+
+  /**
+   * 列表查询（按 status / parentId 过滤）。
+   */
+  list(opts?: { status?: TaskStatus; parentId?: string | null }): Task[] {
+    let tasks = this.getAll();
+    if (opts?.status) tasks = tasks.filter((t) => t.status === opts.status);
+    if (opts?.parentId !== undefined) tasks = tasks.filter((t) => t.parentId === opts.parentId);
+    return tasks;
+  }
+
+  /**
+   * 标记任务完成并附上证据。
+   */
+  complete(id: string, evidence: string): Task | null {
+    const task = this.tasks.get(id);
+    if (!task) return null;
+    task.status = "done";
+    task.result = evidence;
+    return { ...task };
+  }
 }
 
 export { TaskPool };
