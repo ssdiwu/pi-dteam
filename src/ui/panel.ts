@@ -11,8 +11,8 @@
  */
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { uiStore, type UIWorkerState } from "./store.js";
-import { statusIcon, formatDuration } from "./helpers.js";
+import { uiStore, type UIWorkerState, type UISignal } from "./store.js";
+import { statusIcon, formatDuration, signalIcon, signalLabel } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
 // 状态
@@ -41,6 +41,7 @@ interface TabDef {
 function buildTabs(workers: UIWorkerState[]): TabDef[] {
   const tabs: TabDef[] = [{ key: "__overview__", label: "总览" }];
   for (const w of workers) {
+    if (w.id === "plan") continue; // plan 不是真 worker
     tabs.push({ key: w.id, label: `W:${truncateToWidth(w.title, 14, "")}` });
   }
   return tabs;
@@ -53,22 +54,35 @@ function buildTabs(workers: UIWorkerState[]): TabDef[] {
 function renderOverview(
   state: ReturnType<typeof uiStore.getState>,
   width: number,
+  theme: any,
 ): string[] {
   const workers = state.workers;
+  // 排除 plan 标记（不是真 worker）
+  const realWorkers = workers.filter((w) => w.id !== "plan");
+  const realWorkersCount = realWorkers.length;
   const elapsed = Date.now() - (state.startedAt || Date.now());
-  const done = workers.filter((w) => w.status === "done").length;
-  const failed = workers.filter((w) => w.status === "failed").length;
-  const summary =
-    failed > 0 ? `${done}/${workers.length} 完成, ${failed} 失败` : `${done}/${workers.length} 完成`;
+  const done = realWorkers.filter((w) => w.status === "done").length;
+  const failed = realWorkers.filter((w) => w.status === "failed").length;
+  const planWorker = workers.find((w) => w.id === "plan");
+  const summary = (() => {
+    if (realWorkersCount === 0) return "准备中";
+    if (failed > 0) return `${done}/${realWorkersCount} 完成, ${failed} 失败`;
+    if (done === realWorkersCount) return `${realWorkersCount}/${realWorkersCount} 全部完成`;
+    return `${done}/${realWorkersCount} 完成, ${realWorkersCount - done} 在跑`;
+  })();
 
   const lines: string[] = [
     "",
     truncateToWidth(`  目标: ${state.goal}`, width, "…"),
     truncateToWidth(`  耗时: ${formatDuration(elapsed)}  ${summary}`, width, "…"),
-    "",
   ];
+  if (planWorker) {
+    lines.push(truncateToWidth(`  计划: ${planWorker.title.replace(/^.\s*/, "")}`, width, "…"));
+  }
+  lines.push("");
 
   for (const w of workers) {
+    if (w.id === "plan") continue; // plan 不是真 worker，不在总览里逐个列出
     const icon = statusIcon(w.status);
     const dur =
       w.startedAt && w.finishedAt
@@ -89,7 +103,7 @@ function renderOverview(
   return lines;
 }
 
-function renderWorkerTab(worker: UIWorkerState, width: number): string[] {
+function renderWorkerTab(worker: UIWorkerState, width: number, theme: any): string[] {
   const elapsed = worker.startedAt
     ? worker.finishedAt
       ? formatDuration(worker.finishedAt - worker.startedAt)
@@ -107,12 +121,44 @@ function renderWorkerTab(worker: UIWorkerState, width: number): string[] {
     lines.push("");
   }
 
+  // ── 信号历史 ──
+  if (worker.signals?.length) {
+    lines.push(theme.fg("dim", "  ── 信号 ──"));
+
+    // 按类型分组
+    const byType: Record<string, UISignal[]> = {};
+    for (const sig of worker.signals) {
+      (byType[sig.type] ??= []).push(sig);
+    }
+
+    for (const [type, sigs] of Object.entries(byType)) {
+      const icon = signalIcon(type);
+      const label = signalLabel(type);
+      const count = sigs.length;
+      lines.push(truncateToWidth(
+        theme.fg("dim", `  ${icon} ${label}: ${count} 条`),
+        width, "…",
+      ));
+
+      // 最近 3 条摘要
+      for (const sig of sigs.slice(-3)) {
+        const summary = sig.summary.slice(0, width - 10);
+        lines.push(truncateToWidth(
+          theme.fg("dim", `    ⎿ ${summary}`),
+          width, "…",
+        ));
+      }
+    }
+    lines.push("");
+  }
+
+  // ── 输出 ──
   if (worker.recentOutput?.length) {
-    lines.push("  ── 输出 ──");
-    for (const ol of worker.recentOutput.slice(-20)) {
+    lines.push(theme.fg("dim", "  ── 输出 ──"));
+    for (const ol of worker.recentOutput.slice(-10)) {
       lines.push(truncateToWidth(`  ${ol}`, width, "…"));
     }
-  } else {
+  } else if (!worker.signals?.length) {
     lines.push("  （暂无输出）");
   }
 
@@ -177,13 +223,15 @@ function buildComponent(): (_tui: unknown, theme: any) => {
           if (activeTabIdx >= tabs.length) activeTabIdx = Math.max(0, tabs.length - 1);
 
           const workers = state.workers;
+          const realWorkers = workers.filter((w) => w.id !== "plan");
+          const realWorkersCount = realWorkers.length;
           const elapsed = Date.now() - (state.startedAt || Date.now());
-          const doneCount = workers.filter((w) => w.status === "done").length;
-          const failedCount = workers.filter((w) => w.status === "failed").length;
+          const doneCount = realWorkers.filter((w) => w.status === "done").length;
+          const failedCount = realWorkers.filter((w) => w.status === "failed").length;
           const summary =
             failedCount > 0
-              ? `${doneCount}/${workers.length} 完成, ${failedCount} 失败`
-              : `${doneCount}/${workers.length} 完成`;
+              ? `${doneCount}/${realWorkersCount} 完成, ${failedCount} 失败`
+              : `${doneCount}/${realWorkersCount} 完成`;
           const goalText = truncateToWidth(state.goal || "dteam", innerW - 30, "…");
 
           const lines: string[] = [
@@ -201,11 +249,11 @@ function buildComponent(): (_tui: unknown, theme: any) => {
           if (!currentTab) {
             lines.push(theme.fg("muted", "  （无内容）"));
           } else if (currentTab.key === "__overview__") {
-            lines.push(...renderOverview(state, width));
+            lines.push(...renderOverview(state, width, theme));
           } else {
             const worker = workers.find((w) => w.id === currentTab.key);
             if (worker) {
-              lines.push(...renderWorkerTab(worker, width));
+              lines.push(...renderWorkerTab(worker, width, theme));
             } else {
               lines.push(theme.fg("muted", "  （worker 已结束）"));
             }
@@ -224,14 +272,16 @@ function buildComponent(): (_tui: unknown, theme: any) => {
         }
 
         const workers = state.workers ?? [];
+        const realWorkers = workers.filter((w) => w.id !== "plan");
+        const realWorkersCount = realWorkers.length;
         const elapsed = Date.now() - (state.startedAt || Date.now());
-        const done = workers.filter((w) => w.status === "done").length;
-        const failed = workers.filter((w) => w.status === "failed").length;
+        const done = realWorkers.filter((w) => w.status === "done").length;
+        const failed = realWorkers.filter((w) => w.status === "failed").length;
         const goalText = truncateToWidth(state.goal, 25, "…");
         const summary =
           failed > 0
-            ? `${done}/${workers.length} 完成, ${failed} 失败`
-            : `${done}/${workers.length} 完成`;
+            ? `${done}/${realWorkersCount} 完成, ${failed} 失败`
+            : `${done}/${realWorkersCount} 完成`;
 
         const lines: string[] = [
           truncateToWidth(
@@ -243,10 +293,13 @@ function buildComponent(): (_tui: unknown, theme: any) => {
 
         for (let i = 0; i < workers.length; i++) {
           const w = workers[i];
+          if (w.id === "plan") continue; // plan 不是真 worker
           const isLast = i === workers.length - 1;
           const branch = isLast ? "└" : "├";
           const icon = statusIcon(w.status);
-          const title = truncateToWidth(w.title ?? "", 30, "…");
+          // 给后面 duration / status icon 预留位置
+          const titleMaxW = Math.max(20, width - 12);
+          const title = truncateToWidth(w.title ?? "", titleMaxW, "…");
           lines.push(
             truncateToWidth(theme.fg("dim", `${branch} ${icon} ${title}`), width, "…"),
           );

@@ -18,3 +18,17 @@ export function formatDuration(ms: number): string {
   if (sec < 60) return `${sec}s`;
   return `${Math.floor(sec / 60)}m ${sec % 60}s`;
 }
+
+/** 信号类型→图标 */
+export function signalIcon(type: string): string {
+  return (
+    { progress: "📤", found: "💡", blocked: "🚫", help: "🆘" }[type] ?? "•"
+  );
+}
+
+/** 信号类型→中文标签 */
+export function signalLabel(type: string): string {
+  return (
+    { progress: "进度", found: "发现", blocked: "阻塞", help: "求助" }[type] ?? type
+  );
+}

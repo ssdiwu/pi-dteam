@@ -9,6 +9,22 @@
 // 类型
 // ---------------------------------------------------------------------------
 
+/** 信号的 UI 表示 */
+export interface UISignal {
+  type: string;
+  workerId: string;
+  summary: string;
+  timestamp: number;
+}
+
+/** 根的策略下发记录 */
+export interface UIStrategy {
+  action: string;
+  target: string;
+  detail: string;
+  timestamp: number;
+}
+
 /** 单个 worker 的 UI 状态快照 */
 export interface UIWorkerState {
   id: string;
@@ -19,6 +35,8 @@ export interface UIWorkerState {
   finishedAt: number | null;
   recentOutput: string[];
   currentTool: string | null;
+  /** 该 worker 发过的信号 */
+  signals: UISignal[];
 }
 
 /** 整个 run 的 UI 状态快照 */
@@ -27,6 +45,8 @@ export interface UIState {
   workers: UIWorkerState[];
   startedAt: number;
   finishedAt: number | null;
+  /** 根的策略下发记录 */
+  strategies: UIStrategy[];
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +63,7 @@ export class UIStore {
     workers: [],
     startedAt: 0,
     finishedAt: null,
+    strategies: [],
   };
 
   startRun(goal: string): void {
@@ -51,6 +72,7 @@ export class UIStore {
       workers: [],
       startedAt: Date.now(),
       finishedAt: null,
+      strategies: [],
     };
   }
 
@@ -64,6 +86,7 @@ export class UIStore {
       finishedAt: null,
       recentOutput: [],
       currentTool: null,
+      signals: [],
     });
   }
 
@@ -96,8 +119,37 @@ export class UIStore {
     }
   }
 
+  /** 记录 worker 发的信号 */
+  addSignal(workerId: string, signal: UISignal): void {
+    const worker = this.state.workers.find((w) => w.id === workerId);
+    if (!worker) return;
+    worker.signals.push(signal);
+    if (worker.signals.length > 100) {
+      worker.signals = worker.signals.slice(-100);
+    }
+  }
+
+  /** 记录根的策略下发 */
+  addStrategy(strategy: UIStrategy): void {
+    this.state.strategies.push(strategy);
+    if (this.state.strategies.length > 50) {
+      this.state.strategies = this.state.strategies.slice(-50);
+    }
+  }
+
   finishRun(): void {
     this.state.finishedAt = Date.now();
+  }
+
+  /** 重置所有状态（run 完成后） */
+  reset(): void {
+    this.state = {
+      goal: "",
+      workers: [],
+      startedAt: 0,
+      finishedAt: null,
+      strategies: [],
+    };
   }
 
   getState(): UIState {
