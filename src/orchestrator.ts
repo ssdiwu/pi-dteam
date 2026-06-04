@@ -12,9 +12,11 @@
 
 import { plan } from "./planner.js";
 import { execute as runSolo } from "./leaf.js";
-import { uiStore } from "./ui-store.js";
+import { uiStore } from "./ui/index.js";
+import { TaskPool } from "./pool.js";
 import type {
   ExecutionPlan, PlanStep, RunResult, StepResult, RoleName, Strategy,
+  Signal, DteamContext,
 } from "./tools.js";
 
 const TEAM_BATCH_SIZE = 3;
@@ -24,6 +26,9 @@ const ADAPTIVE_MAX_ROUNDS = 5;
 // ═══ 主入口 ═══
 
 export async function run(goal: string, ctx: any): Promise<RunResult> {
+  const dteam = ctx.dteam as DteamContext | undefined;
+  const taskPool = new TaskPool();
+
   uiStore.startRun(goal);
 
   // Phase 1: Plan
@@ -31,12 +36,24 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
   try {
     executionPlan = await plan(goal, ctx);
   } catch (e) {
-    // Plan 失败 → fallback 到 solo+direct+build
     executionPlan = {
       mode: "solo",
       reason: `规划失败: ${(e as Error).message}`,
       steps: [{ role: "build", task: goal, strategy: "direct" }],
     };
+  }
+
+  // Plan → TaskPool：把 steps 写成 task
+  for (let i = 0; i < executionPlan.steps.length; i++) {
+    const step = executionPlan.steps[i];
+    taskPool.write({
+      id: `task-${i}`,
+      parentId: null,
+      title: step.task,
+      description: `${step.role} · ${step.strategy}`,
+      status: "pending",
+      createdAt: Date.now(),
+    });
   }
 
   // UI: 显示规划结果
@@ -53,13 +70,11 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
   try {
     switch (executionPlan.mode) {
       case "solo":
-        await executeSteps(executionPlan.steps, ctx, goal, stepResults, "serial");
-        break;
       case "chain":
-        await executeSteps(executionPlan.steps, ctx, goal, stepResults, "serial");
+        await executeSteps(executionPlan.steps, ctx, goal, stepResults, taskPool, dteam, "serial");
         break;
       case "team":
-        await executeSteps(executionPlan.steps, ctx, goal, stepResults, "parallel");
+        await executeSteps(executionPlan.steps, ctx, goal, stepResults, taskPool, dteam, "parallel");
         break;
     }
   } catch {
@@ -71,6 +86,11 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
   const done = stepResults.filter(s => s.status === "done").length;
   const failed = stepResults.filter(s => s.status === "failed").length;
 
+  // 汇总信号
+  const signals = dteam ? dteam.signalBus.getHistory() : [];
+  const workers = dteam ? dteam.runsStore.getAllWorkers(dteam.runId) : [];
+  const taskSummary = taskPool.count();
+
   return {
     status: failed > 0 ? "failed" : "done",
     goal,
@@ -79,6 +99,9 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
     summary: failed > 0
       ? `${done}/${stepResults.length} 完成, ${failed} 失败`
       : `${done}/${stepResults.length} 完成`,
+    signals,
+    workers,
+    taskSummary,
   };
 }
 
@@ -94,30 +117,57 @@ async function executeSteps(
   ctx: any,
   goal: string,
   results: StepResult[],
+  taskPool: TaskPool,
+  dteam: DteamContext | undefined,
   order: "serial" | "parallel",
 ): Promise<void> {
   if (order === "serial") {
     let prevOutput = "";
 
-    for (const step of steps) {
-      // 前一步输出注入下一步
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
       const taskWithPrev = prevOutput
         ? `${step.task}\n\n## 上一步输出\n${prevOutput}`
         : step.task;
       const enhancedStep = { ...step, task: taskWithPrev };
 
-      const result = await runStepWithStrategy(enhancedStep, ctx, goal);
+      // claim task
+      taskPool.claimNext();
+
+      const result = await runStepWithStrategy(enhancedStep, ctx, goal, dteam);
       results.push(result);
+
+      // 更新 task 状态
+      if (result.status === "done") {
+        taskPool.complete(`task-${i}`, result.output);
+      } else {
+        taskPool.update(`task-${i}`, { status: "failed", result: result.output });
+      }
+
+      // 检查信号：help → 自愈一次
+      if (dteam && result.status === "done") {
+        const helped = await handleHelpSignals(dteam, goal, ctx, prevOutput);
+        if (helped) prevOutput = helped;
+      }
 
       if (result.status === "failed") break;
       prevOutput = result.output;
     }
   } else {
     // parallel: 分批
-    for (let i = 0; i < steps.length; i += TEAM_BATCH_SIZE) {
-      const batch = steps.slice(i, i + TEAM_BATCH_SIZE);
+    for (let batchStart = 0; batchStart < steps.length; batchStart += TEAM_BATCH_SIZE) {
+      const batch = steps.slice(batchStart, batchStart + TEAM_BATCH_SIZE);
       const batchResults = await Promise.all(
-        batch.map(step => runStepWithStrategy(step, ctx, goal)),
+        batch.map((step, j) => {
+          const idx = batchStart + j;
+          taskPool.claimNext();
+          return runStepWithStrategy(step, ctx, goal, dteam)
+            .then(r => {
+              if (r.status === "done") taskPool.complete(`task-${idx}`, r.output);
+              else taskPool.update(`task-${idx}`, { status: "failed", result: r.output });
+              return r;
+            });
+        }),
       );
       results.push(...batchResults);
     }
@@ -131,6 +181,7 @@ async function runStepWithStrategy(
   step: PlanStep,
   ctx: any,
   goal: string,
+  dteam: DteamContext | undefined,
 ): Promise<StepResult> {
   const stepId = `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   uiStore.addWorker({
@@ -144,15 +195,25 @@ async function runStepWithStrategy(
 
   switch (step.strategy) {
     case "build_check":
-      result = await runBuildCheck(step, ctx, goal);
+      result = await runBuildCheck(step, ctx, goal, dteam);
       break;
     case "adaptive":
-      result = await runAdaptive(step, ctx, goal);
+      result = await runAdaptive(step, ctx, goal, dteam);
       break;
     case "direct":
     default:
       result = await runDirect(step, ctx, goal);
       break;
+  }
+
+  // 检查 blocked 信号
+  if (dteam && result.status === "done") {
+    const blocked = dteam.signalBus.getHistory()
+      .filter(s => s.type === "blocked" && s.runId === dteam.runId)
+      .pop();
+    if (blocked) {
+      result = { ...result, status: "failed", output: `blocked: ${(blocked.data as any).message}\n${result.output}` };
+    }
   }
 
   uiStore.updateWorker(stepId, {
@@ -188,6 +249,7 @@ async function runBuildCheck(
   step: PlanStep,
   ctx: any,
   goal: string,
+  _dteam?: DteamContext,
 ): Promise<StepResult> {
   let currentTask = step.task;
   let lastOutput = "";
@@ -227,6 +289,7 @@ async function runAdaptive(
   step: PlanStep,
   ctx: any,
   goal: string,
+  _dteam?: DteamContext,
 ): Promise<StepResult> {
   let currentTask = step.task;
   let lastOutput = "";
@@ -259,6 +322,45 @@ async function runAdaptive(
     role: step.role, task: step.task, strategy: "adaptive",
     status: "done", output: lastOutput, rounds,
   };
+}
+
+// ═══ 工具函数 ═══
+
+// ═══ 信号自愈（help → 派 explore 补充一次） ═══
+
+/**
+ * 检查 help 信号，如果有就派 explore 补充一次信息。
+ * 返回补充的输出，供下一步参考。没有 help 信号返回 null。
+ */
+async function handleHelpSignals(
+  dteam: DteamContext,
+  goal: string,
+  ctx: any,
+  prevOutput: string,
+): Promise<string | null> {
+  const helpSignals = dteam.signalBus.getHistory()
+    .filter(s => s.type === "help" && s.runId === dteam.runId);
+  if (helpSignals.length === 0) return null;
+
+  const latest = helpSignals[helpSignals.length - 1];
+  const data = latest.data as any;
+  const supplementTask = [
+    `## 主目标: ${goal}`,
+    prevOutput ? `## 上一步输出\n${prevOutput}` : "",
+    `## Worker 求助`,
+    `- 缺什么: ${data.whatMissing ?? "未知"}`,
+    `- 上下文: ${data.context ?? ""}`,
+    `- 建议方向: ${data.suggestedDirection ?? "无"}`,
+    ``,
+    `请用 explore 角色搜索和收集缺失信息，补充给下一步。`,
+  ].filter(Boolean).join("\n");
+
+  try {
+    const supplement = await runSolo("explore", supplementTask, ctx, goal);
+    return `## 补充信息（来自 help 信号）\n${supplement}`;
+  } catch {
+    return null;
+  }
 }
 
 // ═══ 工具函数 ═══

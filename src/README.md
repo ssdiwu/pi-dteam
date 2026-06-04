@@ -13,10 +13,9 @@
 | `session.ts` | 200+ | createWorkerSession 工厂 + 角色系统 + 模型选择 |
 | `planner.ts` | 200+ | Phase 1: 规则判断 + LLM 兜底 |
 | `orchestrator.ts` | 230+ | 主循环：plan → execute → report |
-| `ui-store.ts` | 190 | UI 全局状态 |
-| `ui-render.ts` | 60 | 渲染工具函数 |
-| `ui-widget.ts` | 90 | 折叠态 widget |
-| `ui-panel.ts` | 150 | /dteam 面板 |
+| `ui/store.ts` | 112 | UI 全局状态 |
+| `ui/panel.ts` | 328 | overlay 面板 + 折叠态 widget |
+| `ui/index.ts` | 12 | 统一导出 |
 
 ## 数据流
 
@@ -72,7 +71,7 @@ content (JSON string) → 返回给 LLM
 | 改 planner 规则 | `planner.ts` quickRuleBasedPlan |
 | 改主模型 | `leaf.ts` / `planner.ts` / `brancher.ts` 的 `pickAvailableModel` 调用 |
 | 加新策略 | `tools.ts` Strategy + `orchestrator.ts` runStep 新增 case |
-| 改 UI | `ui-panel.ts` / `ui-widget.ts` |
+| 改 UI | `ui/panel.ts`（overlay 面板）/ `ui/store.ts`（状态） |
 
 ## 已知限制
 
