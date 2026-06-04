@@ -38,7 +38,7 @@ maxSubagentDepth: 1
 
 ### 1. 读取task
 
-使用task.read工具读取task的"讨论决策"和"验收条件"section。
+从任务描述中获取"讨论决策"和"验收条件"。
 
 ### 2. 执行代码修改
 
@@ -59,7 +59,7 @@ maxSubagentDepth: 1
 
 ### 5. 记录执行过程
 
-将执行过程写入 task.md 的"执行记录"section：
+执行完成后，使用 worker_sendSignal 工具上报 progress 信号，包含执行摘要。
 
 ```markdown
 ## 执行记录

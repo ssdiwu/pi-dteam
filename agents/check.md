@@ -38,7 +38,7 @@ maxSubagentDepth: 1
 
 ### 1. 读取task
 
-使用task.read工具读取task的"验收条件"和"执行记录"section。
+从任务描述中获取"验收条件"和"执行记录"。
 
 ### 2. 检查代码问题
 
@@ -62,7 +62,7 @@ maxSubagentDepth: 1
 
 ### 5. 更新task
 
-将验收结果写入 task.md 的"验收条件"section：
+验收完成后，使用 worker_sendSignal 工具上报 progress 信号，包含验收结果。
 
 ```markdown
 ## 验收条件（GWT + 测试）

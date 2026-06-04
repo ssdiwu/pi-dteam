@@ -61,7 +61,7 @@ maxSubagentDepth: 1
 
 ### 4. 输出探索报告
 
-将发现写入 task.md 的"探索发现"section：
+探索完成后，使用 worker_sendSignal 上报 found/progress 信号。
 
 ```markdown
 ## 探索发现

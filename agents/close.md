@@ -38,7 +38,7 @@ maxSubagentDepth: 1
 
 ### 1. 读取task
 
-使用task.read工具读取task的所有section。
+从任务描述中获取所有相关信息。
 
 ### 2. 检查代码和文档的gap
 
@@ -49,7 +49,7 @@ maxSubagentDepth: 1
 
 ### 3. 记录经验教训
 
-将经验教训写入 task.md 的"收口记录"section：
+整理经验教训，使用 worker_sendSignal 工具上报 progress 信号。
 
 ```markdown
 ## 收口记录
@@ -67,11 +67,11 @@ maxSubagentDepth: 1
 
 ### 4. 更新task状态
 
-使用task.update工具更新task状态为Done。
+使用 worker_sendSignal 工具上报 progress 信号表示任务完成。
 
 ### 5. 归档task
 
-使用task.archive工具归档task到.dteam/archive/。
+（归档由主编排器自动处理，无需额外操作。）
 
 ## 禁止事项
 
