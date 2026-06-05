@@ -1,17 +1,17 @@
 /**
- * dteam/orchestrator/signal-handlers.ts — 4 路 signal listener 注册
+ * dteam/orchestrator/signal-handlers.ts — signal listener 注册
  *
- * 【重构方案】Phase 4 - 4a 抽 signal-handlers。
- * 修 O-1：run() 主体从 ~100 行缩到 < 70 行。
+ * 【重构方案】Phase 4：
+ *   - 4a 抽 signal-handlers：run() 主体从 ~100 行缩到 < 70 行
+ *   - 4b 抽 help-self-heal：help 自愈逻辑搬到 ./help-self-heal.ts
  *
  * 行为零变化：reporter 默认实现委托 uiStore（与之前直接调 uiStore 等价）。
  * forwardSignalToPeers 暂仍在本文件内调用（Phase 4c 再抽）。
- * help 自愈的 handleHelpSignals 函数暂仍在本文件内（Phase 4b 再抽）。
  */
 
 import { defaultReporter } from "../reporter.js";
-import { execute as runSolo } from "../leaf.js";
 import { forwardSignalToPeers } from "../orchestrator.js";
+import { handleHelpSignal } from "./help-self-heal.js";
 import type { Reporter } from "../reporter.js";
 import type { DteamContext } from "../types/context.js";
 import type { Signal } from "../types/signal.js";
@@ -19,7 +19,7 @@ import type { IRunsStore } from "../types/run.js";
 import type { UIStore } from "../ui/store.js";
 
 /**
- * 安装 4 路 signal listener（progress / found / blocked / help）。
+ * 安装 6 路 signal listener（progress x2 / found x2 / blocked / help）。
  *
  * 返回 `uninstall` 闭包，用于在 run() 结束时一次性清理所有 listener。
  *
@@ -27,6 +27,7 @@ import type { UIStore } from "../ui/store.js";
  *  - progress / found / blocked → UI 更新（走 reporter；reporter 默认实现 = uiStore）
  *  - found / progress（限流）→ 实时转发给同 run 下其他 running worker
  *  - help → 1 次自愈（派 explore 补充）+ 第 2 次升级到人类（ctx.ui.notify）
+ *  - help 自愈实现位于 ./help-self-heal.ts（4b 抽）
  *
  * @param dteam          dteam 上下文（signalBus / pendingSupplements / runsStore）
  * @param ctx            外部 ctx（用于 ctx.ui.notify 通知用户）
@@ -114,71 +115,10 @@ export function installSignalHandlers(
   );
 
   // ─── 6) help → 1 次自愈 + 第 2 次升级到人类 ───
+  // 【重构方案】Phase 4 - 4b：help 自愈逻辑抽到 help-self-heal.ts
   unsubs.push(
-    dteam.signalBus.on("help", async (s) => {
-      const data = s.data as any;
-      const msg = `求助: ${data.whatMissing ?? ""}`;
-      reporter.updateWorker(s.workerId, { recentOutput: msg.slice(0, 200) });
-      reporter.addSignal(s.workerId, {
-        type: "help",
-        workerId: s.workerId,
-        summary: data.whatMissing ?? "",
-        timestamp: s.timestamp,
-      });
-
-      // 已经自愈过 1 次 → 升级到人类
-      if (helpSelfHealed.has(s.workerId)) {
-        reporter.addStrategy({
-          action: "升级到人类",
-          target: s.workerId,
-          detail: `自愈后仍需帮助: ${data.whatMissing ?? ""}`,
-          timestamp: Date.now(),
-        });
-        // 通知用户，不 resolve → 叶子继续等
-        // 等用户通过 dteam(action="continue") 注入
-        try {
-          ctx.ui.notify(
-            `🆘 dteam 需要你的判断（run ${dteam.runId}）:\n` +
-            `叶子 ${s.workerId} 需要帮助: ${data.whatMissing ?? "未知"}\n` +
-            `上下文: ${data.context ?? ""}\n` +
-            `请在回复中说 /dteam continue`,
-            "warning",
-          );
-        } catch { /* ui 可能不可用 */ }
-        return;
-      }
-
-      // 首次 help → 自愈 1 次
-      helpSelfHealed.add(s.workerId);
-      try {
-        const supplementTask = [
-          `## 主目标: ${goal}`,
-          `## Worker 求助`,
-          `- 缺什么: ${data.whatMissing ?? "未知"}`,
-          `- 上下文: ${data.context ?? ""}`,
-          `- 建议方向: ${data.suggestedDirection ?? "无"}`,
-          ``,
-          `请搜索和收集缺失信息，输出简洁的补充报告。`,
-        ].join("\n");
-        const supplement = await runSolo("explore", supplementTask, ctx, goal);
-        reporter.addStrategy({
-          action: "help自愈",
-          target: `explore → ${s.workerId}`,
-          detail: `补充: ${data.whatMissing ?? ""}`,
-          timestamp: Date.now(),
-        });
-        const resolve = dteam.pendingSupplements.get(s.workerId);
-        if (resolve) {
-          dteam.pendingSupplements.delete(s.workerId);
-          resolve(supplement);
-        }
-      } catch {
-        const resolve = dteam.pendingSupplements.get(s.workerId);
-        if (resolve) {
-          dteam.pendingSupplements.delete(s.workerId);
-          resolve(null);
-        }
-      }
+    dteam.signalBus.on("help", (s) => {
+      handleHelpSignal(s, dteam, ctx, goal, helpSelfHealed, reporter);
     }),
   );
 

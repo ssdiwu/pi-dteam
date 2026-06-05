@@ -344,8 +344,6 @@ async function runAdaptive(
 
 // ═══ 工具函数 ═══
 
-// ═══ 信号自愈（help → 派 explore 补充一次） ═══
-
 // ═══ 实时转发：found/progress → 其他正在跑的叶子 ═══
 
 /**
