@@ -157,6 +157,40 @@ function cleanupRun(runId: string) {
 // ---------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
+  // ═══ 注册 dteam-report 消息渲染器（折叠/展开） ═══
+  pi.registerMessageRenderer("dteam-report", (message, { expanded }, theme) => {
+    const details = message.details as {
+      runId: string;
+      status: string;
+      summary: string;
+      steps: Array<{ role: string; status: string; output: string }>;
+    } | undefined;
+
+    if (!details) {
+      return new Text(theme.fg("success", message.content as string), 0, 0);
+    }
+
+    const icon = details.status === "done" ? "✓" : "✗";
+    const color = details.status === "done" ? "success" : "error";
+
+    // 折叠态：一行摘要
+    let text = theme.fg(color, `${icon} dteam · ${details.summary}`);
+    if (!expanded) {
+      text += theme.fg("dim", ` (Ctrl+O 展开)`);
+      return new Text(text, 0, 0);
+    }
+
+    // 展开态：步骤详情
+    const w = (process.stdout.columns || 80) - 4;
+    for (const s of details.steps) {
+      const si = statusIcon(s.status);
+      const output = s.output ? truncateToWidth(s.output.split("\n")[0] ?? "", w - 8, "…") : "(无输出)";
+      text += `\n${theme.fg("dim", `  ${si} ${s.role}: ${output}`)}`;
+    }
+
+    return new Text(text, 0, 0);
+  });
+
   // ═══ 注册 dteam 工具 ═══
   pi.registerTool({
     name: "dteam",
@@ -261,14 +295,24 @@ export default function (pi: ExtensionAPI) {
             renderWidget(ctx);
           }
 
-          // 通知主 LLM 完成（display:false 不渲染，triggerTurn 让主 LLM 能回复用户）
-          // 内容：只给步骤输出摘要，不重复 goal/plan/信号统计
+          // 通知主 LLM 完成 + 渲染到对话（折叠态一行，展开态显示步骤）
           try {
-            const stepOutputs = result.steps
-              .map((s: any, i: number) => `${i + 1}. ${s.role} — ${s.output?.slice(0, 300) ?? "(无输出)"}`)
-              .join("\n");
             pi.sendMessage(
-              { customType: "dteam-report", content: `dteam run ${newRunId} 已完成：${result.summary}\n${stepOutputs}`, display: false },
+              {
+                customType: "dteam-report",
+                content: `dteam run ${newRunId} 已完成`,
+                display: true,
+                details: {
+                  runId: newRunId,
+                  status: result.status,
+                  summary: result.summary,
+                  steps: result.steps.map((s: any) => ({
+                    role: s.role,
+                    status: s.status,
+                    output: s.output?.slice(0, 500) ?? "",
+                  })),
+                },
+              },
               { triggerTurn: true, deliverAs: "followUp" },
             );
           } catch (e) {
