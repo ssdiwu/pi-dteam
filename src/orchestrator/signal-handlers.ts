@@ -4,13 +4,14 @@
  * 【重构方案】Phase 4：
  *   - 4a 抽 signal-handlers：run() 主体从 ~100 行缩到 < 70 行
  *   - 4b 抽 help-self-heal：help 自愈逻辑搬到 ./help-self-heal.ts
+ *   - 4c 抽 peer-forwarder：found/progress 实时转发搬到 ./peer-forwarder.ts
  *
  * 行为零变化：reporter 默认实现委托 uiStore（与之前直接调 uiStore 等价）。
- * forwardSignalToPeers 暂仍在本文件内调用（Phase 4c 再抽）。
+ * forwardSignalToPeers 现位于 ./peer-forwarder.ts，reporter 作为参数传入（修 O-8）。
  */
 
 import { defaultReporter } from "../reporter.js";
-import { forwardSignalToPeers } from "../orchestrator.js";
+import { forwardSignalToPeers } from "./peer-forwarder.js";
 import { handleHelpSignal } from "./help-self-heal.js";
 import type { Reporter } from "../reporter.js";
 import type { DteamContext } from "../types/context.js";
@@ -33,8 +34,8 @@ import type { UIStore } from "../ui/store.js";
  * @param ctx            外部 ctx（用于 ctx.ui.notify 通知用户）
  * @param goal           全局目标（help 自愈时拼 prompt 用）
  * @param helpSelfHealed 跨 help 调用共享的"已自愈 workerId"集合
- * @param uiStore        占位参数（保留以备 Phase 4b 扩展；本函数内通过 reporter 间接使用 uiStore）
- * @param runsStore      占位参数（保留以备 Phase 4c 扩展；本函数内通过 dteam.runsStore 访问）
+ * @param uiStore        占位参数（保留以备未来扩展；本函数内通过 reporter 间接使用 uiStore）
+ * @param runsStore      占位参数（保留以备未来扩展；本函数内通过 dteam.runsStore 访问）
  */
 export function installSignalHandlers(
   dteam: DteamContext,
@@ -96,20 +97,22 @@ export function installSignalHandlers(
   );
 
   // ─── 4) found → 实时转发给同 run 下其他 running worker ───
+  // 【重构方案】Phase 4 - 4c：转发实现搬到 ./peer-forwarder.ts，传入 reporter（修 O-8）
   unsubs.push(
     dteam.signalBus.on("found", (s) => {
-      forwardSignalToPeers(dteam, s, s.data as any);
+      forwardSignalToPeers(dteam, s, s.data as any, reporter);
     }),
   );
 
   // ─── 5) progress（限流）→ 实时转发 ───
+  // 【重构方案】Phase 4 - 4c：转发实现搬到 ./peer-forwarder.ts，传入 reporter（修 O-8）
   unsubs.push(
     dteam.signalBus.on("progress", (s) => {
       const data = s.data as any;
       const summary = data.summary ?? data.action ?? "";
       // 限流：仅转发带动作词的 progress
       if (/完成|新建|修改|创建|delete|create|modify|done/i.test(summary)) {
-        forwardSignalToPeers(dteam, s, data);
+        forwardSignalToPeers(dteam, s, data, reporter);
       }
     }),
   );

@@ -345,44 +345,9 @@ async function runAdaptive(
 // ═══ 工具函数 ═══
 
 // ═══ 实时转发：found/progress → 其他正在跑的叶子 ═══
-
-/**
- * 将一个信号转发给同 run 下所有“正在跑”的其他叶子。
- * 注入方式：写入 dteam.injectionQueue[targetWorkerId] 的入队。
- * 【可观察】测试可验证：
- *   - injectionQueue 长度 + 1
- *   - uiStore.strategies 末尾出现 "转发 <type> from X → Y" 记录
- *   - 跳过发送者自身
- */
-export function forwardSignalToPeers(
-  dteam: DteamContext,
-  sourceSignal: import("./tools.js").Signal,
-  data: any,
-): void {
-  const summary = data.summary ?? data.action ?? "";
-  if (!summary) return;
-  const message = `[转发 ${sourceSignal.type} from ${sourceSignal.workerId}] ${summary}`;
-
-  // 查找同 run 下所有 running worker（排除发送者）
-  const workers = dteam.runsStore.getAllWorkers(dteam.runId);
-  for (const w of workers) {
-    if (w.id === sourceSignal.workerId) continue;
-    if (w.status !== "running") continue;
-
-    // 1. 写队列（叶子轮询/下次循环会拿到）
-    const queue = dteam.injectionQueue.get(w.id) ?? [];
-    queue.push(message);
-    dteam.injectionQueue.set(w.id, queue);
-
-    // 2. UI 记录
-    uiStore.addStrategy({
-      action: `转发 ${sourceSignal.type}`,
-      target: `${sourceSignal.workerId} → ${w.id}`,
-      detail: summary,
-      timestamp: sourceSignal.timestamp,
-    });
-  }
-}
+// 【重构方案】Phase 4 - 4c：实现搬到 ./orchestrator/peer-forwarder.ts
+// 这里 re-export 保持向后兼容（tests/chain-forward.test.ts 仍 import 自此模块）。
+export { forwardSignalToPeers } from "./orchestrator/peer-forwarder.js";
 
 // ═══ 链式继承：拼前序 step 的发现/进度 ═══
 
