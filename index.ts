@@ -67,7 +67,6 @@ function renderDteamResult(result: any, options: { expanded: boolean }, theme: a
 
   // 后台运行中（action=run 立即返回）
   if (parsed.status === "running") {
-    const goalText = truncateToWidth(parsed.goal ?? "", w - 20, "…");
     const expandHint = theme.fg("dim", ` (Ctrl+O 展开)`);
     if (!options.expanded) {
       return new Text(
@@ -80,7 +79,6 @@ function renderDteamResult(result: any, options: { expanded: boolean }, theme: a
     // expanded：显示完整信息
     const lines = [
       theme.fg("info", "⚙ dteam 后台执行中"),
-      theme.fg("dim", `  目标: ${goalText}`),
       theme.fg("dim", `  runId: ${parsed.runId ?? ""}`),
       theme.fg("dim", "  输入 /dteam 查看实时进度面板"),
     ];
@@ -225,7 +223,7 @@ export default function (pi: ExtensionAPI) {
       // 构建 run context（浅拷贝，不污染主对话 ctx）
       const runCtx = { ...ctx, dteam: dteamCtx };
 
-      ctx.ui.notify(`dteam: 后台开始执行 "${goal}"`, "info");
+      ctx.ui.notify(`dteam: 后台开始执行`, "info");
       ctx.ui.setStatus("dteam", `执行中: ${goal}`);
       startRefresh(runCtx);
 
@@ -252,7 +250,7 @@ export default function (pi: ExtensionAPI) {
           activeRunResolve!(result);
 
           ctx.ui.setStatus("dteam", undefined);
-          ctx.ui.notify(`dteam: 完成 "${goal}" — ${result.summary}`, "info");
+          ctx.ui.notify(`dteam: 完成 — ${result.summary}`, "info");
           stopRefresh();
 
           // 清空 uiStore + 重新渲染 widget（让面板内容变空）
@@ -263,34 +261,17 @@ export default function (pi: ExtensionAPI) {
             renderWidget(ctx);
           }
 
-          // 把结果注入回主对话，让主 LLM 知道发生了什么
+          // 通知主 LLM 完成（display:false 不渲染，triggerTurn 让主 LLM 能回复用户）
+          // 内容：只给步骤输出摘要，不重复 goal/plan/信号统计
           try {
-            const signals = dteamCtx.signalBus.getHistory();
-            const blocked = signals.filter(s => s.type === "blocked").length;
-            const help = signals.filter(s => s.type === "help").length;
-            const progress = signals.filter(s => s.type === "progress").length;
-            const found = signals.filter(s => s.type === "found").length;
-
-            const report = [
-              `## dteam 后台 run ${newRunId} 已完成`,
-              ``,
-              `**目标**: ${goal}`,
-              `**结果**: ${result.status} — ${result.summary}`,
-              `**步骤**: ${result.steps.length}`,
-              `**信号**: ${progress} progress · ${found} found · ${blocked} blocked · ${help} help`,
-              ``,
-              `### 各步骤输出`,
-              ...result.steps.map((s: any, i: number) =>
-                `**${i + 1}. ${s.role} (${s.strategy})** — ${s.status}\n${s.output?.slice(0, 500) ?? ""}${s.output && s.output.length > 500 ? "..." : ""}`,
-              ),
-            ].join("\n\n");
-
+            const stepOutputs = result.steps
+              .map((s: any, i: number) => `${i + 1}. ${s.role} — ${s.output?.slice(0, 300) ?? "(无输出)"}`)
+              .join("\n");
             pi.sendMessage(
-              { customType: "dteam-report", content: report, display: true },
+              { customType: "dteam-report", content: `dteam run ${newRunId} 已完成：${result.summary}\n${stepOutputs}`, display: false },
               { triggerTurn: true, deliverAs: "followUp" },
             );
           } catch (e) {
-            // sendMessage 失败不影响主流程
             console.error("[dteam] sendMessage 失败:", e);
           }
         } catch (e) {
@@ -308,9 +289,9 @@ export default function (pi: ExtensionAPI) {
         }
       })();
 
-      // 立即返回 runId
+      // 立即返回 runId（不返回 goal，避免和 tool 参数重复显示）
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ status: "running", runId: newRunId, goal }, null, 2) }],
+        content: [{ type: "text" as const, text: JSON.stringify({ status: "running", runId: newRunId }) }],
         details: {},
       };
     },
