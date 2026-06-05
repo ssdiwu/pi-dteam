@@ -14,6 +14,7 @@ import { plan } from "./planner.js";
 import { execute as runSolo } from "./leaf.js";
 import { uiStore } from "./ui/index.js";
 import { TaskPool } from "./pool.js";
+import { installSignalHandlers } from "./orchestrator/signal-handlers.js";
 import type {
   ExecutionPlan, PlanStep, RunResult, StepResult, RoleName, Strategy,
   Signal, DteamContext,
@@ -69,116 +70,11 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
   const stepResults: StepResult[] = [];
 
   // 实时信号监听：progress/found/blocked/help → 更新 UI + 记录信号
-  const signalUnsubs: (() => void)[] = [];
-  if (dteam) {
-    signalUnsubs.push(
-      dteam.signalBus.on("progress", (s) => {
-        const data = s.data as any;
-        const msg = data.summary ?? data.action ?? "";
-        uiStore.updateWorker(s.workerId, { recentOutput: msg.slice(0, 200) });
-        uiStore.addSignal(s.workerId, { type: "progress", workerId: s.workerId, summary: msg, timestamp: s.timestamp });
-      }),
-    );
-    signalUnsubs.push(
-      dteam.signalBus.on("found", (s) => {
-        const data = s.data as any;
-        const msg = `发现: ${data.summary ?? ""}`;
-        uiStore.updateWorker(s.workerId, { recentOutput: msg.slice(0, 200) });
-        uiStore.addSignal(s.workerId, { type: "found", workerId: s.workerId, summary: data.summary ?? "", timestamp: s.timestamp });
-      }),
-    );
-    signalUnsubs.push(
-      dteam.signalBus.on("blocked", (s) => {
-        const data = s.data as any;
-        const msg = `阻塞: ${data.message ?? ""}`;
-        uiStore.updateWorker(s.workerId, { recentOutput: msg.slice(0, 200) });
-        uiStore.addSignal(s.workerId, { type: "blocked", workerId: s.workerId, summary: data.message ?? "", timestamp: s.timestamp });
-      }),
-    );
-
-    // 实时转发：found/progress 信号 → 注入到正在跑的其他叶子
-    signalUnsubs.push(
-      dteam.signalBus.on("found", (s) => {
-        forwardSignalToPeers(dteam, s, s.data as any);
-      }),
-    );
-    signalUnsubs.push(
-      dteam.signalBus.on("progress", (s) => {
-        // 限流：仅转发带动作词的 progress
-        const data = s.data as any;
-        const summary = data.summary ?? data.action ?? "";
-        if (/完成|新建|修改|创建|delete|create|modify|done/i.test(summary)) {
-          forwardSignalToPeers(dteam, s, data);
-        }
-      }),
-    );
-
-    // help 自愈次数追踪（每个 worker 最多 1 次自愈）
-    const helpSelfHealed = new Set<string>();
-
-    signalUnsubs.push(
-      dteam.signalBus.on("help", async (s) => {
-        const data = s.data as any;
-        const msg = `求助: ${data.whatMissing ?? ""}`;
-        uiStore.updateWorker(s.workerId, { recentOutput: msg.slice(0, 200) });
-        uiStore.addSignal(s.workerId, { type: "help", workerId: s.workerId, summary: data.whatMissing ?? "", timestamp: s.timestamp });
-
-        // 已经自愈过 1 次 → 升级到人类
-        if (helpSelfHealed.has(s.workerId)) {
-          uiStore.addStrategy({
-            action: "升级到人类",
-            target: s.workerId,
-            detail: `自愈后仍需帮助: ${data.whatMissing ?? ""}`,
-            timestamp: Date.now(),
-          });
-          // 通知用户，不 resolve → 叶子继续等
-          // 等用户通过 dteam(action="continue") 注入
-          try {
-            ctx.ui.notify(
-              `🆘 dteam 需要你的判断（run ${dteam.runId}）:\n` +
-              `叶子 ${s.workerId} 需要帮助: ${data.whatMissing ?? "未知"}\n` +
-              `上下文: ${data.context ?? ""}\n` +
-              `请在回复中说 /dteam continue`,
-              "warning",
-            );
-          } catch { /* ui 可能不可用 */ }
-          return;
-        }
-
-        // 首次 help → 自愈 1 次
-        helpSelfHealed.add(s.workerId);
-        try {
-          const supplementTask = [
-            `## 主目标: ${goal}`,
-            `## Worker 求助`,
-            `- 缺什么: ${data.whatMissing ?? "未知"}`,
-            `- 上下文: ${data.context ?? ""}`,
-            `- 建议方向: ${data.suggestedDirection ?? "无"}`,
-            ``,
-            `请搜索和收集缺失信息，输出简洁的补充报告。`,
-          ].join("\n");
-          const supplement = await runSolo("explore", supplementTask, ctx, goal);
-          uiStore.addStrategy({
-            action: "help自愈",
-            target: `explore → ${s.workerId}`,
-            detail: `补充: ${data.whatMissing ?? ""}`,
-            timestamp: Date.now(),
-          });
-          const resolve = dteam.pendingSupplements.get(s.workerId);
-          if (resolve) {
-            dteam.pendingSupplements.delete(s.workerId);
-            resolve(supplement);
-          }
-        } catch {
-          const resolve = dteam.pendingSupplements.get(s.workerId);
-          if (resolve) {
-            dteam.pendingSupplements.delete(s.workerId);
-            resolve(null);
-          }
-        }
-      }),
-    );
-  }
+  // 【重构方案】Phase 4 - 4a：4 路 listener 注册抽到 orchestrator/signal-handlers.ts
+  const helpSelfHealed = new Set<string>();
+  const uninstallSignals = dteam
+    ? installSignalHandlers(dteam, ctx, goal, helpSelfHealed, uiStore, dteam.runsStore)
+    : () => {};
 
   try {
     switch (executionPlan.mode) {
@@ -194,7 +90,7 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
     // 致命错误，继续到 report
   } finally {
     // 清理信号监听
-    for (const unsub of signalUnsubs) unsub();
+    uninstallSignals();
   }
 
   // Phase 3: Report
