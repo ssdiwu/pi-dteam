@@ -1,16 +1,23 @@
 /**
- * dteam v1 — 叶子执行器 (leaf)
+ * dteam v1 — 叶子执行器 (leaf) [thin coordinator]
  *
  * 唯一职责：用指定角色调 LLM 执行一个 step。
  * 角色决定 systemPrompt + tools（由 session.ts 的角色系统处理）。
+ *
+ * 拆出去的子文件：
+ *  - src/leaf/worker-id.ts : nextWorkerId
+ *  - src/leaf/extract.ts   : extractFinalText
+ *  - src/leaf/supplement.ts : waitForSupplement
  */
 
 import { createWorkerSession, pickAvailableModel } from "./session.js";
 import { uiStore } from "./ui/index.js";
-import type { RoleName, DteamContext } from "./tools.js";
-
-const MAX_HELP_ROUNDS = 3;
-const SUPPLEMENT_TIMEOUT_MS = 60_000;
+import { DTEAM_CONFIG } from "./config.js";
+import type { RoleName } from "./types/role.js";
+import type { DteamContext } from "./types/context.js";
+import { nextWorkerId } from "./leaf/worker-id.js";
+import { extractLastText } from "./leaf/extract.js";
+import { waitForSupplement } from "./leaf/supplement.js";
 
 /**
  * 用指定角色执行一个任务。
@@ -19,11 +26,11 @@ const SUPPLEMENT_TIMEOUT_MS = 60_000;
 export async function execute(
   role: RoleName,
   task: string,
-  ctx: any,
+  ctx: LeafContext,
   goal: string,
 ): Promise<string> {
-  const dteam = ctx.dteam as DteamContext | undefined;
-  const workerId = dteam?.currentStepId ?? `w-${role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const dteam = ctx.dteam;
+  const workerId = dteam?.currentStepId ?? nextWorkerId(role);
   const input = `[全局目标: ${goal}]\n\n${task}`;
 
   // 注册 worker 到 runs
@@ -50,11 +57,10 @@ export async function execute(
   let currentTask = input;
   let output = "(no output)";
 
-  for (let round = 0; round < MAX_HELP_ROUNDS; round++) {
+  for (let round = 0; round < DTEAM_CONFIG.leaf.maxHelpRounds; round++) {
     const roundStart = Date.now();
     await session.prompt(currentTask);
 
-    // 从 session.messages 取最终文本
     output = extractLastText(session.messages as any[]);
 
     if (!dteam) break;
@@ -68,7 +74,7 @@ export async function execute(
     if (helpSignals.length === 0 && !hasInjection) break;
 
     // 等待根注入补充信息（可能来自 help 自愈 或 root 转发）
-    const supplement = await waitForSupplement(dteam, workerId);
+    const supplement = await waitForSupplement(dteam, workerId, DTEAM_CONFIG.leaf.supplementTimeoutMs);
     if (!supplement) break;
 
     const source = hasInjection ? "根转发（来自其他叶子的发现/进度）" : "help 信号响应";
@@ -84,43 +90,14 @@ export async function execute(
   return output;
 }
 
-/** 从 messages 提取最后一条 assistant 文本 */
-function extractLastText(messages: any[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.role !== "assistant") continue;
-    const content: any[] = Array.isArray(msg.content) ? msg.content : [];
-    for (const part of content) {
-      if (part.type === "text") return part.text;
-    }
-  }
-  return "(no output)";
-}
-
 /**
- * 轮询等待根注入（队列或 help 响应） 。
- * 【可观察】反在队列中有内容时，同步返出；空时返回 null（避免 Promise 阻塞）。
+ * 叶子执行器的最小 ctx 接口（修 L-1：去掉 ctx: any）。
+ * 完整 PiExtensionContext 有更多字段，这里只声明 leaf 用到的。
  */
-function waitForSupplement(
-  dteam: DteamContext,
-  workerId: string,
-): Promise<string | null> {
-  // 优先消费 injectionQueue
-  const queue = dteam.injectionQueue.get(workerId);
-  if (queue && queue.length > 0) {
-    return Promise.resolve(queue.shift() ?? null);
-  }
-
-  // 队列为空 → 调 Promise 等待 help 自愈路径
-  return new Promise((resolve) => {
-    dteam.pendingSupplements.set(workerId, resolve);
-    setTimeout(() => {
-      if (dteam.pendingSupplements.has(workerId)) {
-        dteam.pendingSupplements.delete(workerId);
-        resolve(null);
-      }
-    }, SUPPLEMENT_TIMEOUT_MS);
-  });
+export interface LeafContext {
+  cwd: string;
+  dteam?: DteamContext;
+  modelRegistry: any;
+  model?: { provider: string; id: string };
+  [k: string]: any; // 兼容其他字段（session 创建时透传）
 }
-
-// ═══ 模型解析已抽取到 session.ts（pickAvailableModel） ═══
