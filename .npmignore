@@ -1,0 +1,11 @@
+# 排除不发到 npm 的目录
+doc/归档/
+archive/
+tests/
+*.md
+!README.md
+.gitignore
+.claude/
+.dteam/
+node_modules/
+dist/
