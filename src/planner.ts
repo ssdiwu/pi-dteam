@@ -6,6 +6,7 @@
  */
 
 import { createWorkerSession, pickAvailableModel } from "./session.js";
+import { listAvailableTools, formatToolsForPrompt } from "./session/discovery.js";
 import type { ExecutionPlan, ExecMode, RoleName, Strategy } from "./tools.js";
 
 export async function plan(goal: string, ctx: any): Promise<ExecutionPlan> {
@@ -17,6 +18,11 @@ export async function plan(goal: string, ctx: any): Promise<ExecutionPlan> {
 
   // 2. 复杂情况调 LLM 生成 JSON
   const modelStr = pickAvailableModel(ctx);
+  // 0.4.1 候选（方案 C）：把"当前可用工具"作为 systemPrompt 上下文。
+  // 设计：见 doc/工具动态加载方案.md
+  const availableTools = await listAvailableTools(ctx.cwd || process.cwd());
+  const availableToolNames = new Set(availableTools.map(t => t.name));
+  const toolsBlock = formatToolsForPrompt(availableTools);
   const systemPrompt = `你是 dteam 的规划器。根据用户目标返回 JSON。
 
 规则：
@@ -31,8 +37,12 @@ export async function plan(goal: string, ctx: any): Promise<ExecutionPlan> {
 - 完整目标 → chain: explore → design → build → check → close
 - 可并行 → team: 多个 build
 
+[当前 Pi 已加载的工具]
+${toolsBlock}
+（可选用 tools 字段为每个 step 指定工具子集；不填则用角色默认工具）
+
 你必须且只能返回 JSON 对象，格式：
-{"mode":"chain","reason":"...","steps":[{"role":"explore","task":"...","strategy":"direct"},{"role":"build","task":"...","strategy":"build_check"}]}`;
+{"mode":"chain","reason":"...","steps":[{"role":"explore","task":"...","strategy":"direct"},{"role":"build","task":"...","strategy":"build_check","tools":["tinyfish_search","read"]}]}`;
 
   const session = await createWorkerSession({
     systemPrompt,
@@ -64,11 +74,21 @@ export async function plan(goal: string, ctx: any): Promise<ExecutionPlan> {
     const mode = normalizeMode(String(parsed.mode ?? "solo"));
     const rawSteps = Array.isArray(parsed.steps) ? parsed.steps : [];
     const steps = rawSteps.length > 0
-      ? rawSteps.map((s: any) => ({
-          role: normalizeRole(String(s.role ?? "build")),
-          task: String(s.task ?? goal),
-          strategy: normalizeStrategy(String(s.strategy ?? "direct")),
-        }))
+      ? rawSteps.map((s: any) => {
+          // 0.4.1 候选：LLM 返回的 step.tools 要 intersect 一下已加载工具集合，
+          // 防止 LLM 填错（拼错/失效），导致 createAgentSession 收到无效名。
+          const tools = Array.isArray(s.tools)
+            ? (s.tools as unknown[])
+                .filter((t): t is string => typeof t === "string")
+                .filter(t => availableToolNames.has(t))
+            : undefined;
+          return {
+            role: normalizeRole(String(s.role ?? "build")),
+            task: String(s.task ?? goal),
+            strategy: normalizeStrategy(String(s.strategy ?? "direct")),
+            ...(tools && tools.length > 0 ? { tools } : {}),
+          };
+        })
       : [{ role: "build" as RoleName, task: goal, strategy: "direct" as Strategy }];
 
     return { mode, reason: String(parsed.reason ?? ""), steps };

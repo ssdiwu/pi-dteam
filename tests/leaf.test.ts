@@ -349,3 +349,40 @@ describe("execute — 5 个角色都能跑", () => {
     });
   }
 });
+
+// ═══ tools 参数透传（0.4.1 候选） ═══
+
+describe("execute — tools 透传（0.4.1 候选）", () => {
+  beforeEach(() => {
+    mockCreateWorkerSession.mockReset();
+    mockPickAvailableModel.mockReset().mockReturnValue("minimax-cn/MiniMax-M3");
+  });
+
+  it("传 tools → createWorkerSession 收到 builtInTools: tools", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSession([{ role: "assistant", content: [{ type: "text", text: "ok" }] }]),
+    );
+    const customTools = ["tinyfish_search", "read", "bash"];
+    await execute("explore", "搜", { cwd: "/tmp" }, "goal", customTools);
+    const callArgs = mockCreateWorkerSession.mock.calls[0][0];
+    expect(callArgs.builtInTools).toEqual(customTools);
+  });
+
+  it("不传 tools → createWorkerSession 收到 builtInTools: undefined（走 ROLE_DEFAULTS）", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSession([{ role: "assistant", content: [{ type: "text", text: "ok" }] }]),
+    );
+    await execute("build", "干", { cwd: "/tmp" }, "goal");
+    const callArgs = mockCreateWorkerSession.mock.calls[0][0];
+    expect(callArgs.builtInTools).toBeUndefined();
+  });
+
+  it("传空数组 → createWorkerSession 收到 builtInTools: []（不是 undefined）", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSession([{ role: "assistant", content: [{ type: "text", text: "ok" }] }]),
+    );
+    await execute("build", "干", { cwd: "/tmp" }, "goal", []);
+    const callArgs = mockCreateWorkerSession.mock.calls[0][0];
+    expect(callArgs.builtInTools).toEqual([]);
+  });
+});

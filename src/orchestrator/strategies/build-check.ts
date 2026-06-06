@@ -40,12 +40,12 @@ export async function runBuildCheck(
     rounds++;
 
     // Build
-    const buildOutput = await runSolo("build", currentTask, ctx, goal);
+    const buildOutput = await runSolo("build", currentTask, ctx, goal, step.tools);
     lastOutput = buildOutput;
 
     // Check
     const checkTask = `验证以下任务是否完成：${step.task}\n\n## build 输出\n${buildOutput}`;
-    const checkOutput = await runSolo("check", checkTask, ctx, goal);
+    const checkOutput = await runSolo("check", checkTask, ctx, goal, step.tools);
 
     // 通过？
     // O-6 暂留：v1 用正则判断（"通过|pass|✓|✅|成功|没有问题|no issue|all tests pass"）

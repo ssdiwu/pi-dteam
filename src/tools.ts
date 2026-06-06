@@ -48,6 +48,13 @@ export interface PlanStep {
   task: string;
   strategy: Strategy;
   files?: string[];
+  /**
+   * 显式指定此 step 用的工具子集（0.4.1 候选，方案 C）。
+   * 由 planner LLM 路径根据运行时已加载工具决定；规则路径不填。
+   * undefined → 降级到 ROLE_DEFAULTS[role].tools（0.4.0 行为）。
+   * 设计：见 doc/工具动态加载方案.md
+   */
+  tools?: string[];
 }
 
 /** Phase 1 输出：执行计划 */

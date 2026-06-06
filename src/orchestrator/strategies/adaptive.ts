@@ -39,12 +39,12 @@ export async function runAdaptive(
     rounds++;
 
     // 执行
-    const output = await runSolo(step.role as any, currentTask, ctx, goal);
+    const output = await runSolo(step.role as any, currentTask, ctx, goal, step.tools);
     lastOutput = output;
 
     // 评估
     const evalTask = `评估距离目标的差距：${step.task}\n\n## 当前输出\n${output}\n\n如果满意回复"满意"。否则给出具体改进建议。`;
-    const evalOutput = await runSolo("check", evalTask, ctx, goal);
+    const evalOutput = await runSolo("check", evalTask, ctx, goal, step.tools);
 
     // 满意？
     if (/满意|完成|达标|satisf|good\s*enough/i.test(evalOutput)) {

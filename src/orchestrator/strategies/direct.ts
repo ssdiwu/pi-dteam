@@ -27,7 +27,7 @@ export async function runDirect(
   _dteam?: DteamContext,
 ): Promise<StepResult> {
   try {
-    const output = await runSolo(step.role, step.task, ctx, goal);
+    const output = await runSolo(step.role, step.task, ctx, goal, step.tools);
     return {
       role: step.role, task: step.task, strategy: step.strategy,
       status: "done", output,

@@ -14,15 +14,31 @@
  */
 
 // ═══ mock session.js（planner 唯一外部依赖） ═══
-const { mockCreateWorkerSession, mockPickAvailableModel } = vi.hoisted(() => ({
+const { mockCreateWorkerSession, mockPickAvailableModel, mockListAvailableTools, mockFormatToolsForPrompt } = vi.hoisted(() => ({
   mockCreateWorkerSession: vi.fn(),
   mockPickAvailableModel: vi.fn(() => "minimax-cn/MiniMax-M3"),
+  mockListAvailableTools: vi.fn(async () => [
+    { name: "tinyfish_search", description: "联网搜索", source: "tinyfish" },
+    { name: "tinyfish_fetch", description: "抓取网页", source: "tinyfish" },
+    { name: "read", description: "读文件", source: "pi-builtin" },
+  ]),
+  mockFormatToolsForPrompt: vi.fn((tools: any[]) =>
+    tools.length === 0
+      ? "（无）"
+      : tools.map(t => t.description ? `- ${t.name}: ${t.description}` : `- ${t.name}`).join("\n"),
+  ),
 }));
 
 vi.mock("../src/session.js", () => ({
   pickAvailableModel: mockPickAvailableModel,
   createWorkerSession: mockCreateWorkerSession,
   getRoleTools: vi.fn(),
+}));
+
+// ═══ mock session/discovery.js（避免在测试里真调 discoverAndLoadExtensions） ═══
+vi.mock("../src/session/discovery.js", () => ({
+  listAvailableTools: mockListAvailableTools,
+  formatToolsForPrompt: mockFormatToolsForPrompt,
 }));
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -46,6 +62,16 @@ function fakeSessionWithText(text: string): any {
 beforeEach(() => {
   mockCreateWorkerSession.mockReset();
   mockPickAvailableModel.mockReset().mockReturnValue("minimax-cn/MiniMax-M3");
+  mockListAvailableTools.mockReset().mockResolvedValue([
+    { name: "tinyfish_search", description: "联网搜索", source: "tinyfish" },
+    { name: "tinyfish_fetch", description: "抓取网页", source: "tinyfish" },
+    { name: "read", description: "读文件", source: "pi-builtin" },
+  ] as any);
+  mockFormatToolsForPrompt.mockReset().mockImplementation((tools: any[]) =>
+    tools.length === 0
+      ? "（无）"
+      : tools.map((t: any) => t.description ? `- ${t.name}: ${t.description}` : `- ${t.name}`).join("\n"),
+  );
 });
 
 // ═══ quickRuleBasedPlan（通过 plan() 间接测，规则命中不调 LLM） ═══
@@ -620,6 +646,85 @@ describe("createWorkerSession 调用", () => {
     await plan(LLM_TRIGGER_GOAL, ctx);
     const callArgs = mockCreateWorkerSession.mock.calls[0][0];
     expect(callArgs.ctx).toBe(ctx);
+  });
+});
+
+// ═══ step.tools 解析（0.4.1 候选） ═══
+
+describe("step.tools 解析（0.4.1 候选）", () => {
+  beforeEach(() => {
+    mockCreateWorkerSession.mockReset();
+  });
+
+  it("LLM 返回 tools 数组 → 保留全部（若都在 available 中）", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithText('{"mode":"chain","steps":[{"role":"explore","task":"搜","strategy":"direct","tools":["tinyfish_search","read"]},{"role":"build","task":"干","strategy":"direct","tools":["read"]}]}'),
+    );
+    const r = await plan(LLM_TRIGGER_GOAL, { cwd: "/tmp" });
+    expect(r.steps[0].tools).toEqual(["tinyfish_search", "read"]);
+    expect(r.steps[1].tools).toEqual(["read"]);
+  });
+
+  it("LLM 返回 tools 拼错 → intersect 过滤掉不存在的", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithText('{"mode":"solo","steps":[{"role":"explore","task":"搜","strategy":"direct","tools":["tinyfsh_search","read","nonexistent"]}]}'),
+    );
+    const r = await plan(LLM_TRIGGER_GOAL, { cwd: "/tmp" });
+    // tinyfsh_search 是拼错，nonexistent 不存在；只有 read 保留
+    expect(r.steps[0].tools).toEqual(["read"]);
+  });
+
+  it("LLM 返回 tools 全部拼错 → 降级为 undefined（不报 createAgentSession 错误）", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithText('{"mode":"solo","steps":[{"role":"explore","task":"搜","strategy":"direct","tools":["tinyfsh_search","fictional"]}]}'),
+    );
+    const r = await plan(LLM_TRIGGER_GOAL, { cwd: "/tmp" });
+    // 全部被过滤掉 → tools 字段不设 → 后续走 ROLE_DEFAULTS
+    expect(r.steps[0].tools).toBeUndefined();
+  });
+
+  it("LLM 不填 tools → tools 字段不设", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithText('{"mode":"solo","steps":[{"role":"build","task":"x","strategy":"direct"}]}'),
+    );
+    const r = await plan(LLM_TRIGGER_GOAL, { cwd: "/tmp" });
+    expect(r.steps[0].tools).toBeUndefined();
+  });
+
+  it("LLM 返回 tools: []（空数组）→ 视为未填", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithText('{"mode":"solo","steps":[{"role":"build","task":"x","strategy":"direct","tools":[]}]}'),
+    );
+    const r = await plan(LLM_TRIGGER_GOAL, { cwd: "/tmp" });
+    expect(r.steps[0].tools).toBeUndefined();
+  });
+
+  it("LLM 返回 tools 含非字符串 → 过滤掉非字符串", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithText('{"mode":"solo","steps":[{"role":"build","task":"x","strategy":"direct","tools":["read",123,null,"tinyfish_search"]}]}'),
+    );
+    const r = await plan(LLM_TRIGGER_GOAL, { cwd: "/tmp" });
+    expect(r.steps[0].tools).toEqual(["read", "tinyfish_search"]);
+  });
+
+  it("systemPrompt 含 formatted tools 块", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithText('{"mode":"solo","steps":[{"role":"build","task":"x","strategy":"direct"}]}'),
+    );
+    await plan(LLM_TRIGGER_GOAL, { cwd: "/tmp" });
+    const callArgs = mockCreateWorkerSession.mock.calls[0][0];
+    expect(callArgs.systemPrompt).toContain("已加载的工具");
+    expect(callArgs.systemPrompt).toContain("tinyfish_search: 联网搜索");
+  });
+
+  it("无扩展加载时 systemPrompt 仍含清单（占位'（无）'）", async () => {
+    mockListAvailableTools.mockResolvedValueOnce([]);
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithText('{"mode":"solo","steps":[{"role":"build","task":"x","strategy":"direct"}]}'),
+    );
+    await plan(LLM_TRIGGER_GOAL, { cwd: "/tmp" });
+    const callArgs = mockCreateWorkerSession.mock.calls[0][0];
+    expect(callArgs.systemPrompt).toContain("（无）");
   });
 });
 

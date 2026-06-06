@@ -175,4 +175,104 @@ describe("orchestrator", () => {
     expect(result.status).toBe("done");
     expect(result.steps).toHaveLength(1);
   });
+
+  // ═══ step.tools 透传（0.4.1 候选） ═══
+
+  it("step.tools 透传给 leaf.execute（direct 策略）", async () => {
+    mockPlan.mockResolvedValue({
+      mode: "solo",
+      reason: "复杂",
+      steps: [{
+        role: "explore", task: "搜", strategy: "direct",
+        tools: ["tinyfish_search", "read"],
+      }],
+    });
+    mockExecute.mockResolvedValue("找到");
+
+    await run("搜个东西", mockCtx);
+
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    // execute(role, task, ctx, goal, tools?)
+    expect(mockExecute.mock.calls[0][4]).toEqual(["tinyfish_search", "read"]);
+  });
+
+  it("chain 模式保留 step.tools（enhancedStep 不丢字段）", async () => {
+    mockPlan.mockResolvedValue({
+      mode: "chain",
+      reason: "复杂链",
+      steps: [
+        { role: "explore", task: "搜", strategy: "direct", tools: ["tinyfish_search"] },
+        { role: "build", task: "干", strategy: "direct", tools: ["read", "edit"] },
+      ],
+    });
+    mockExecute.mockResolvedValue("ok");
+
+    await run("干个活", mockCtx);
+
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    // 第一步：原样传 step.tools
+    expect(mockExecute.mock.calls[0][4]).toEqual(["tinyfish_search"]);
+    // 第二步：chain 模式 enhancedStep.task 含"上一步输出"，但 tools 字段要保留
+    expect(mockExecute.mock.calls[1][4]).toEqual(["read", "edit"]);
+    // 第二步 task 含"上一步输出"和原 task
+    expect(mockExecute.mock.calls[1][1]).toContain("干");
+    expect(mockExecute.mock.calls[1][1]).toContain("上一步输出");
+  });
+
+  it("team 并行模式也透传 step.tools", async () => {
+    mockPlan.mockResolvedValue({
+      mode: "team",
+      reason: "并行",
+      steps: [
+        { role: "build", task: "a", strategy: "direct", tools: ["read"] },
+        { role: "build", task: "b", strategy: "direct", tools: ["read"] },
+      ],
+    });
+    mockExecute.mockResolvedValue("ok");
+
+    await run("并行", mockCtx);
+
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(mockExecute.mock.calls[0][4]).toEqual(["read"]);
+    expect(mockExecute.mock.calls[1][4]).toEqual(["read"]);
+  });
+
+  it("step.tools undefined → leaf.execute 收到 undefined（走 ROLE_DEFAULTS）", async () => {
+    mockPlan.mockResolvedValue({
+      mode: "solo",
+      reason: "规则",
+      steps: [{ role: "build", task: "干", strategy: "direct" }], // 无 tools
+    });
+    mockExecute.mockResolvedValue("ok");
+
+    await run("干个活", mockCtx);
+
+    expect(mockExecute.mock.calls[0][4]).toBeUndefined();
+  });
+
+  it("build_check 策略 build 和 check 阶段都拿到 step.tools（v1 简化）", async () => {
+    mockPlan.mockResolvedValue({
+      mode: "solo",
+      reason: "编码",
+      steps: [{
+        role: "build", task: "写", strategy: "build_check",
+        tools: ["read", "edit"],
+      }],
+    });
+    // round 1: build → check 不通过
+    // round 2: build → check 通过
+    mockExecute
+      .mockResolvedValueOnce("写完")  // round 1 build
+      .mockResolvedValueOnce("有问题") // round 1 check
+      .mockResolvedValueOnce("修了")   // round 2 build
+      .mockResolvedValueOnce("通过");  // round 2 check
+
+    await run("写代码", mockCtx);
+
+    expect(mockExecute).toHaveBeenCalledTimes(4);
+    // 所有调用都收到同一个 step.tools
+    for (const call of mockExecute.mock.calls) {
+      expect(call[4]).toEqual(["read", "edit"]);
+    }
+  });
 });
