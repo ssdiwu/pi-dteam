@@ -16,6 +16,7 @@ import {
   uiStore,
   handlePanelCommand,
   renderWidget,
+  renderWidgetIfChanged,
   clearWidget,
   WIDGET_KEY,
 } from "./src/ui/index.js";
@@ -24,17 +25,27 @@ import type { RunResult } from "./src/tools.js";
 // ---------------------------------------------------------------------------
 // widget 刷新定时器
 // ---------------------------------------------------------------------------
+//
+// 设计：500ms 心跳检查 uiStore 内容指纹（+ 每秒至少刷一次让耗时走动）。
+// - 内容没变 → 跳过 setWidget，避免无意义重绘
+// - 内容变了 / 时间到 1s → 重新渲染
+// - run 结束 / 显式 reset 时调 forceRefreshWidget() 强制重置 fingerprint
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 function startRefresh(ctx: any) {
   stopRefresh();
   renderWidget(ctx);
-  refreshTimer = setInterval(() => renderWidget(ctx), 500);
+  refreshTimer = setInterval(() => renderWidgetIfChanged(ctx, 1000), 500);
 }
 
 function stopRefresh() {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+}
+
+/** run 结束/reset 时强制同步 fingerprint（避免旧 fp 阻塞下一次 startRefresh） */
+function forceRefreshWidget(ctx: any) {
+  renderWidget(ctx);
 }
 
 // ---------------------------------------------------------------------------

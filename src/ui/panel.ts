@@ -296,6 +296,7 @@ function buildComponent(): (_tui: unknown, theme: any) => {
           if (w.id === "plan") continue; // plan 不是真 worker
           const isLast = i === workers.length - 1;
           const branch = isLast ? "└" : "├";
+          const cont = isLast ? "  " : "│ ";
           const icon = statusIcon(w.status);
           // 给后面 duration / status icon 预留位置
           const titleMaxW = Math.max(20, width - 12);
@@ -303,6 +304,18 @@ function buildComponent(): (_tui: unknown, theme: any) => {
           lines.push(
             truncateToWidth(theme.fg("dim", `${branch} ${icon} ${title}`), width, "…"),
           );
+          // 显示最新一条输出（取第一行），让用户看到 step 实际返回的内容
+          if (w.recentOutput?.length) {
+            const last = w.recentOutput[w.recentOutput.length - 1] ?? "";
+            const firstLine = last.split("\n")[0]?.trim() ?? "";
+            if (firstLine) {
+              const outMaxW = Math.max(20, width - 10);
+              const out = truncateToWidth(firstLine, outMaxW, "…");
+              lines.push(
+                truncateToWidth(theme.fg("muted", `${cont}  ⎿ ${out}`), width, "…"),
+              );
+            }
+          }
         }
 
         return safe(lines, width);
@@ -319,10 +332,54 @@ function buildComponent(): (_tui: unknown, theme: any) => {
 
 export const WIDGET_KEY = "dteam-workers";
 
-/** 设置/刷新 widget */
+/** 设置/刷新 widget（强制重渲染） */
 export function renderWidget(ctx: any): void {
   if (!ctx.hasUI) return;
   ctx.ui.setWidget(WIDGET_KEY, buildComponent());
+  // 同步刷新 fingerprint，避免下次 tick 因旧值误判
+  lastFingerprint = computeFingerprint(uiStore.getState());
+  lastTimeRender = Date.now();
+}
+
+/** 状态指纹：state 内容变化时才会变（不包含时间） */
+let lastFingerprint = "";
+let lastTimeRender = 0;
+
+function computeFingerprint(state: ReturnType<typeof uiStore.getState>): string {
+  return JSON.stringify({
+    goal: state.goal,
+    finishedAt: state.finishedAt,
+    workers: state.workers.map((w) => ({
+      id: w.id,
+      parentId: w.parentId,
+      title: w.title,
+      status: w.status,
+      output: w.recentOutput,
+      signalCount: w.signals.length,
+      currentTool: w.currentTool,
+    })),
+    strategyCount: state.strategies.length,
+  });
+}
+
+/**
+ * 按需刷新 widget：
+ *  - state 内容变化（fingerprint 不同）→ 重新渲染
+ *  - 距上次渲染 ≥ 1s → 重新渲染（让耗时走起来）
+ *  - 其他情况 → 跳过
+ */
+export function renderWidgetIfChanged(ctx: any, intervalMs = 1000): void {
+  if (!ctx.hasUI) return;
+  const state = uiStore.getState();
+  const now = Date.now();
+  const fp = computeFingerprint(state);
+  const contentChanged = fp !== lastFingerprint;
+  const timeTickNeeded = now - lastTimeRender >= intervalMs;
+  if (contentChanged || timeTickNeeded) {
+    lastFingerprint = fp;
+    lastTimeRender = now;
+    ctx.ui.setWidget(WIDGET_KEY, buildComponent());
+  }
 }
 
 /** 清除 widget */

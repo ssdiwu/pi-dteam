@@ -3,4 +3,4 @@
  */
 
 export { uiStore, type UIState, type UIWorkerState } from "./store.js";
-export { handlePanelCommand, renderWidget, clearWidget, WIDGET_KEY } from "./panel.js";
+export { handlePanelCommand, renderWidget, renderWidgetIfChanged, clearWidget, WIDGET_KEY } from "./panel.js";
