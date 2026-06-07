@@ -3,13 +3,24 @@
  *
  * Phase 1：问 LLM 制定执行计划。
  * 策略：先用规则判断（零 LLM 成本），复杂情况才调 LLM 生成 JSON。
+ *
+ * 0.4.1：availableTools 由主 LLM 调用 dteam 时传入（取代原来的 discoverAndLoadExtensions 发现机制，
+ * 旧机制扫不到运行时动态加载的扩展）。设计：见 doc/工具动态加载方案.md
  */
 
 import { createWorkerSession, pickAvailableModel } from "./session.js";
-import { listAvailableTools, formatToolsForPrompt } from "./session/discovery.js";
 import type { ExecutionPlan, ExecMode, RoleName, Strategy } from "./tools.js";
 
-export async function plan(goal: string, ctx: any): Promise<ExecutionPlan> {
+/**
+ * 制定 ExecutionPlan。
+ *
+ * @param goal 全局目标
+ * @param ctx dteam run context（含 modelRegistry / cwd / dteam 等）
+ * @param availableTools 可选：主 LLM 调 dteam 时传入的可用工具名列表。
+ *   - 提供：planner LLM 在 systemPrompt 看到清单 + step.tools 用此集合做 intersect 验证
+ *   - 不提供：走 ROLE_DEFAULTS 降级（v0.4.0 行为）
+ */
+export async function plan(goal: string, ctx: any, availableTools?: string[]): Promise<ExecutionPlan> {
   // 1. 规则判断（零 LLM 成本）
   const quickPlan = quickRuleBasedPlan(goal);
   if (quickPlan) {
@@ -18,11 +29,11 @@ export async function plan(goal: string, ctx: any): Promise<ExecutionPlan> {
 
   // 2. 复杂情况调 LLM 生成 JSON
   const modelStr = pickAvailableModel(ctx);
-  // 0.4.1 候选（方案 C）：把"当前可用工具"作为 systemPrompt 上下文。
-  // 设计：见 doc/工具动态加载方案.md
-  const availableTools = await listAvailableTools(ctx.cwd || process.cwd());
-  const availableToolNames = new Set(availableTools.map(t => t.name));
-  const toolsBlock = formatToolsForPrompt(availableTools);
+  // 0.4.1：主 LLM 传入 availableTools 时，拼到 systemPrompt 里给 LLM 看
+  const availableToolNames = new Set(availableTools ?? []);
+  const toolsBlock = availableTools && availableTools.length > 0
+    ? availableTools.map(n => `- ${n}`).join("\n")
+    : "（未提供；不填 tools 字段则用角色默认工具）";
   const systemPrompt = `你是 dteam 的规划器。根据用户目标返回 JSON。
 
 规则：
@@ -37,7 +48,7 @@ export async function plan(goal: string, ctx: any): Promise<ExecutionPlan> {
 - 完整目标 → chain: explore → design → build → check → close
 - 可并行 → team: 多个 build
 
-[当前 Pi 已加载的工具]
+[当前可用的工具]
 ${toolsBlock}
 （可选用 tools 字段为每个 step 指定工具子集；不填则用角色默认工具）
 
@@ -75,12 +86,13 @@ ${toolsBlock}
     const rawSteps = Array.isArray(parsed.steps) ? parsed.steps : [];
     const steps = rawSteps.length > 0
       ? rawSteps.map((s: any) => {
-          // 0.4.1 候选：LLM 返回的 step.tools 要 intersect 一下已加载工具集合，
+          // 0.4.1：LLM 返回的 step.tools 要 intersect 一下 availableTools 集合，
           // 防止 LLM 填错（拼错/失效），导致 createAgentSession 收到无效名。
+          // 仅在 availableTools 提供时才做 intersect；否则按 LLM 原样传（v0.4.0 行为）。
           const tools = Array.isArray(s.tools)
             ? (s.tools as unknown[])
                 .filter((t): t is string => typeof t === "string")
-                .filter(t => availableToolNames.has(t))
+                .filter(t => availableToolNames.size === 0 || availableToolNames.has(t))
             : undefined;
           return {
             role: normalizeRole(String(s.role ?? "build")),

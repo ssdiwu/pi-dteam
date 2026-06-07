@@ -275,4 +275,48 @@ describe("orchestrator", () => {
       expect(call[4]).toEqual(["read", "edit"]);
     }
   });
+
+  // ═══ availableTools 透传（0.4.1 候选） ═══
+
+  it("ctx.dteamAvailableTools → plan() 第三个参数", async () => {
+    mockPlan.mockResolvedValue({
+      mode: "solo",
+      reason: "复杂",
+      steps: [{ role: "explore", task: "搜", strategy: "direct" }],
+    });
+    mockExecute.mockResolvedValue("ok");
+
+    const ctxWithTools = { ...mockCtx, dteamAvailableTools: ["tinyfish_search", "read"] };
+    await run("搜东西", ctxWithTools);
+
+    // plan 第三个参数 = ctx.dteamAvailableTools
+    expect(mockPlan.mock.calls[0][2]).toEqual(["tinyfish_search", "read"]);
+  });
+
+  it("ctx.dteamAvailableTools 不是数组 → plan() 第三个参数 = undefined", async () => {
+    mockPlan.mockResolvedValue({
+      mode: "solo",
+      reason: "复杂",
+      steps: [{ role: "build", task: "干", strategy: "direct" }],
+    });
+    mockExecute.mockResolvedValue("ok");
+
+    const ctxWithBadTools = { ...mockCtx, dteamAvailableTools: "not an array" };
+    await run("干", ctxWithBadTools);
+
+    expect(mockPlan.mock.calls[0][2]).toBeUndefined();
+  });
+
+  it("ctx 不带 dteamAvailableTools → plan() 第三个参数 = undefined（0.4.0 兼容）", async () => {
+    mockPlan.mockResolvedValue({
+      mode: "solo",
+      reason: "规则",
+      steps: [{ role: "build", task: "干", strategy: "direct" }],
+    });
+    mockExecute.mockResolvedValue("ok");
+
+    await run("干", mockCtx);
+
+    expect(mockPlan.mock.calls[0][2]).toBeUndefined();
+  });
 });

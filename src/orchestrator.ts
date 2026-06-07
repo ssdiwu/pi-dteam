@@ -36,7 +36,12 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
   // Phase 1: Plan
   let executionPlan: ExecutionPlan;
   try {
-    executionPlan = await plan(goal, ctx);
+    // 0.4.1：主 LLM 调用 dteam 时传 availableTools；orchestrator 透传给 planner
+    // （0.4.0 兼容：不传则走 ROLE_DEFAULTS 降级）
+    const availableTools: string[] | undefined = Array.isArray(ctx.dteamAvailableTools)
+      ? ctx.dteamAvailableTools
+      : undefined;
+    executionPlan = await plan(goal, ctx, availableTools);
   } catch (e) {
     executionPlan = {
       mode: "solo",

@@ -27,6 +27,7 @@ const { mockCreateAgentSession } = vi.hoisted(() => ({
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   createAgentSession: mockCreateAgentSession,
   createExtensionRuntime: vi.fn(() => ({})),
+  discoverAndLoadExtensions: vi.fn(async () => ({ extensions: [], errors: [], runtime: {} })),
   SessionManager: {
     inMemory: vi.fn(() => ({ kind: "fake-session-manager" })),
   },

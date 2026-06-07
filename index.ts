@@ -209,7 +209,8 @@ export default function (pi: ExtensionAPI) {
     description:
       "通过 dteam 递归 worker 树端到端执行一个目标。支持后台运行，不阻塞前台。" +
       "action=run 启动后台执行，立即返回 runId；" +
-      "action=continue 用户回复后注入信息让暂停的叶子继续。",
+      "action=continue 用户回复后注入信息让暂停的叶子继续。" +
+      "提示：调用 run 时建议传 availableTools（你当前可用的工具名列表），dteam 会用它做工具验证，避免硬编码 ROLE_DEFAULTS 的限制。",
     parameters: {
       type: "object",
       properties: {
@@ -217,12 +218,18 @@ export default function (pi: ExtensionAPI) {
         goal: { type: "string", description: "要完成的目标（仅 run 需要）" },
         runId: { type: "string", description: "run ID（仅 continue 需要）" },
         message: { type: "string", description: "用户给 dteam 的回复（仅 continue 需要）" },
+        availableTools: {
+          type: "array",
+          items: { type: "string" },
+          description: "可选：调用方当前可用的工具名列表（仅 run 需要）。dteam 会用此列表验证子任务选用的工具是否存在；建议传，避开 v0.4.0 硬编码 ROLE_DEFAULTS 的限制。",
+        },
       },
       required: ["action"],
     } as const,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const { action, goal, runId, message } = params as {
+      const { action, goal, runId, message, availableTools } = params as {
         action: string; goal?: string; runId?: string; message?: string;
+        availableTools?: string[];
       };
 
       // ── continue：用户回复后注入到暂停的叶子 ──
@@ -266,7 +273,8 @@ export default function (pi: ExtensionAPI) {
       const dteamCtx = { signalBus, runsStore, runId: newRunId, workerId: "orchestrator", pendingSupplements: new Map<string, (value: string | null) => void>(), injectionQueue: new Map<string, string[]>() };
 
       // 构建 run context（浅拷贝，不污染主对话 ctx）
-      const runCtx = { ...ctx, dteam: dteamCtx };
+      // 0.4.1：把 availableTools 挂到 runCtx，orchestrator/planner 会读它
+      const runCtx = { ...ctx, dteam: dteamCtx, dteamAvailableTools: availableTools };
 
       ctx.ui.notify(`dteam: 后台开始执行`, "info");
       ctx.ui.setStatus("dteam", `执行中: ${goal}`);

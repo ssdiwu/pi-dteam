@@ -11,13 +11,14 @@
 
 import {
   createAgentSession,
+  discoverAndLoadExtensions,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { DteamContext } from "./types/context.js";
 import type { RoleName } from "./types/role.js";
 import { referenceArchitectureTool } from "./reference-data.js";
-import { makeResourceLoader } from "./session/resource-loader.js";
+import { makeResourceLoader, loadConfiguredPackages } from "./session/resource-loader.js";
 import { ROLE_DEFAULTS, getRoleTools } from "./session/role-config.js";
 import { loadRolePrompt } from "./session/role-prompt.js";
 import { resolveModelStr, pickAvailableModel } from "./session/model-resolver.js";
@@ -53,7 +54,11 @@ export async function createWorkerSession(options: CreateSessionOptions) {
   const thinkingLevel = explicitThinking ?? (role ? (ROLE_DEFAULTS[role].thinking as any) : "off");
 
   const model = resolveModelStr(modelStr, modelRegistry);
-  const resourceLoader = makeResourceLoader(systemPrompt);
+  // 0.4.1：发现扩展（含 settings.json.packages 中的本地路径），使 worker 能用扩展工具
+  // loadConfiguredPackages 读 settings.json，解析相对路径到绝对路径
+  const configuredPaths = loadConfiguredPackages(cwd);
+  const extensionsResult = await discoverAndLoadExtensions(configuredPaths, cwd);
+  const resourceLoader = makeResourceLoader(systemPrompt, extensionsResult);
 
   const settingsManager = SettingsManager.inMemory({
     compaction: { enabled: false },
