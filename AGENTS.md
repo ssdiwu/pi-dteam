@@ -15,7 +15,7 @@ dteam 是一个 Pi 扩展，把"派一个 worker"做成一棵递归的 worker �
 | `src/README.md` | 当前定义文档 | **必读** |
 | `src/tools.ts` | 工具表（Pi 提供的 / dteam 暴露的 / 内部 helper） | **必读** |
 | `src/orchestrator.ts` | 主循环 | 必读 |
-| `src/brancher.ts` | 旧递归分解 | ⚠️ 保留备用，新代码不应再用 |
+| `src/planner.ts` | 规划器（规则判断 + LLM 兜底） | 必读 |
 | `src/leaf.ts` | 调 LLM 干活 | 必读 |
 | `src/pool.ts` | 任务池（内存） | 必读 |
 | `./index.ts` | Pi 扩展入口（根目录） | **必读** |
@@ -33,7 +33,7 @@ dteam 是一个 Pi 扩展，把"派一个 worker"做成一棵递归的 worker �
 
 ### 不做
 - ❌ 不要回去抄 `archive/v0-pre-rewrite/` 里的代码
-- ❌ 不要回去参考 `.doc/` 里的 v0 设计（除了 v0 归档说明）
+- ❌ 不要回去参考历史归档里的 v0 设计（除了 v0 归档说明）
 - ❌ 不要加文件锁、原子操作
 - ❌ 不要做自适应并发（动态调 batchSize 会让结果不可预测）
 - ❌ 不要做双层验收（一次 check 够了）
@@ -62,7 +62,7 @@ npm run build
 
 | 想加什么 | 怎么办 |
 |----------|--------|
-| 改 LLM 调用的方式 | 改 `brancher.ts` 或 `leaf.ts` |
+| 改 LLM 调用的方式 | 改 `planner.ts` / `leaf.ts` / `session.ts` |
 | 改任务池行为 | 改 `pool.ts` |
 | 改主循环逻辑 | 改 `orchestrator.ts` |
 | 改对外暴露的 dteam 工具 | 改 `./index.ts` |
@@ -88,7 +88,7 @@ pending → in_progress → done
 
 示例：
 - `feat: 让 leaf 实际能改文件`
-- `fix: 修正 brancher 解析 tool call 的逻辑`
+- `fix: 修正 planner 结构化输出解析逻辑`
 - `docs: 更新 doc/设计-v2.md`
 
 **提交前**：
