@@ -1,6 +1,6 @@
 # 与 pi-context-manager 对比
 
-> 调研记录。本节只做范式对比和"轻 / 重"评估，**借鉴执行清单（要做 / 暂不做 / 远期）见 [项目路线图.md](./项目路线图.md)**。
+> 调研记录。本节只做范式对比和"轻 / 重"评估，**借鉴执行清单（要做 / 暂不做 / 远期）见 [项目路线图.md](../30-路线图/30-项目路线图.md)**。
 
 - 来源：[https://pi.dev/packages/pi-context-manager](https://pi.dev/packages/pi-context-manager)
 - v0.1.2，**1.2 MB**（这批调研里最大）

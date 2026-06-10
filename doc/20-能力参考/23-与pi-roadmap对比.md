@@ -1,6 +1,6 @@
 # 与 pi-roadmap 对比
 
-> 调研记录。本节只做范式对比和"轻 / 重"评估，**借鉴执行清单（要做 / 暂不做 / 远期）见 [项目路线图.md](./项目路线图.md)**。
+> 调研记录。本节只做范式对比和"轻 / 重"评估，**借鉴执行清单（要做 / 暂不做 / 远期）见 [项目路线图.md](../30-路线图/30-项目路线图.md)**。
 
 - 来源：[https://pi.dev/packages/pi-roadmap](https://pi.dev/packages/pi-roadmap)
 - v1.1.1，156.1 KB
@@ -66,7 +66,7 @@ Roadmap
 
 ## 与 dteam 的关系
 
-dteam 当前有 `doc/项目路线图.md`（markdown 表格，单文件）。这是 dteam 自己的**演进计划**（dteam 下个版本做什么）。
+dteam 当前有 `30-路线图/30-项目路线图.md`（markdown 表格，单文件）。这是 dteam 自己的**演进计划**（dteam 下个版本做什么）。
 
 pi-roadmap 是给**人管项目**用的——任何项目能用。两个工具**用途不重叠**：
 - pi-roadmap：人管项目（"我的项目接下来做什么"）
@@ -103,7 +103,7 @@ pi-roadmap 真正值得借鉴的**只有 1 个概念**：
 ### 方式 C：507 自己用 pi-roadmap 管 dteam 演进（dteam 自身不集成）
 
 - 507 装 pi-roadmap 在自己 Pi 上
-- dteam 自己的 `doc/项目路线图.md` 保留（轻量）
+- dteam 自己的 `30-路线图/30-项目路线图.md` 保留（轻量）
 - **优点**：dteam 保持轻量；507 用专业工具管项目
 - **缺点**：两个路线图（pi-roadmap + dteam markdown）可能不同步
 
@@ -126,7 +126,7 @@ pi-roadmap 真正值得借鉴的**只有 1 个概念**：
 
 不管借鉴什么：
 
-1. **dteam 路线图单文件 markdown**（`doc/项目路线图.md`）—— 轻量、可读、人手维护
+1. **dteam 路线图单文件 markdown**（`30-路线图/30-项目路线图.md`）—— 轻量、可读、人手维护
 2. **dteam 工具表只暴露 1 个**（`dteam`）—— 不增加 `roadmap_*` 工具
 
 ## 参考实现位置
