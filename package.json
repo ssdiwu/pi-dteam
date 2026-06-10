@@ -1,6 +1,6 @@
 {
   "name": "pi-dteam",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "dteam - 轻量级多代理编排系统",
   "type": "module",
   "keywords": [
@@ -8,12 +8,13 @@
     "pi",
     "dteam",
     "workflow",
-    "multi-agent"
+    "multi-agent",
+    "extension"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ssdiwu/pi-dteam"
+    "url": "git+https://github.com/ssdiwu/pi-dteam.git"
   },
   "files": [
     "index.ts",
