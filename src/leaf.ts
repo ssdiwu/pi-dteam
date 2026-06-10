@@ -23,9 +23,9 @@ import { waitForSupplement } from "./leaf/supplement.js";
  * 用指定角色执行一个任务。
  * 支持信号自愈：叶子发 help → 等待根注入补充信息 → 继续执行。
  *
- * @param tools 可选：显式指定此 worker 的工具子集（0.4.1 候选，方案 C）。
- *              undefined → 走 ROLE_DEFAULTS[role].tools（0.4.0 行为）。
- *              设计：见 doc/工具动态加载方案.md
+ * @param tools 可选：显式指定此 worker 的工具子集（0.4.1 已落地，方案 D）。
+ *              undefined → 走 ROLE_DEFAULTS[role].tools（0.4.0 兼容行为）。
+ *              设计：见 doc/40-版本实施方案/41-工具动态加载方案.md
  */
 export async function execute(
   role: RoleName,

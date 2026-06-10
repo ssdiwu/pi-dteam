@@ -4,24 +4,55 @@
 
 ## 工具：`dteam`
 
-让主 LLM 同步阻塞跑完一个 goal。
+让主 LLM 以**后台任务模式**启动或继续一个 goal（目标）。
 
 ### 参数
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|:----:|------|
-| `action` | `"run"` | ✅ | 唯一支持的动作 |
-| `goal` | `string` | ✅ | 要完成的目标（自由文本） |
+| `action` | `"run" \| "continue"` | ✅ | `run`=启动后台任务；`continue`=给等待中的任务继续注入信息 |
+| `goal` | `string` | `run` 时必填 | 要完成的目标（自由文本） |
+| `runId` | `string` | `continue` 时必填 | 后台任务 ID |
+| `message` | `string` | `continue` 时必填 | 用户补充给后台任务的信息 |
+| `availableTools` | `string[]` | 否 | 主 LLM 传入的可用工具列表；用于 worker 工具验证与透传 |
 
 ### 调用示例
 
 ```typescript
+// 启动后台任务
 dteam(action="run", goal="在 /tmp 下创建 hello.txt")
+
+// 继续一个等待人工输入的任务
+dteam(action="continue", runId="run-xxx", message="请改 Web 端")
 ```
 
 ### 返回值
 
-`RunResult`：
+#### `action="run"`
+
+立即返回：
+
+```json
+{ "status": "running", "runId": "run-xxx" }
+```
+
+说明：
+
+- 这是**后台启动确认**，不是最终执行结果
+- 实时进度请看 `/dteam`
+- 最终结果会通过 `dteam-report`（结果报告）消息进入主对话
+
+#### `action="continue"`
+
+返回确认文本，例如：
+
+```json
+{ "content": "已注入到 run run-xxx，叶子继续执行" }
+```
+
+#### 最终结果结构
+
+后台任务完成后，最终结果在内部仍是 `RunResult`：
 
 ```typescript
 interface RunResult {
@@ -56,6 +87,17 @@ interface StepResult {
 ```
 
 ### 真实返回示例
+
+#### 启动返回示例
+
+```json
+{
+  "status": "running",
+  "runId": "run-123"
+}
+```
+
+#### 最终 `RunResult` 示例
 
 ```json
 {
@@ -94,6 +136,8 @@ interface StepResult {
 | 面板打开 | 关闭面板 |
 
 ### 面板内容
+
+> `v0.4.1` 起，后台实时进度以 `/dteam` 面板为主，不再依赖已结束工具调用的流式更新。
 
 **空态**（无 run）：
 
@@ -178,7 +222,7 @@ export function getRoleTools(role: RoleName): string[]
 
 dteam 优先用 `minimax-cn/MiniMax-M3`，找不到时自动降级到 `minimax-cn/MiniMax-M2.7`。
 
-修改 `src/leaf.ts` / `src/planner.ts` / `src/brancher.ts` 中的 `pickAvailableModel` 调用可自定义。
+修改 `src/leaf.ts` / `src/planner.ts` 中对 `pickAvailableModel` 的调用，或直接调整 `src/session/model-resolver.ts`，即可自定义模型选择逻辑。
 
 ### 角色配置
 

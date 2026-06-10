@@ -1,6 +1,6 @@
 {
   "name": "pi-dteam",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "dteam - 轻量级多代理编排系统",
   "type": "module",
   "keywords": [
@@ -16,13 +16,10 @@
     "url": "https://github.com/ssdiwu/pi-dteam"
   },
   "files": [
-    "extensions/**/*",
+    "index.ts",
     "src/**/*.ts",
     "agents/**/*",
-    "prompts/**/*",
-    "reference/**/*",
-    "README.md",
-    "README-zh.md"
+    "README.md"
   ],
   "pi": {
     "name": "dteam",

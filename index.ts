@@ -9,8 +9,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Container, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { run } from "./src/orchestrator.js";
+import { defaultReporter } from "./src/reporter.js";
 import { SignalBus, RunsStore } from "./src/signals/index.js";
 import {
   uiStore,
@@ -20,6 +21,7 @@ import {
   clearWidget,
   WIDGET_KEY,
 } from "./src/ui/index.js";
+import { formatDuration, signalIcon, signalLabel, statusIcon as helperStatusIcon } from "./src/ui/helpers.js";
 import type { RunResult } from "./src/tools.js";
 
 // ---------------------------------------------------------------------------
@@ -29,7 +31,6 @@ import type { RunResult } from "./src/tools.js";
 // 设计：500ms 心跳检查 uiStore 内容指纹（+ 每秒至少刷一次让耗时走动）。
 // - 内容没变 → 跳过 setWidget，避免无意义重绘
 // - 内容变了 / 时间到 1s → 重新渲染
-// - run 结束 / 显式 reset 时调 forceRefreshWidget() 强制重置 fingerprint
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -43,11 +44,6 @@ function stopRefresh() {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
 }
 
-/** run 结束/reset 时强制同步 fingerprint（避免旧 fp 阻塞下一次 startRefresh） */
-function forceRefreshWidget(ctx: any) {
-  renderWidget(ctx);
-}
-
 // ---------------------------------------------------------------------------
 // dteam 工具结果的自定义渲染（中文化）
 // ---------------------------------------------------------------------------
@@ -58,12 +54,17 @@ function statusIcon(s: string): string {
   );
 }
 
-function renderDteamResult(result: any, options: { expanded: boolean }, theme: any): any {
+function renderDteamResult(result: any, options: { expanded: boolean; isPartial?: boolean }, theme: any): any {
   const w = (process.stdout.columns || 80) - 4;
 
   if (result.isError) {
     const text = result.content?.[0]?.text ?? "未知错误";
     return new Text(theme.fg("error", `✗ dteam 失败: ${text}`), 0, 0);
+  }
+
+  if (options.isPartial) {
+    const text = result.content?.[0]?.text ?? "dteam 正在执行…";
+    return new Text(theme.fg("info", text), 0, 0);
   }
 
   let parsed: any = null;
@@ -271,10 +272,11 @@ export default function (pi: ExtensionAPI) {
       const runsStore = new RunsStore();
       const newRunId = runsStore.createRun();
       const dteamCtx = { signalBus, runsStore, runId: newRunId, workerId: "orchestrator", pendingSupplements: new Map<string, (value: string | null) => void>(), injectionQueue: new Map<string, string[]>() };
+      const reporter = ctx.reporter ?? defaultReporter;
 
       // 构建 run context（浅拷贝，不污染主对话 ctx）
       // 0.4.1：把 availableTools 挂到 runCtx，orchestrator/planner 会读它
-      const runCtx = { ...ctx, dteam: dteamCtx, dteamAvailableTools: availableTools };
+      const runCtx = { ...ctx, reporter, dteam: dteamCtx, dteamAvailableTools: availableTools };
 
       ctx.ui.notify(`dteam: 后台开始执行`, "info");
       ctx.ui.setStatus("dteam", `执行中: ${goal}`);

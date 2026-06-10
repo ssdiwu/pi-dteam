@@ -5,7 +5,7 @@
  * 策略：先用规则判断（零 LLM 成本），复杂情况才调 LLM 生成 JSON。
  *
  * 0.4.1：availableTools 由主 LLM 调用 dteam 时传入（取代原来的 discoverAndLoadExtensions 发现机制，
- * 旧机制扫不到运行时动态加载的扩展）。设计：见 doc/工具动态加载方案.md
+ * 旧机制扫不到运行时动态加载的扩展）。设计：见 doc/40-版本实施方案/41-工具动态加载方案.md
  */
 
 import { createWorkerSession, pickAvailableModel } from "./session.js";

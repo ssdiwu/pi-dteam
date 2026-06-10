@@ -8,7 +8,7 @@
 |------|------|------|
 | `tools.ts` | 70+ | 类型定义（Task/Decision/ExecutionPlan/RunResult/StepResult） |
 | `pool.ts` | 80 | 任务池（write/claimNext/update/getAll/count） |
-| `brancher.ts` | 100+ | 旧递归分解（保留备用） |
+| `planner.ts` | 200+ | Phase 1: 规则判断 + LLM 兜底生成计划 |
 | `leaf.ts` | 60 | 用角色调 LLM 执行一个 step |
 | `session.ts` | 200+ | createWorkerSession 工厂 + 角色系统 + 模型选择 |
 | `planner.ts` | 200+ | Phase 1: 规则判断 + LLM 兜底 |
@@ -59,7 +59,7 @@ content (JSON string) → 返回给 LLM
 | pickAvailableModel 加 fallback | Pi 里 M3 偶尔找不到时能降级到 M2.7 |
 | 规则判断优先于 LLM | 零成本，95% 简单目标不需要 LLM |
 | JSON 模式而非 tool calling | MiniMax-M3 tool calling 不稳定 |
-| 工具加载从白名单变主 LLM 显式传入 | 见 `doc/工具动态加载方案.md` 方案 D；0.4.0 `ROLE_DEFAULTS` 仍为 fallback（主 LLM 不传 availableTools 时走 ROLE_DEFAULTS） |
+| 工具加载从白名单变主 LLM 显式传入 | 见 `doc/40-版本实施方案/41-工具动态加载方案.md` 方案 D；0.4.0 `ROLE_DEFAULTS` 仍为 fallback（主 LLM 不传 availableTools 时走 ROLE_DEFAULTS） |
 | prevOutput 字符串注入 | v0 的 withPreviousOutput 简化版，不引入共享内存 |
 | team 分批 ≤ 3 | 撞 429 风险 vs 并行收益的平衡 |
 | 测试用 vitest + vi.mock | 已有项目实践，ESM 友好 |
@@ -70,7 +70,7 @@ content (JSON string) → 返回给 LLM
 |---------|--------|
 | 加新角色 | `tools.ts` RoleName + `session.ts` ROLE_DEFAULTS + `agents/{role}.md` + `planner.ts` normalizeRole |
 | 改 planner 规则 | `planner.ts` quickRuleBasedPlan |
-| 改主模型 | `leaf.ts` / `planner.ts` / `brancher.ts` 的 `pickAvailableModel` 调用 |
+| 改主模型 | `leaf.ts` / `planner.ts` / `session/model-resolver.ts` 的模型选择逻辑 |
 | 加新策略 | `tools.ts` Strategy + `orchestrator.ts` runStep 新增 case |
 | 改工具可用列表来源 | dteam 工具 schema 的 `availableTools` 参数（主 LLM 调时传） |
 | 改 UI | `ui/panel.ts`（overlay 面板）/ `ui/store.ts`（状态） |
@@ -82,4 +82,4 @@ content (JSON string) → 返回给 LLM
 - **build_check 的 check 输出是文本**：靠正则匹配 "通过/pass/✓" 判断，可能误判
 - **adaptive 的评估也是文本**：靠正则匹配 "满意/完成"，主观性强
 - **没接 stream 回调**：leaf 看不到 LLM 实时输出，UI 只显示最终结果
-- **工具动态加载是 0.4.1 候选**：0.4.0 仍走 `ROLE_DEFAULTS[role].tools`；planner LLM 路径支持主 LLM 传 `availableTools` 参数（dtool schema），不传则走 ROLE_DEFAULTS（见 `doc/工具动态加载方案.md` 方案 D）
+- **工具动态加载已在 0.4.1 落地**：不传 `availableTools` 时仍走 `ROLE_DEFAULTS[role].tools`；planner LLM 路径支持主 LLM 传 `availableTools` 参数（dtool schema），不传则走 ROLE_DEFAULTS（见 `doc/40-版本实施方案/41-工具动态加载方案.md` 方案 D）

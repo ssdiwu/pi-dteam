@@ -49,10 +49,10 @@ export interface PlanStep {
   strategy: Strategy;
   files?: string[];
   /**
-   * 显式指定此 step 用的工具子集（0.4.1 候选，方案 C）。
-   * 由 planner LLM 路径根据运行时已加载工具决定；规则路径不填。
-   * undefined → 降级到 ROLE_DEFAULTS[role].tools（0.4.0 行为）。
-   * 设计：见 doc/工具动态加载方案.md
+   * 显式指定此 step 用的工具子集（0.4.1 已落地，方案 D）。
+   * 由 planner LLM 路径根据主 LLM 传入的 availableTools 决定；规则路径不填。
+   * undefined → 降级到 ROLE_DEFAULTS[role].tools（0.4.0 兼容行为）。
+   * 设计：见 doc/40-版本实施方案/41-工具动态加载方案.md
    */
   tools?: string[];
 }

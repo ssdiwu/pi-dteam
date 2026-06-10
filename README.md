@@ -2,7 +2,9 @@
 
 > **半自动多角色编排引擎**，作为 Pi 扩展运行。
 >
-> v1 状态：信号通路 + 后台运行 + 链式/team 模式落地，245 个测试通过，重构完成（orchestrator 562→197 行）。
+> v1 状态：信号通路 + 后台运行 + 链式/team 模式落地，16 个测试文件通过，重构完成（orchestrator 562→197 行）。
+>
+> `v0.4.1`（当前版本）重点：把 dteam 收敛成稳定的后台任务系统——`run` 只返回 `runId`（任务编号），实时进度主要看 `/dteam` 面板，完成后再向主对话发送结果消息。
 
 ## 一句话
 
@@ -19,7 +21,7 @@ npm install
 # 2. 编译
 npm run build
 
-# 3. 运行测试（245 个用例）
+# 3. 运行测试
 npm test
 
 # 4. 安装到 Pi
@@ -51,6 +53,16 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 // → { content: "已注入到 run-xxx" }
 ```
 
+### 后台任务模型（v0.4.1）
+
+`dteam(action="run")` 现在明确采用后台任务模式：
+
+1. 启动时立即返回 `runId`
+2. 后台继续执行，不阻塞主对话
+3. 实时进度主要看 `/dteam` 面板 / `widget`（小组件）/ `status`（状态栏）
+4. 完成后通过 `dteam-report`（结果报告）消息回到主对话
+5. 不再依赖已结束工具调用的 `onUpdate`（流式更新回调）推送后台进度
+
 ### `/dteam` 命令
 
 在 Pi 里输入 `/dteam`：
@@ -72,14 +84,19 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 
 ## 文档
 
-- [架构说明（二维编排模型）](./doc/架构说明.md)
-- [角色系统（5 个角色职责）](./doc/角色系统.md)
-- [工具 API 参考](./doc/API参考.md)
-- [src/ 内部架构](./src/README.md)
+> 当前仓库建议按 4 层理解：`index.ts` + `src/` + `agents/` 是运行核心，`tests/` 是验证层，`doc/` 是当前说明层，`archive/` 是历史归档层。重构时优先修改运行核心与当前说明，避免直接从归档倒推实现。
+
 - [设计文档总览](./doc/README.md)
-- [v2 设计 + 实施现状](./doc/设计-v2.md)
-- [重构方案 v1（已实施）](./doc/重构方案.md)
-- [分支层扩展计划（v2 触发条件）](./doc/分支层扩展计划.md)
+- [系统架构（二维编排模型）](./doc/10-架构与运行/10-系统架构.md)
+- [角色系统（5 个角色职责）](./doc/10-架构与运行/11-角色系统.md)
+- [工具 API 参考](./doc/10-架构与运行/12-API参考.md)
+- [v2 设计与实施现状](./doc/10-架构与运行/13-设计-v2与实施现状.md)
+- [项目路线图](./doc/30-路线图/30-项目路线图.md)
+- [v0.4.1 后台任务稳定性实施方案](./doc/40-版本实施方案/42-v0.4.1-后台任务稳定性实施方案.md)
+- [Agent Teams 借鉴实施方案](./doc/40-版本实施方案/40-Agent-Teams借鉴实施方案.md)
+- [工具动态加载方案](./doc/40-版本实施方案/41-工具动态加载方案.md)
+- [src/ 内部架构](./src/README.md)
+- [CHANGELOG.md](./CHANGELOG.md)
 
 ## 目录结构
 
@@ -131,7 +148,7 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 │           ├── adaptive.ts
 │           └── index.ts
 ├── agents/                 # 5 个角色定义（explore / design / build / check / close）
-├── tests/                  # 245 个测试（16 个 test files）
+├── tests/                  # 16 个测试文件
 ├── doc/                    # 所有文档（中文名）
 └── archive/                # v0 历史归档
 ```
@@ -144,6 +161,7 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 | 叶子 help → 根派 explore 自愈 | ✅ | `src/orchestrator/help-self-heal.ts` |
 | help 第 2 次 → 升级到人类 + 阻塞等回复 | ✅ | `src/index.ts` `action="continue"` |
 | 后台运行（action="run" 立即返回 runId） | ✅ | `src/index.ts` |
+| 后台运行不再依赖 `onUpdate`（流式更新回调） | ✅ | `index.ts` |
 | dteam-report 自动注入主对话（triggerTurn） | ✅ | `src/index.ts` |
 | 链式继承（前序发现自动注入到下一步 prompt） | ✅ | `src/orchestrator/history-context.ts` |
 | 实时转发（叶子发的 found/progress 自动转发到其他正在跑的叶子） | ✅ | `src/orchestrator/peer-forwarder.ts` |
@@ -166,8 +184,9 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 
 - ✅ v1 核心代码落地 + 重构完成（orchestrator 562→197，session 299→78）
 - ✅ `npm run build` 通过
-- ✅ 245/245 单元测试通过
+- ✅ `npm test` 可作为当前单元测试基线
 - ✅ 4 个真实任务实测通过（solo/chain/team/adaptive 全部命中）
+- ✅ 代码主干与历史归档已分层：运行核心 / 说明层 / 归档层边界清晰
 - ✅ 信号通路实测通过（progress/found/blocked/help 都能在面板看到）
 - ✅ 后台运行 + dteam-report 注入实测通过
 - ⏳ 实时转发需更多 task 验证（单元测过）
