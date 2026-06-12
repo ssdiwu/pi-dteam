@@ -687,6 +687,24 @@ describe("step.tools 解析（0.4.1：availableTools 方案）", () => {
     expect(r.steps[0].tools).toEqual(["read", "tinyfish_search"]);
   });
 
+  it("LLM 返回 files 数组 → 保留字符串路径，过滤非字符串", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithText('{"mode":"solo","steps":[{"role":"build","task":"x","strategy":"direct","files":["src/a.ts",123,"src/b.ts",""]}]}'),
+    );
+    const r = await plan(LLM_TRIGGER_GOAL, { cwd: "/tmp" }, FAKE_AVAILABLE);
+    expect(r.steps[0].files).toEqual(["src/a.ts", "src/b.ts"]);
+  });
+
+  it("systemPrompt 提示 LLM 可返回 files 字段", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithText('{"mode":"solo","steps":[{"role":"build","task":"x","strategy":"direct"}]}'),
+    );
+    await plan(LLM_TRIGGER_GOAL, { cwd: "/tmp" }, FAKE_AVAILABLE);
+    const callArgs = mockCreateWorkerSession.mock.calls[0][0];
+    expect(callArgs.systemPrompt).toContain("files");
+    expect(callArgs.systemPrompt).toContain("项目相对路径");
+  });
+
   it("systemPrompt 含 availableTools 清单（传参时）", async () => {
     mockCreateWorkerSession.mockResolvedValue(
       fakeSessionWithText('{"mode":"solo","steps":[{"role":"build","task":"x","strategy":"direct"}]}'),

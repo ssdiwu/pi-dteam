@@ -214,7 +214,7 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 
 - ✅ v1 核心代码落地 + 重构完成（orchestrator 562→197，session 299→78）
 - ✅ `npm run build` 通过
-- ✅ `npm test` 可作为当前单元测试基线（19 个测试文件，300 个测试）
+- ✅ `npm test` 可作为当前单元测试基线（19 个测试文件，302 个测试）
 - ✅ 4 个真实任务实测通过（solo/chain/team/adaptive 全部命中）
 - ✅ 代码主干与历史归档已分层：运行核心 / 说明层 / 归档层边界清晰
 - ✅ 信号通路实测通过（progress/found/blocked/help 都能在面板看到）

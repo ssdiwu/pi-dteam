@@ -40,6 +40,7 @@ export async function plan(goal: string, ctx: any, availableTools?: string[]): P
 - mode: solo (1步) | chain (串行) | team (并行，每批≤3)
 - role: explore | design | build | check | close
 - strategy: direct (跑一次) | build_check (build→check→修, 最多3轮) | adaptive (执行→评估→调, 最多5轮)
+- files: 可选，字符串数组，列出该 step 可能读取/修改/验证的项目相对路径；不知道就省略
 
 选择：
 - 简单目标 → solo + build + direct
@@ -53,7 +54,7 @@ ${toolsBlock}
 （可选用 tools 字段为每个 step 指定工具子集；不填则用角色默认工具）
 
 你必须且只能返回 JSON 对象，格式：
-{"mode":"chain","reason":"...","steps":[{"role":"explore","task":"...","strategy":"direct"},{"role":"build","task":"...","strategy":"build_check","tools":["tinyfish_search","read"]}]}`;
+{"mode":"chain","reason":"...","steps":[{"role":"explore","task":"...","strategy":"direct","files":["src/a.ts"]},{"role":"build","task":"...","strategy":"build_check","files":["src/a.ts"],"tools":["tinyfish_search","read"]}]}`;
 
   const session = await createWorkerSession({
     systemPrompt,
@@ -94,10 +95,14 @@ ${toolsBlock}
                 .filter((t): t is string => typeof t === "string")
                 .filter(t => availableToolNames.size === 0 || availableToolNames.has(t))
             : undefined;
+          const files = Array.isArray(s.files)
+            ? (s.files as unknown[]).filter((f): f is string => typeof f === "string" && f.trim().length > 0)
+            : undefined;
           return {
             role: normalizeRole(String(s.role ?? "build")),
             task: String(s.task ?? goal),
             strategy: normalizeStrategy(String(s.strategy ?? "direct")),
+            ...(files && files.length > 0 ? { files } : {}),
             ...(tools && tools.length > 0 ? { tools } : {}),
           };
         })
