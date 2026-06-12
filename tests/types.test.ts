@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import type { Task, Decision, RunResult, TaskStatus } from "../src/tools.js";
+import type { Task, Decision, RunResult, TaskStatus, FileGraph, SchedulingPlan } from "../src/tools.js";
 
 describe("types", () => {
   it("Task 所有的 status 值都能赋值", () => {
@@ -45,10 +45,36 @@ describe("types", () => {
   it("RunResult 结构", () => {
     const r: RunResult = {
       status: "done",
-      workItems: [],
+      goal: "test",
+      plan: { mode: "solo", reason: "simple", steps: [] },
+      steps: [],
       summary: "0/0 done, 0 failed",
     };
     expect(r.status).toBe("done");
-    expect(r.workItems).toHaveLength(0);
+    expect(r.steps).toHaveLength(0);
+  });
+
+  it("0.5.0 FileGraph 和 SchedulingPlan 结构", () => {
+    const fileGraph: FileGraph = {
+      roots: ["src/a.ts"],
+      nodes: [{ file: "src/a.ts", imports: ["src/b.ts"], importedBy: [], exists: true }],
+      unresolved: [],
+      boundaryStatus: "known",
+    };
+    const scheduling: SchedulingPlan = {
+      batches: [{ index: 0, stepIndexes: [0], reason: "无冲突" }],
+      conflicts: [{ type: "dependency", stepIndexes: [0, 1], files: ["src/b.ts"], reason: "依赖方向" }],
+    };
+    const r: RunResult = {
+      status: "done",
+      goal: "test",
+      plan: { mode: "team", reason: "parallel", steps: [] },
+      steps: [],
+      summary: "0/0 done",
+      fileGraph,
+      scheduling,
+    };
+    expect(r.fileGraph?.nodes[0].imports).toContain("src/b.ts");
+    expect(r.scheduling?.conflicts[0].type).toBe("dependency");
   });
 });
