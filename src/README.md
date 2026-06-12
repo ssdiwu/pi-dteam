@@ -79,8 +79,10 @@ Phase 0 已冻结以下类型 / 状态边界，后续阶段逐步填充真实数
 - `orchestrator.ts`：已接入 scheduler；`team` 按 scheduling batches 执行，`solo` / `chain` 只附带 scheduling 信息不改顺序
 - `orchestrator.ts`：已通过 `ctx.dteamAppendEntry` 写入 `dteam-plan` / `dteam-scheduling` checkpoint
 - `index.ts`：`dteam-report.details` 已包含 plan / fileGraph / scheduling / step task-strategy-files
+- `ui/panel.ts`：折叠态 widget 已重做为低噪声任务树；running worker 显示最新输出，done worker 删除线弱化，delayed reason 单独显示
+- `index.ts`：完成后不再 reset `uiStore`，保留最后快照到下一次 run
 
-当前阶段**尚未重做 widget 和 `/dteam` expanded panel**；这些在 Phase 5 / Phase 6 落地。
+当前阶段**尚未重做 `/dteam` expanded panel 的内容型 tabs**；这是 Phase 6。
 
 ## 扩展点
 
