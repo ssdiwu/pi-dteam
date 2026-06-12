@@ -18,8 +18,9 @@ dteam 走 **team mode 模式**：in-process worker session，二维编排（solo
 
 > dteam = **轻量化编排引擎**。**不是**所有借鉴项都做——按"轻 / 重"评估后挑选进入路线图。
 >
-> - **轻**（进路线图"要做"或"暂不做"）：扁平统计、frontmatter 配置、英文正则、steering 广播、depth/cycle guard（评估后暂不做）
-> - **重**（路线图"暂不做"或"远期"）：递归 usage tree、check/adaptive 改 tool calling、persistence + resume、进程级隔离、递归分解
+> - **轻**（可进入路线图“要做”或“暂不做”）：扁平统计、英文正则、steering 广播、depth/cycle guard（评估后暂不做）
+> - **暂不做**：frontmatter 角色配置（dteam 当前 5 角色写死是优势，不开放角色系统）
+> - **重**（路线图“暂不做”或“远期”）：递归 usage tree、check/adaptive 改 tool calling、persistence + resume、进程级隔离、递归分解
 >
 > 评估标准：改动量 + 当前痛点强度 + 启动 / 维护成本。
 > 实际执行清单按 **要做 / 暂不做 / 远期** 三档管理，见 [项目路线图.md](../30-路线图/30-项目路线图.md)。
@@ -68,7 +69,7 @@ dteam(action="run", goal="...")
 | **崩溃域** | 子崩不影响主 | 子崩 = 主崩 | 推论 |
 | **启动开销** | 高（每次 boot Node） | 低（in-process） | 互补 |
 | **API key 共享** | CLI flag 透传 `--api-key` | 引用同一 `authStorage` | dteam 赢（不外泄 key） |
-| **角色配置** | `.md` frontmatter（model/thinking/tools 全在 frontmatter） | `agents/*.md` 只给 systemPrompt；tools/model/thinking 在 `ROLE_DEFAULTS` 表 | 借鉴 frontmatter 解析 |
+| **角色配置** | `.md` frontmatter（model/thinking/tools 全在 frontmatter） | `agents/*.md` 只给 systemPrompt；tools/model/thinking 在 `ROLE_DEFAULTS` 表 | 暂不借鉴；角色写死更稳 |
 | **角色数量** | 3 个（code-writer / code-reviwer / code-architect） | 5 个（explore / design / build / check / close） | |
 | **自定义工具** | 只能选 4 个内置（read/bash/edit/write） | 完整 `customTools` API | dteam 赢 |
 | **编排模式** | 只支持 parallel | solo/chain/team × direct/build_check/adaptive | dteam 赢 |

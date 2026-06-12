@@ -1,133 +1,102 @@
 # 与 @juicesharp/rpiv-todo 对比
 
-> 调研记录。本节只做范式对比和"轻 / 重"评估，**借鉴执行清单（要做 / 暂不做 / 远期）见 [项目路线图.md](../30-路线图/30-项目路线图.md)**。
+> 调研记录。rpiv-todo 不是 dteam 要集成的 todo（待办）系统；它最值得借的是 **live overlay（实时浮层）状态展示、完成项清理体验、branch replay（分支重放）思路**。
 
 - 来源：[https://pi.dev/packages/@juicesharp/rpiv-todo](https://pi.dev/packages/@juicesharp/rpiv-todo)
-- v1.16.1，**65.1 KB**（这批调研里最轻）
-- **41.1K 下载/月**（这批调研里下载量最大）
-- 作者：juicesharp
-- 借鉴参考：ant-colony
+- v1.16.1，65.1 KB
+- 下载量高，说明“模型可见的任务状态列表”是真实需求
 
-## 一句话
+## 1. 一句话
 
-rpiv-todo 是个**给 LLM 的 todo 列表管理工具**：4 状态机 + 跨 session 持久化（**不写盘**）+ 依赖追踪 + live overlay UI。下载量很大（41.1K/月），说明"模型 todo 列表"是真实需求。
+rpiv-todo 是给 LLM 的 todo 列表管理工具：4 状态机 + 依赖追踪 + live overlay UI + 不写盘的 branch replay。dteam 已有任务池和面板，所以**不集成整套**；但 UI 行为值得 0.5 优先借鉴。
 
-## 核心机制
+## 2. rpiv-todo 核心机制
 
-### 4 状态机
+### 2.1 4 状态机
 
-```
+```text
 pending ⇄ in_progress
      ↓
 completed
      ↓
-deleted (tombstone，审计)
+deleted (tombstone)
 ```
 
-`deleted` 保留为 tombstone，让 historic `blockedBy` 引用仍能 resolve。
+### 2.2 live overlay UI
 
-### 持久化：branch replay（不写盘）
-
-- **不写磁盘**——任务状态**靠 in-conversation 重放恢复**
-- 工具调用序列存在 conversation branch 里
-- `/reload` 或 Pi compaction 后，从 conversation branch 重新 replay 工具调用，恢复任务状态
-- 优点：零持久化层、零写盘、零冲突、零版本兼容
-- 限制：任务状态依赖 conversation 完整保留
-
-### blockedBy 依赖追踪
-
-- 每个 task 可以声明 `blockedBy: number[]`（被哪些 task 阻塞）
-- 简单的环检测算法（拓扑排序）
-- 让模型能"声明依赖"而不是"靠 chain 模式串行"
-
-### Live overlay UI
-
-- editor 上方的小 widget
-- 完成项保留到下次 agent response 开始，然后消失
-- 12 行截断阈值；pending 任务最晚被截断
+- editor（输入区）上方显示紧凑任务列表
+- 完成项保留到下一次 agent response 开始，然后消失
+- 行数有限，pending 任务尽量最后截断
 - 空时自动隐藏
 
-### 工具 schema
+### 2.3 branch replay
 
-```
-todo({
-  action: "create" | "update" | "list" | "get" | "delete" | "clear",
-  subject?: string,
-  blockedBy?: number[],
-  description?: string,
-  status?: "pending" | "in_progress" | "completed" | "deleted",
-  ...
-})
-```
+- 不写磁盘
+- 状态来自 conversation branch（对话分支）中的工具调用序列
+- reload（重载）后通过重放工具调用恢复状态
+- 优点：零持久化层、零 schema migration（结构迁移）
+- 代价：依赖对话历史完整保留
 
-## 轻量化校准
+### 2.4 blockedBy 依赖
 
-> dteam = **轻量化编排引擎**。**不是**所有借鉴项都做——按"轻 / 重"评估后挑选进入路线图。
->
-> **轻**：branch replay 思路（设计模式）
-> **中**：blockedBy 依赖追踪（引入新概念）
-> **重**：—
->
-> 评估标准：改动量 + 当前痛点强度 + 启动 / 维护成本。
+每个任务可声明被哪些任务阻塞，并做简单环检测。
 
-## 与 dteam 的关系
+## 3. 与 dteam 的关系
 
-dteam 已经有 `src/pool.ts`，是 4 态任务池。**和 rpiv-todo 几乎重叠**。
+| 维度 | rpiv-todo | dteam |
+|---|---|---|
+| 状态机 | pending / in_progress / completed / deleted | pending / in_progress / done / failed |
+| UI | live overlay | `/dteam` widget / panel |
+| 依赖 | `blockedBy` | `chain` / `team` 组织形式 |
+| 持久化 | branch replay，不写盘 | in-memory（内存） |
+| 工具数量 | 1 个 `todo` | 1 个 `dteam` |
 
-| 维度 | rpiv-todo | dteam `pool.ts` |
-|------|----------|----------------|
-| 4 状态机 | ✅ pending/in_progress/completed/deleted | ✅ pending/in_progress/done/failed |
-| 依赖追踪 | ✅ blockedBy + 环检测 | ⚠️ chain 模式（线性）/ team 模式（并行） |
-| 持久化 | ✅ branch replay（不写盘） | ❌ in-memory |
-| Live overlay UI | ✅ | ✅ `src/ui/panel.ts` |
-| 工具暴露 | 1 个 `todo` 工具 | 1 个 `dteam` 工具 |
-| i18n | ✅（可选 SDK） | ❌（中文为主） |
+结论：功能领域重叠，不集成；UI 行为和轻量恢复思路可借。
 
-**整体集成是重叠**——dteam 自己的 `pool.ts` 已经覆盖了 4 状态 + UI。**整套不集成**。
+## 4. dteam 要借什么
 
-## 借鉴清单
+### 4.1 0.5 要借：完成项清理体验
 
-| 项 | 范围 | 状态 | 备注 |
-|----|------|------|------|
-| **branch replay 持久化思路** | 远期参考 | 仅参考 | dteam "persistence + resume" 远期项的轻量级实现参考（**不写盘，靠 in-conversation replay**） |
-| blockedBy 依赖追踪 | — | 暂不做 | dteam 当前 chain/team 已覆盖，引入是新概念 |
-| 整套集成 | — | 不做 | dteam `pool.ts` 已覆盖 4 状态 + UI |
+当前 dteam run 完成后会 reset（重置）UI，用户可能来不及看；但如果一直保留，又会堆积。
 
-## 重点：branch replay 思路详解
+借鉴方向：
 
-dteam "persistence + resume" 在 [项目路线图.md](../30-路线图/30-项目路线图.md) 的"远期规划"段，设想是：
+1. worker 完成后先保留在面板中
+2. 下一次 agent response 开始或下一次 run 开始时再清理旧完成项
+3. 空时自动隐藏 widget
+4. 总览优先显示 running / failed / waiting，其次显示 done
 
-- 写盘 + 序列化 `SessionManager` + resume 检测
-- **重**：要写盘格式、版本兼容、resume 检测逻辑
+### 4.2 0.5 要借：4 状态更清晰
 
-rpiv-todo 给的轻量级思路：
+将 UI 状态表达收敛为用户能看懂的 4 类：
 
-- **不写盘**——靠 in-conversation 重放工具调用恢复状态
-- **轻**：零持久化层、零写盘、零冲突
+| UI 状态 | 来源状态 |
+|---|---|
+| pending（等待） | `idle` / 未开始 |
+| running（进行中） | `running` |
+| done（完成） | `done` |
+| failed（失败） | `failed` / `error` |
 
-如果未来 dteam 重做"persistence + resume"，应该按这个轻量级思路。
+### 4.3 远期参考：branch replay
 
-**不写盘的代价**：任务状态依赖 conversation 完整保留（不能截断太狠）。dteam 当前 `compaction: { enabled: false }`，不主动压缩，所以这点没问题。
+如果未来要做 persistence + resume，优先评估 branch replay，而不是马上写 `.dteam/sessions/`：
 
-## 不要学
+- 先看 Pi 是否能稳定读取当前 conversation branch 的历史 tool call
+- 能的话，用工具调用重放恢复 run/task 状态
+- 不能的话，再考虑写盘
 
-- ❌ 整套集成（dteam 已有 `pool.ts`，重叠）
-- ❌ i18n（dteam 中文为主，不引入复杂度）
-- ❌ deleted tombstone（dteam 不做审计）
-- ❌ live overlay UI（dteam 已有 `src/ui/panel.ts`）
+## 5. 暂不借什么
 
-## 关键不变量（dteam 必须保留）
+| 不借 | 原因 |
+|---|---|
+| 整套 todo 工具 | dteam 已有 `TaskPool` 和 `UIStore` |
+| `blockedBy` | dteam 当前用 `chain` / `team` 表达依赖；先不引入第三套模型 |
+| deleted tombstone | dteam 不做 todo 审计 |
+| i18n（国际化） | dteam 当前中文优先，不引入维护成本 |
 
-1. **`src/pool.ts` 4 状态机**（pending/in_progress/done/failed）—— 不替换
-2. **chain 模式 + team 模式**（不引入 blockedBy）
-3. **`src/ui/panel.ts` 单 UI 层**（不增加 overlay）
-4. **`compaction: { enabled: false }`**（不主动压缩 context）
-5. **单一 `dteam` 工具**（不增加 `todo` 工具）
+## 6. 进入路线图的项
 
-## 参考实现位置
+见 `../30-路线图/30-项目路线图.md`：
 
-- npm 包：`@juicesharp/rpiv-todo`
-- 关键文件：`./index.ts`（单文件扩展）
-- **branch replay 实现**：见 `index.ts` 里的"branch replay"逻辑（conversation branch 重新执行工具调用恢复状态）
-- 4 状态机：见状态转换函数
-- blockedBy 环检测：见拓扑排序逻辑
+- 0.5 P0：`/dteam` 面板借鉴 rpiv-todo 完成项清理体验
+- 远期：branch replay 作为 persistence + resume 的轻量参考
