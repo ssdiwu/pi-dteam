@@ -14,7 +14,9 @@ import { run } from "./src/orchestrator.js";
 import { defaultReporter } from "./src/reporter.js";
 import { SignalBus, RunsStore } from "./src/signals/index.js";
 import {
+  clearWidget,
   handlePanelCommand,
+  isPanelExpanded,
   renderWidget,
   renderWidgetIfChanged,
 } from "./src/ui/index.js";
@@ -329,9 +331,10 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(`dteam: 完成 — ${result.summary}`, "info");
           stopRefresh();
 
-          // 保留最后一轮 uiStore 快照，直到下一次 dteam(run) 再清理
+          // 保留最后一轮 uiStore 快照；但输入栏上方的运行态 widget 在完成后隐藏
           if (ctx.hasUI) {
-            renderWidget(ctx);
+            if (isPanelExpanded()) renderWidget(ctx);
+            else clearWidget(ctx);
           }
 
           // 通知主 LLM 完成 + 渲染到对话（折叠态一行，展开态显示步骤）
@@ -373,7 +376,8 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(`dteam: 失败 — ${(e as Error).message}`, "error");
           stopRefresh();
           if (ctx.hasUI) {
-            renderWidget(ctx);
+            if (isPanelExpanded()) renderWidget(ctx);
+            else clearWidget(ctx);
           }
         } finally {
           cleanupRun(newRunId);

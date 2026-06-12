@@ -103,5 +103,6 @@ describe("index 后台 run", () => {
     expect(report.details.fileGraph.boundaryStatus).toBe("known");
     expect(report.details.scheduling.batches[0].stepIndexes).toEqual([0]);
     expect(report.details.steps[0]).toMatchObject({ task: "改 a", strategy: "direct", files: ["src/a.ts"] });
+    expect(ctx.ui.setWidget).toHaveBeenLastCalledWith("dteam-workers", undefined);
   });
 });
