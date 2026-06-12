@@ -1,25 +1,33 @@
-/**
- * ui/panel.ts — dteam 面板（widget 模式）
+/*
+ * ui/panel.ts — dteam widget / expanded panel
  *
- * 通过 ctx.ui.setWidget() 显示在右侧边栏。
- * 支持两种态：
- *   - 展开态：/dteam 触发，显示完整面板（含 tab 内容）
- *   - 折叠态：run 进行中自动显示，紧凑摘要
- *
- * Tab 切换通过 /dteam <tabIdx> 命令参数实现。
- * 所有行经过 truncateToWidth 兜底。
+ * 折叠态：低噪声任务树。
+ * 展开态：固定内容 tabs（概览 / 批次 / Workers / 信号 / 报告）。
  */
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { uiStore, type UIWorkerState, type UISignal } from "./store.js";
+import { uiStore, type UIState, type UIWorkerState, type UISignal } from "./store.js";
 import { statusIcon, statusColor, formatDuration, signalIcon, signalLabel, strike } from "./helpers.js";
-
-// ---------------------------------------------------------------------------
-// 状态
-// ---------------------------------------------------------------------------
 
 let panelExpanded = false;
 let activeTabIdx = 0;
+let lastFingerprint = "";
+let lastTimeRender = 0;
+
+export const WIDGET_KEY = "dteam-workers";
+
+interface TabDef {
+  key: "overview" | "batches" | "workers" | "signals" | "report";
+  label: string;
+}
+
+const CONTENT_TABS: TabDef[] = [
+  { key: "overview", label: "概览" },
+  { key: "batches", label: "批次" },
+  { key: "workers", label: "Workers" },
+  { key: "signals", label: "信号" },
+  { key: "report", label: "报告" },
+];
 
 export function isPanelExpanded(): boolean {
   return panelExpanded;
@@ -29,155 +37,135 @@ export function getActiveTab(): number {
   return activeTabIdx;
 }
 
-// ---------------------------------------------------------------------------
-// Tab 定义
-// ---------------------------------------------------------------------------
-
-interface TabDef {
-  key: string;
-  label: string;
+function realWorkers(state: UIState): UIWorkerState[] {
+  return state.workers.filter((worker) => worker.id !== "plan");
 }
 
-function buildTabs(workers: UIWorkerState[]): TabDef[] {
-  const tabs: TabDef[] = [{ key: "__overview__", label: "总览" }];
-  for (const w of workers) {
-    if (w.id === "plan") continue; // plan 不是真 worker
-    tabs.push({ key: w.id, label: `W:${truncateToWidth(w.title, 14, "")}` });
-  }
-  return tabs;
+function elapsedForRun(state: UIState): number {
+  return (state.finishedAt ?? Date.now()) - (state.startedAt || Date.now());
 }
 
-// ---------------------------------------------------------------------------
-// 各 tab 内容渲染
-// ---------------------------------------------------------------------------
+function runSummary(state: UIState): string {
+  const workers = realWorkers(state);
+  const done = workers.filter((worker) => worker.status === "done").length;
+  const failed = workers.filter((worker) => worker.status === "failed" || worker.status === "error").length;
+  if (workers.length === 0) return "准备中";
+  return failed > 0 ? `${done}/${workers.length} 完成, ${failed} 失败` : `${done}/${workers.length} 完成`;
+}
 
-function renderOverview(
-  state: ReturnType<typeof uiStore.getState>,
-  width: number,
-  theme: any,
-): string[] {
-  const workers = state.workers;
-  // 排除 plan 标记（不是真 worker）
-  const realWorkers = workers.filter((w) => w.id !== "plan");
-  const realWorkersCount = realWorkers.length;
-  const elapsed = Date.now() - (state.startedAt || Date.now());
-  const done = realWorkers.filter((w) => w.status === "done").length;
-  const failed = realWorkers.filter((w) => w.status === "failed").length;
-  const planWorker = workers.find((w) => w.id === "plan");
-  const summary = (() => {
-    if (realWorkersCount === 0) return "准备中";
-    if (failed > 0) return `${done}/${realWorkersCount} 完成, ${failed} 失败`;
-    if (done === realWorkersCount) return `${realWorkersCount}/${realWorkersCount} 全部完成`;
-    return `${done}/${realWorkersCount} 完成, ${realWorkersCount - done} 在跑`;
-  })();
+function currentBatchLine(state: UIState): string {
+  const scheduling = state.scheduling;
+  if (!scheduling) return "当前批次: 未生成";
+  const runningIndexes = new Set(
+    realWorkers(state)
+      .filter((worker) => worker.status === "running")
+      .map(stepIndexFromWorker)
+      .filter((index): index is number => index !== null),
+  );
+  const current = scheduling.batches.find((batch) => batch.stepIndexes.some((index) => runningIndexes.has(index)));
+  if (current) return `当前批次: #${current.index} [${current.stepIndexes.join(", ")}]`;
+  const doneIndexes = new Set(
+    realWorkers(state)
+      .filter((worker) => worker.status === "done")
+      .map(stepIndexFromWorker)
+      .filter((index): index is number => index !== null),
+  );
+  const next = scheduling.batches.find((batch) => batch.stepIndexes.some((index) => !doneIndexes.has(index)));
+  return next ? `下一批次: #${next.index} [${next.stepIndexes.join(", ")}]` : "当前批次: 全部完成";
+}
 
-  const lines: string[] = [
+function renderOverview(state: UIState, width: number, theme: any): string[] {
+  const lines = [
     "",
     truncateToWidth(`  目标: ${state.goal}`, width, "…"),
-    truncateToWidth(`  耗时: ${formatDuration(elapsed)}  ${summary}`, width, "…"),
+    truncateToWidth(`  mode: ${state.mode ?? "unknown"} · ${runSummary(state)} · ${formatDuration(elapsedForRun(state))}`, width, "…"),
+    truncateToWidth(`  reason: ${state.planReason ?? "未记录"}`, width, "…"),
+    truncateToWidth(`  ${currentBatchLine(state)}`, width, "…"),
   ];
-  if (planWorker) {
-    lines.push(truncateToWidth(`  计划: ${planWorker.title.replace(/^.\s*/, "")}`, width, "…"));
-  }
-  lines.push("");
-
-  for (const w of workers) {
-    if (w.id === "plan") continue; // plan 不是真 worker，不在总览里逐个列出
-    const icon = statusIcon(w.status);
-    const dur =
-      w.startedAt && w.finishedAt
-        ? formatDuration(w.finishedAt - w.startedAt)
-        : w.startedAt
-          ? formatDuration(Date.now() - w.startedAt)
-          : "";
-    const tool = w.status === "running" && w.currentTool ? ` · ${w.currentTool}` : "";
-    lines.push(truncateToWidth(`  ${icon} ${w.title}${tool}  ${dur}`, width, "…"));
-
-    if (w.recentOutput?.length) {
-      for (const ol of w.recentOutput.slice(-2)) {
-        lines.push(truncateToWidth(`    ⎿ ${ol}`, width, "…"));
-      }
-    }
-  }
-
+  const conflicts = state.scheduling?.conflicts ?? [];
+  const warnings = conflicts.filter((conflict) => conflict.type === "unknown" || conflict.type === "shared" || conflict.type === "hard");
+  if (warnings.length > 0) lines.push(theme.fg("warning", `  warning: ${warnings.length} 个调度提示`));
   return lines;
 }
 
-function renderWorkerTab(worker: UIWorkerState, width: number, theme: any): string[] {
-  const elapsed = worker.startedAt
-    ? worker.finishedAt
-      ? formatDuration(worker.finishedAt - worker.startedAt)
-      : formatDuration(Date.now() - worker.startedAt)
-    : "未开始";
-
-  const lines: string[] = [
-    truncateToWidth(`  ${statusIcon(worker.status)} ${worker.title}`, width, "…"),
-    truncateToWidth(`  状态: ${worker.status} · 耗时: ${elapsed}`, width, "…"),
-    "",
-  ];
-
-  if (worker.currentTool) {
-    lines.push(truncateToWidth(`  当前工具: ${worker.currentTool}`, width, "…"));
-    lines.push("");
+function renderBatches(state: UIState, width: number, theme: any): string[] {
+  const scheduling = state.scheduling;
+  if (!scheduling) return ["", theme.fg("muted", "  （暂无调度计划）")];
+  const lines = ["", theme.fg("accent", "  批次")];
+  for (const batch of scheduling.batches) {
+    lines.push(truncateToWidth(`  #${batch.index} steps [${batch.stepIndexes.join(", ")}] · ${batch.reason}`, width, "…"));
   }
-
-  // ── 信号历史 ──
-  if (worker.signals?.length) {
-    lines.push(theme.fg("dim", "  ── 信号 ──"));
-
-    // 按类型分组
-    const byType: Record<string, UISignal[]> = {};
-    for (const sig of worker.signals) {
-      (byType[sig.type] ??= []).push(sig);
+  if (scheduling.delayedSteps.length > 0) {
+    lines.push("", theme.fg("warning", "  延后"));
+    for (const delay of scheduling.delayedSteps) {
+      lines.push(truncateToWidth(`  ↳ step-${delay.stepIndex}: ${delay.delayedBecause.join("；")}`, width, "…"));
     }
-
-    for (const [type, sigs] of Object.entries(byType)) {
-      const icon = signalIcon(type);
-      const label = signalLabel(type);
-      const count = sigs.length;
-      lines.push(truncateToWidth(
-        theme.fg("dim", `  ${icon} ${label}: ${count} 条`),
-        width, "…",
-      ));
-
-      // 最近 3 条摘要
-      for (const sig of sigs.slice(-3)) {
-        const summary = sig.summary.slice(0, width - 10);
-        lines.push(truncateToWidth(
-          theme.fg("dim", `    ⎿ ${summary}`),
-          width, "…",
-        ));
-      }
-    }
-    lines.push("");
   }
-
-  // ── 输出 ──
-  if (worker.recentOutput?.length) {
-    lines.push(theme.fg("dim", "  ── 输出 ──"));
-    for (const ol of worker.recentOutput.slice(-10)) {
-      lines.push(truncateToWidth(`  ${ol}`, width, "…"));
+  if (scheduling.conflicts.length > 0) {
+    lines.push("", theme.fg("warning", "  冲突 / 提示"));
+    for (const conflict of scheduling.conflicts.slice(0, 8)) {
+      const files = conflict.files?.length ? ` · ${conflict.files.join(", ")}` : "";
+      lines.push(truncateToWidth(`  ${conflict.type}: steps [${conflict.stepIndexes.join(", ")}]${files} · ${conflict.reason}`, width, "…"));
     }
-  } else if (!worker.signals?.length) {
-    lines.push("  （暂无输出）");
   }
-
   return lines;
 }
 
-// ---------------------------------------------------------------------------
-// Tab 栏渲染
-// ---------------------------------------------------------------------------
+function renderWorkers(state: UIState, width: number, theme: any): string[] {
+  const workers = realWorkers(state);
+  if (workers.length === 0) return ["", theme.fg("muted", "  （暂无 worker）")];
+  const lines = [""];
+  workers.forEach((worker, index) => {
+    const branch = index === workers.length - 1 ? "└" : "├";
+    lines.push(renderCompactWorkerLine(worker, branch, width, theme));
+    if (worker.files?.length) lines.push(truncateToWidth(theme.fg("dim", `│   files: ${worker.files.join(", ")}`), width, "…"));
+    for (const output of worker.recentOutput.slice(-2)) {
+      const firstLine = output.split("\n")[0]?.trim();
+      if (firstLine) lines.push(truncateToWidth(theme.fg("muted", `│   ⎿ ${firstLine}`), width, "…"));
+    }
+  });
+  return lines;
+}
 
-function buildTabBarLine(
-  theme: any,
-  tabs: TabDef[],
-  currentIdx: number,
-  width: number,
-): string {
-  const parts = tabs.map((tab, i) => {
-    if (i === currentIdx) return theme.fg("accent", `[${i}:${tab.label}]`);
-    return theme.fg("muted", ` ${i}:${tab.label} `);
+function renderSignals(state: UIState, width: number, theme: any): string[] {
+  const signals = realWorkers(state).flatMap((worker) => worker.signals);
+  if (signals.length === 0) return ["", theme.fg("muted", "  （暂无信号）")];
+  const lines = [""];
+  for (const [type, items] of groupedSignals(signals)) {
+    lines.push(theme.fg("accent", `  ${signalIcon(type)} ${signalLabel(type)}: ${items.length} 条`));
+    for (const signal of items.slice(-5)) {
+      lines.push(truncateToWidth(theme.fg("dim", `    ⎿ ${signal.workerId}: ${signal.summary}`), width, "…"));
+    }
+  }
+  return lines;
+}
+
+function renderReport(state: UIState, width: number, theme: any): string[] {
+  const lines = [""];
+  if (!state.finishedAt) {
+    lines.push(theme.fg("muted", "  报告待完成"));
+    lines.push(truncateToWidth(`  当前: ${runSummary(state)}`, width, "…"));
+    return lines;
+  }
+  lines.push(theme.fg("accent", `  final: ${runSummary(state)}`));
+  lines.push(truncateToWidth(`  mode: ${state.mode ?? "unknown"}`, width, "…"));
+  if (state.scheduling) {
+    lines.push(truncateToWidth(`  batches: ${state.scheduling.batches.map((b) => `[${b.stepIndexes.join(",")}]`).join(" → ")}`, width, "…"));
+    lines.push(truncateToWidth(`  conflicts: ${state.scheduling.conflicts.length}`, width, "…"));
+  }
+  return lines;
+}
+
+function groupedSignals(signals: UISignal[]): Array<[string, UISignal[]]> {
+  const byType = new Map<string, UISignal[]>();
+  for (const signal of signals) byType.set(signal.type, [...(byType.get(signal.type) ?? []), signal]);
+  return [...byType.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
+
+function buildTabBarLine(theme: any, currentIdx: number, width: number): string {
+  const parts = CONTENT_TABS.map((tab, index) => {
+    const label = `${index}:${tab.label}`;
+    return index === currentIdx ? theme.fg("accent", `[${label}]`) : theme.fg("muted", ` ${label} `);
   });
   return truncateToWidth(parts.join(" "), width, "…");
 }
@@ -198,14 +186,10 @@ function latestOutputLine(worker: UIWorkerState): string {
 
 function prioritizeWorkers(workers: UIWorkerState[]): UIWorkerState[] {
   const score: Record<string, number> = { failed: 0, error: 0, running: 1, delayed: 2, idle: 3, pending: 3, done: 4 };
-  return [...workers].sort((a, b) => {
-    const byStatus = (score[a.status] ?? 3) - (score[b.status] ?? 3);
-    if (byStatus !== 0) return byStatus;
-    return (a.startedAt ?? 0) - (b.startedAt ?? 0);
-  });
+  return [...workers].sort((a, b) => (score[a.status] ?? 3) - (score[b.status] ?? 3) || (a.startedAt ?? 0) - (b.startedAt ?? 0));
 }
 
-function delayedStepIndexes(scheduling: ReturnType<typeof uiStore.getState>["scheduling"]): Map<number, string> {
+function delayedStepIndexes(scheduling: UIState["scheduling"]): Map<number, string> {
   const delayed = new Map<number, string>();
   for (const item of scheduling?.delayedSteps ?? []) delayed.set(item.stepIndex, item.delayedBecause.join("；"));
   return delayed;
@@ -216,246 +200,144 @@ function stepIndexFromWorker(worker: UIWorkerState): number | null {
   return match ? Number(match[1]) : null;
 }
 
-// ---------------------------------------------------------------------------
-// 统一组件构建（供 setWidget 使用）
-// ---------------------------------------------------------------------------
-
-function buildComponent(): (_tui: unknown, theme: any) => {
-  render(w: number): string[];
-  invalidate(): void;
-} {
-  return (_tui: unknown, theme: any) => {
-    /** 安全截断 */
-    const safe = (lines: string[], w: number): string[] =>
-      lines.map((l) => truncateToWidth(l, w, "…"));
-
-    return {
-      render(width: number) {
-        const state = uiStore.getState();
-        const innerW = Math.max(20, width - 4);
-
-        // ── 展开态 ──
-        if (panelExpanded) {
-          if (!state.goal) {
-            return safe(
-              [
-                "",
-                theme.fg("accent", " 📊 dteam worker 进度"),
-                theme.fg("borderMuted", "─".repeat(innerW)),
-                theme.fg("muted", "  （无 worker 正在工作）"),
-                "",
-                theme.fg("dim", '  启动 worker：让主 LLM 调 dteam(action="run", goal="...")'),
-                theme.fg("borderMuted", "─".repeat(innerW)),
-                theme.fg("dim", "  再输 /dteam 关闭面板"),
-                "",
-              ],
-              width,
-            );
-          }
-
-          const tabs = buildTabs(state.workers);
-          if (activeTabIdx >= tabs.length) activeTabIdx = Math.max(0, tabs.length - 1);
-
-          const workers = state.workers;
-          const realWorkers = workers.filter((w) => w.id !== "plan");
-          const realWorkersCount = realWorkers.length;
-          const elapsed = Date.now() - (state.startedAt || Date.now());
-          const doneCount = realWorkers.filter((w) => w.status === "done").length;
-          const failedCount = realWorkers.filter((w) => w.status === "failed").length;
-          const summary =
-            failedCount > 0
-              ? `${doneCount}/${realWorkersCount} 完成, ${failedCount} 失败`
-              : `${doneCount}/${realWorkersCount} 完成`;
-          const goalText = truncateToWidth(state.goal || "dteam", innerW - 30, "…");
-
-          const lines: string[] = [
-            "",
-            theme.fg(
-              "accent",
-              ` ⚙ dteam · ${goalText} · ${formatDuration(elapsed)} · ${summary}`,
-            ),
-            buildTabBarLine(theme, tabs, activeTabIdx, width),
-            theme.fg("borderMuted", "─".repeat(innerW)),
-          ];
-
-          // 当前 tab 内容
-          const currentTab = tabs[activeTabIdx];
-          if (!currentTab) {
-            lines.push(theme.fg("muted", "  （无内容）"));
-          } else if (currentTab.key === "__overview__") {
-            lines.push(...renderOverview(state, width, theme));
-          } else {
-            const worker = workers.find((w) => w.id === currentTab.key);
-            if (worker) {
-              lines.push(...renderWorkerTab(worker, width, theme));
-            } else {
-              lines.push(theme.fg("muted", "  （worker 已结束）"));
-            }
-          }
-
-          lines.push(theme.fg("borderMuted", "─".repeat(innerW)));
-          lines.push(theme.fg("dim", "  /dteam N 切换 tab · /dteam 关闭"));
-          lines.push("");
-
-          return safe(lines, width);
-        }
-
-        // ── 折叠态（run 进行中自动显示）──
-        if (!state.goal) {
-          return safe([], width);
-        }
-
-        const workers = state.workers ?? [];
-        const realWorkers = workers.filter((w) => w.id !== "plan");
-        const realWorkersCount = realWorkers.length;
-        const elapsed = (state.finishedAt ?? Date.now()) - (state.startedAt || Date.now());
-        const done = realWorkers.filter((w) => w.status === "done").length;
-        const failed = realWorkers.filter((w) => w.status === "failed" || w.status === "error").length;
-        const mode = state.mode ? `[${state.mode}] ` : "";
-        const summary = failed > 0 ? `${done}/${realWorkersCount} done · ${failed} failed` : `${done}/${realWorkersCount} done`;
-
-        const lines: string[] = [
-          truncateToWidth(
-            theme.fg("accent", `● dteam ${mode}${summary} · ${formatDuration(elapsed)}`),
-            width,
-            "…",
-          ),
-        ];
-
-        const orderedWorkers = prioritizeWorkers(realWorkers).slice(0, 6);
-        const delayed = delayedStepIndexes(state.scheduling);
-        for (let i = 0; i < orderedWorkers.length; i++) {
-          const worker = orderedWorkers[i];
-          const isLast = i === orderedWorkers.length - 1;
-          const branch = isLast ? "└" : "├";
-          const cont = isLast ? "  " : "│ ";
-          lines.push(renderCompactWorkerLine(worker, branch, width, theme));
-          if (worker.status === "running") {
-            const output = latestOutputLine(worker);
-            if (output) lines.push(truncateToWidth(theme.fg("muted", `${cont}  ⎿ ${output}`), width, "…"));
-          }
-          const stepIndex = stepIndexFromWorker(worker);
-          if (stepIndex !== null && delayed.has(stepIndex)) {
-            lines.push(truncateToWidth(theme.fg("warning", `${cont}  ↳ delayed: ${delayed.get(stepIndex)}`), width, "…"));
-          }
-        }
-
-        if (realWorkers.length > orderedWorkers.length) {
-          lines.push(theme.fg("dim", `└ … ${realWorkers.length - orderedWorkers.length} more`));
-        }
-
-        return safe(lines, width);
-      },
-
-      invalidate() {},
-    };
-  };
+function renderExpanded(state: UIState, width: number, innerW: number, theme: any): string[] {
+  if (!state.goal) return renderEmptyExpanded(innerW, theme);
+  if (activeTabIdx >= CONTENT_TABS.length) activeTabIdx = CONTENT_TABS.length - 1;
+  const goalText = truncateToWidth(state.goal || "dteam", innerW - 32, "…");
+  const lines = [
+    "",
+    theme.fg("accent", ` ⚙ dteam · ${goalText} · ${formatDuration(elapsedForRun(state))} · ${runSummary(state)}`),
+    buildTabBarLine(theme, activeTabIdx, width),
+    theme.fg("borderMuted", "─".repeat(innerW)),
+    ...renderActiveTab(state, width, theme),
+    theme.fg("borderMuted", "─".repeat(innerW)),
+    theme.fg("dim", "  /dteam N 切换 tab · /dteam close 关闭"),
+    "",
+  ];
+  return lines;
 }
 
-// ---------------------------------------------------------------------------
-// 公开 API
-// ---------------------------------------------------------------------------
+function renderEmptyExpanded(innerW: number, theme: any): string[] {
+  return [
+    "",
+    theme.fg("accent", " 📊 dteam worker 进度"),
+    theme.fg("borderMuted", "─".repeat(innerW)),
+    theme.fg("muted", "  （无 worker 正在工作）"),
+    "",
+    theme.fg("dim", '  启动 worker：让主 LLM 调 dteam(action="run", goal="...")'),
+    theme.fg("borderMuted", "─".repeat(innerW)),
+    theme.fg("dim", "  再输 /dteam close 关闭面板"),
+    "",
+  ];
+}
 
-export const WIDGET_KEY = "dteam-workers";
+function renderActiveTab(state: UIState, width: number, theme: any): string[] {
+  const tab = CONTENT_TABS[activeTabIdx]?.key ?? "overview";
+  if (tab === "batches") return renderBatches(state, width, theme);
+  if (tab === "workers") return renderWorkers(state, width, theme);
+  if (tab === "signals") return renderSignals(state, width, theme);
+  if (tab === "report") return renderReport(state, width, theme);
+  return renderOverview(state, width, theme);
+}
 
-/** 设置/刷新 widget（强制重渲染） */
+function renderCollapsed(state: UIState, width: number, theme: any): string[] {
+  if (!state.goal) return [];
+  const workers = realWorkers(state);
+  const done = workers.filter((worker) => worker.status === "done").length;
+  const failed = workers.filter((worker) => worker.status === "failed" || worker.status === "error").length;
+  const mode = state.mode ? `[${state.mode}] ` : "";
+  const summary = failed > 0 ? `${done}/${workers.length} done · ${failed} failed` : `${done}/${workers.length} done`;
+  const lines = [theme.fg("accent", `● dteam ${mode}${summary} · ${formatDuration(elapsedForRun(state))}`)];
+  const delayed = delayedStepIndexes(state.scheduling);
+  const visibleWorkers = prioritizeWorkers(workers).slice(0, 6);
+  visibleWorkers.forEach((worker, index) => {
+    const branch = index === visibleWorkers.length - 1 ? "└" : "├";
+    const cont = index === visibleWorkers.length - 1 ? "  " : "│ ";
+    lines.push(renderCompactWorkerLine(worker, branch, width, theme));
+    if (worker.status === "running" && latestOutputLine(worker)) {
+      lines.push(theme.fg("muted", `${cont}  ⎿ ${latestOutputLine(worker)}`));
+    }
+    const stepIndex = stepIndexFromWorker(worker);
+    if (stepIndex !== null && delayed.has(stepIndex)) lines.push(theme.fg("warning", `${cont}  ↳ delayed: ${delayed.get(stepIndex)}`));
+  });
+  if (workers.length > visibleWorkers.length) lines.push(theme.fg("dim", `└ … ${workers.length - visibleWorkers.length} more`));
+  return lines;
+}
+
+function buildComponent(): (_tui: unknown, theme: any) => { render(w: number): string[]; invalidate(): void } {
+  return (_tui: unknown, theme: any) => ({
+    render(width: number) {
+      const state = uiStore.getState();
+      const innerW = Math.max(20, width - 4);
+      const lines = panelExpanded ? renderExpanded(state, width, innerW, theme) : renderCollapsed(state, width, theme);
+      return lines.map((line) => truncateToWidth(line, width, "…"));
+    },
+    invalidate() {},
+  });
+}
+
 export function renderWidget(ctx: any): void {
   if (!ctx.hasUI) return;
   ctx.ui.setWidget(WIDGET_KEY, buildComponent());
-  // 同步刷新 fingerprint，避免下次 tick 因旧值误判
   lastFingerprint = computeFingerprint(uiStore.getState());
   lastTimeRender = Date.now();
 }
 
-/** 状态指纹：state 内容变化时才会变（不包含时间） */
-let lastFingerprint = "";
-let lastTimeRender = 0;
-
-function computeFingerprint(state: ReturnType<typeof uiStore.getState>): string {
+function computeFingerprint(state: UIState): string {
   return JSON.stringify({
     goal: state.goal,
+    mode: state.mode,
+    planReason: state.planReason,
     finishedAt: state.finishedAt,
-    workers: state.workers.map((w) => ({
-      id: w.id,
-      parentId: w.parentId,
-      title: w.title,
-      status: w.status,
-      output: w.recentOutput,
-      signalCount: w.signals.length,
-      currentTool: w.currentTool,
+    scheduling: state.scheduling,
+    workers: state.workers.map((worker) => ({
+      id: worker.id,
+      parentId: worker.parentId,
+      title: worker.title,
+      status: worker.status,
+      output: worker.recentOutput,
+      signalCount: worker.signals.length,
+      currentTool: worker.currentTool,
+      files: worker.files,
     })),
     strategyCount: state.strategies.length,
   });
 }
 
-/**
- * 按需刷新 widget：
- *  - state 内容变化（fingerprint 不同）→ 重新渲染
- *  - 距上次渲染 ≥ 1s → 重新渲染（让耗时走起来）
- *  - 其他情况 → 跳过
- */
 export function renderWidgetIfChanged(ctx: any, intervalMs = 1000): void {
   if (!ctx.hasUI) return;
   const state = uiStore.getState();
   const now = Date.now();
   const fp = computeFingerprint(state);
-  const contentChanged = fp !== lastFingerprint;
-  const timeTickNeeded = now - lastTimeRender >= intervalMs;
-  if (contentChanged || timeTickNeeded) {
+  if (fp !== lastFingerprint || now - lastTimeRender >= intervalMs) {
     lastFingerprint = fp;
     lastTimeRender = now;
     ctx.ui.setWidget(WIDGET_KEY, buildComponent());
   }
 }
 
-/** 清除 widget */
 export function clearWidget(ctx: any): void {
   panelExpanded = false;
   if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined);
 }
 
-/**
- * 面板命令处理：
- *   /dteam       → 展开/关闭（toggle）
- *   /dteam 1     → 展开并切换到 tab 1
- *   /dteam close → 关闭
- */
 export function handlePanelCommand(args: string | undefined, ctx: any): void {
   if (!ctx.hasUI) return;
-
-  // 关闭指令
   if (args === "close") {
     panelExpanded = false;
-    const state = uiStore.getState();
-    if (state.goal) {
-      renderWidget(ctx);
-    } else {
-      ctx.ui.setWidget(WIDGET_KEY, undefined);
-    }
+    if (uiStore.getState().goal) renderWidget(ctx);
+    else ctx.ui.setWidget(WIDGET_KEY, undefined);
     return;
   }
-
-  // 数字 → 切换到指定 tab
   const tabNum = parseInt(args ?? "", 10);
-  if (!isNaN(tabNum)) {
+  if (!Number.isNaN(tabNum)) {
     panelExpanded = true;
-    activeTabIdx = Math.max(0, tabNum);
+    activeTabIdx = Math.max(0, Math.min(tabNum, CONTENT_TABS.length - 1));
     renderWidget(ctx);
     return;
   }
-
-  // 无参数 → toggle
-  if (panelExpanded) {
-    panelExpanded = false;
-    const state = uiStore.getState();
-    if (state.goal) {
-      renderWidget(ctx);
-    } else {
-      ctx.ui.setWidget(WIDGET_KEY, undefined);
-    }
-  } else {
-    panelExpanded = true;
-    activeTabIdx = 0;
-    renderWidget(ctx);
-  }
+  panelExpanded = !panelExpanded;
+  if (panelExpanded) activeTabIdx = 0;
+  if (uiStore.getState().goal || panelExpanded) renderWidget(ctx);
+  else ctx.ui.setWidget(WIDGET_KEY, undefined);
 }

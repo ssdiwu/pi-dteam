@@ -23,6 +23,7 @@ export interface WorkerView {
   title: string;
   status?: string;
   recentOutput?: string;
+  files?: string[];
 }
 
 /** 信号视图（业务用） */
@@ -72,7 +73,7 @@ export const defaultReporter: Reporter = {
     uiStore.setScheduling(scheduling);
   },
   addWorker(w) {
-    uiStore.addWorker({ id: w.id, parentId: w.parentId, title: w.title });
+    uiStore.addWorker({ id: w.id, parentId: w.parentId, title: w.title, files: w.files });
   },
   updateWorker(id, patch) {
     uiStore.updateWorker(id, patch);

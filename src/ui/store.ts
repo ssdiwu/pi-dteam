@@ -37,6 +37,7 @@ export interface UIWorkerState {
   finishedAt: number | null;
   recentOutput: string[];
   currentTool: string | null;
+  files?: string[];
   /** 该 worker 发过的信号 */
   signals: UISignal[];
 }
@@ -91,7 +92,7 @@ export class UIStore {
     this.state.scheduling = scheduling;
   }
 
-  addWorker(worker: { id: string; parentId: string | null; title: string }): void {
+  addWorker(worker: { id: string; parentId: string | null; title: string; files?: string[] }): void {
     this.state.workers.push({
       id: worker.id,
       parentId: worker.parentId,
@@ -101,6 +102,7 @@ export class UIStore {
       finishedAt: null,
       recentOutput: [],
       currentTool: null,
+      files: worker.files,
       signals: [],
     });
   }

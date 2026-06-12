@@ -203,6 +203,7 @@ async function runStepWithStrategy(
   reporter.addWorker({
     id: stepId, parentId: null,
     title: `${icon} ${step.role}: ${step.task}`,
+    files: step.files,
   });
   reporter.updateWorker(stepId, { status: "running" });
 
