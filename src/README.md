@@ -59,7 +59,7 @@ content (JSON string) → 返回给 LLM
 | pickAvailableModel 加 fallback | Pi 里 M3 偶尔找不到时能降级到 M2.7 |
 | 规则判断优先于 LLM | 零成本，95% 简单目标不需要 LLM |
 | JSON 模式而非 tool calling | MiniMax-M3 tool calling 不稳定 |
-| 工具加载从白名单变主 LLM 显式传入 | 见 `doc/40-版本实施方案/41-工具动态加载方案.md` 方案 D；0.4.0 `ROLE_DEFAULTS` 仍为 fallback（主 LLM 不传 availableTools 时走 ROLE_DEFAULTS） |
+| 工具加载从白名单变主 LLM 显式传入 | 见 `../doc/90-归档/版本实施方案/41-工具动态加载方案.md` 方案 D；0.4.0 `ROLE_DEFAULTS` 仍为 fallback（主 LLM 不传 availableTools 时走 ROLE_DEFAULTS） |
 | prevOutput 字符串注入 | v0 的 withPreviousOutput 简化版，不引入共享内存 |
 | team 分批 ≤ 3 | 撞 429 风险 vs 并行收益的平衡 |
 | 测试用 vitest + vi.mock | 已有项目实践，ESM 友好 |
@@ -82,4 +82,4 @@ content (JSON string) → 返回给 LLM
 - **build_check 的 check 输出是文本**：靠正则匹配 "通过/pass/✓" 判断，可能误判
 - **adaptive 的评估也是文本**：靠正则匹配 "满意/完成"，主观性强
 - **没接 stream 回调**：leaf 看不到 LLM 实时输出，UI 只显示最终结果
-- **工具动态加载已在 0.4.1 落地**：不传 `availableTools` 时仍走 `ROLE_DEFAULTS[role].tools`；planner LLM 路径支持主 LLM 传 `availableTools` 参数（dtool schema），不传则走 ROLE_DEFAULTS（见 `doc/40-版本实施方案/41-工具动态加载方案.md` 方案 D）
+- **工具动态加载已在 0.4.1 落地**：不传 `availableTools` 时仍走 `ROLE_DEFAULTS[role].tools`；planner LLM 路径支持主 LLM 传 `availableTools` 参数（dtool schema），不传则走 ROLE_DEFAULTS（见 `../doc/90-归档/版本实施方案/41-工具动态加载方案.md` 方案 D）
