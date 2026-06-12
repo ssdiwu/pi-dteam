@@ -95,7 +95,7 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 - [v0.5.0 轻量依赖图调度与运行态 UI 实施方案](./doc/40-版本实施方案/41-v0.5.0-轻量依赖图调度与运行态UI实施方案.md)
 - [工具动态加载方案（已归档）](./doc/90-归档/版本实施方案/41-工具动态加载方案.md)
 - [v0.4.1 后台任务稳定性实施方案（已归档）](./doc/90-归档/版本实施方案/42-v0.4.1-后台任务稳定性实施方案.md)
-- [多 worker 系统参考](./doc/20-能力参考/28-多worker系统参考.md)
+- [多 worker 编排系统参考](./doc/20-能力参考/22-多worker编排系统参考.md)
 - [src/ 内部架构](./src/README.md)
 - [CHANGELOG.md](./CHANGELOG.md)
 
