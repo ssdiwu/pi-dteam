@@ -27,6 +27,7 @@ describe("UIStore 信号功能", () => {
       uiStore.setScheduling({
         batches: [{ index: 0, stepIndexes: [0, 1], reason: "无冲突" }],
         conflicts: [{ type: "unknown", stepIndexes: [2], reason: "缺少 files" }],
+        delayedSteps: [],
       });
       const state = uiStore.getState();
       expect(state.scheduling?.batches).toHaveLength(1);

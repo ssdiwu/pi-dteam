@@ -82,9 +82,15 @@ export interface SchedulingBatch {
   reason: string;
 }
 
+export interface SchedulingDelay {
+  stepIndex: number;
+  delayedBecause: string[];
+}
+
 export interface SchedulingPlan {
   batches: SchedulingBatch[];
   conflicts: SchedulingConflict[];
+  delayedSteps: SchedulingDelay[];
 }
 
 /** Plan 的一个步骤 */

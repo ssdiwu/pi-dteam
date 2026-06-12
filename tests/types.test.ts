@@ -64,6 +64,7 @@ describe("types", () => {
     const scheduling: SchedulingPlan = {
       batches: [{ index: 0, stepIndexes: [0], reason: "无冲突" }],
       conflicts: [{ type: "dependency", stepIndexes: [0, 1], files: ["src/b.ts"], reason: "依赖方向" }],
+      delayedSteps: [{ stepIndex: 1, delayedBecause: ["依赖方向"] }],
     };
     const r: RunResult = {
       status: "done",

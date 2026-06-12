@@ -32,6 +32,7 @@ describe("Reporter 契约", () => {
     defaultReporter.setScheduling({
       batches: [{ index: 0, stepIndexes: [0], reason: "无冲突" }],
       conflicts: [],
+      delayedSteps: [],
     });
     expect(uiStore.getState().scheduling?.batches[0].reason).toBe("无冲突");
   });
