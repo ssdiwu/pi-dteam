@@ -6,14 +6,14 @@
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
-| `tools.ts` | 70+ | 类型定义（Task/Decision/ExecutionPlan/RunResult/StepResult） |
+| `tools.ts` | 110+ | 类型定义（Task/Decision/ExecutionPlan/RunResult/StepResult/FileGraph/SchedulingPlan） |
 | `pool.ts` | 80 | 任务池（write/claimNext/update/getAll/count） |
 | `planner.ts` | 200+ | Phase 1: 规则判断 + LLM 兜底生成计划 |
 | `leaf.ts` | 60 | 用角色调 LLM 执行一个 step |
 | `session.ts` | 200+ | createWorkerSession 工厂 + 角色系统 + 模型选择 |
 | `planner.ts` | 200+ | Phase 1: 规则判断 + LLM 兜底 |
 | `orchestrator.ts` | 230+ | 主循环：plan → execute → report |
-| `ui/store.ts` | 112 | UI 全局状态 |
+| `ui/store.ts` | 160+ | UI 全局状态（workers/strategies/signals + 0.5 mode/scheduling 契约） |
 | `ui/panel.ts` | 328 | overlay 面板 + 折叠态 widget |
 | `ui/index.ts` | 12 | 统一导出 |
 
@@ -63,6 +63,19 @@ content (JSON string) → 返回给 LLM
 | prevOutput 字符串注入 | v0 的 withPreviousOutput 简化版，不引入共享内存 |
 | team 分批 ≤ 3 | 撞 429 风险 vs 并行收益的平衡 |
 | 测试用 vitest + vi.mock | 已有项目实践，ESM 友好 |
+
+## 0.5.0 契约占位
+
+Phase 0 已冻结以下类型 / 状态边界，后续阶段逐步填充真实数据：
+
+- `FileGraph` / `SchedulingPlan` / `SchedulingConflict`：定义在 `tools.ts`
+- `RunResult.fileGraph` / `RunResult.scheduling`：最终 report 可回溯入口
+- `StepResult.files`：step 级文件边界
+- `UIState.mode` / `UIState.planReason` / `UIState.scheduling`：运行态 UI 展示入口
+- `DTEAM_CONFIG.scheduler`：shared file patterns、支持扩展名、扫描上限
+- `Reporter.setPlan()` / `Reporter.setScheduling()`：业务层向 UI 层传递 plan / scheduling
+
+当前阶段**不改变运行行为**；真正的 file graph / preflight scheduling 在 `src/scheduler/` 阶段落地。
 
 ## 扩展点
 

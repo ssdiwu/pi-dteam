@@ -27,6 +27,23 @@ export const DTEAM_CONFIG = {
     /** help 自愈/根注入的超时（毫秒），超过则 resolve(null) 让叶子退出循环 */
     supplementTimeoutMs: 60_000,
   },
+  /** 0.5.0 scheduler：轻量依赖图与 preflight 调度 */
+  scheduler: {
+    /** import graph 首版只扫描这些扩展名 */
+    supportedExtensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"] as string[],
+    /** 单次 run 最多扫描文件数，避免误扫整个仓库 */
+    maxScanFiles: 200,
+    /** shared file patterns：涉及这些文件时更保守地拆批 */
+    sharedFilePatterns: [
+      "package.json",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock",
+      "tsconfig.json",
+      "vitest.config.*",
+      "index.ts",
+    ] as string[],
+  },
   /** agent 提示词/role config 查找路径（按顺序找） */
   agentPaths: ["agents"] as string[],
 } as const;

@@ -42,6 +42,51 @@ export type ExecMode = "solo" | "chain" | "team";
 /** 维度二：执行策略（每个 step 独立选择） */
 export type Strategy = "direct" | "build_check" | "adaptive";
 
+// ═══ 0.5.0 调度类型（Phase 0：契约冻结） ═══
+
+export type FileBoundaryStatus = "known" | "unknown" | "unresolved" | "truncated";
+
+export interface FileGraphNode {
+  file: string;
+  imports: string[];
+  importedBy: string[];
+  exists: boolean;
+}
+
+export interface FileGraphUnresolvedImport {
+  from: string;
+  specifier: string;
+  reason: string;
+}
+
+export interface FileGraph {
+  roots: string[];
+  nodes: FileGraphNode[];
+  unresolved: FileGraphUnresolvedImport[];
+  boundaryStatus: FileBoundaryStatus;
+  truncated?: boolean;
+}
+
+export type SchedulingConflictType = "hard" | "shared" | "dependency" | "unknown";
+
+export interface SchedulingConflict {
+  type: SchedulingConflictType;
+  stepIndexes: number[];
+  files?: string[];
+  reason: string;
+}
+
+export interface SchedulingBatch {
+  index: number;
+  stepIndexes: number[];
+  reason: string;
+}
+
+export interface SchedulingPlan {
+  batches: SchedulingBatch[];
+  conflicts: SchedulingConflict[];
+}
+
 /** Plan 的一个步骤 */
 export interface PlanStep {
   role: RoleName;
@@ -71,6 +116,7 @@ export interface StepResult {
   strategy: Strategy;
   status: "done" | "failed";
   output: string;
+  files?: string[];
   /** build_check / adaptive 的循环轮次 */
   rounds?: number;
 }
@@ -88,6 +134,10 @@ export interface RunResult {
   workers?: WorkerRun[];
   /** task 池统计 */
   taskSummary?: { total: number; done: number; failed: number };
+  /** 0.5.0：轻量依赖图（Phase 0 先冻结类型，后续阶段填充） */
+  fileGraph?: FileGraph;
+  /** 0.5.0：preflight 后的 batch 调度计划（Phase 0 先冻结类型，后续阶段填充） */
+  scheduling?: SchedulingPlan;
 }
 
 // ═══ ADR 架构模式类型（阶段 2 用） ═══
