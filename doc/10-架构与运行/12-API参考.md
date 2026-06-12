@@ -1,34 +1,30 @@
 # dteam API 参考
 
-> dteam 对外暴露 1 个工具 + 1 个命令。
+> dteam 对外保持轻量：1 个工具 `dteam` + 1 个命令 `/dteam` + 1 类完成消息 `dteam-report`。
 
-## 工具：`dteam`
+## 1. 工具：`dteam`
 
-让主 LLM 以**后台任务模式**启动或继续一个 goal（目标）。
+`dteam` 让主 LLM 启动或继续一次后台多 worker 协作。
 
-### 参数
+### 1.1 参数
 
 | 参数 | 类型 | 必填 | 说明 |
-|------|------|:----:|------|
-| `action` | `"run" \| "continue"` | ✅ | `run`=启动后台任务；`continue`=给等待中的任务继续注入信息 |
-| `goal` | `string` | `run` 时必填 | 要完成的目标（自由文本） |
-| `runId` | `string` | `continue` 时必填 | 后台任务 ID |
-| `message` | `string` | `continue` 时必填 | 用户补充给后台任务的信息 |
-| `availableTools` | `string[]` | 否 | 主 LLM 传入的可用工具列表；用于 worker 工具验证与透传 |
+|---|---|:---:|---|
+| `action` | `"run" | "continue"` | ✅ | `run` 启动后台任务；`continue` 给等待中的任务注入用户补充 |
+| `goal` | `string` | `run` 时必填 | 要完成的目标 |
+| `runId` | `string` | `continue` 时必填 | 后台任务 ID（编号） |
+| `message` | `string` | `continue` 时必填 | 用户补充信息 |
+| `availableTools` | `string[]` | 否 | 主 LLM 当前可见工具名列表；dteam 用它校验和透传 worker 工具 |
 
-### 调用示例
+### 1.2 启动后台任务
 
-```typescript
-// 启动后台任务
-dteam(action="run", goal="在 /tmp 下创建 hello.txt")
-
-// 继续一个等待人工输入的任务
-dteam(action="continue", runId="run-xxx", message="请改 Web 端")
+```ts
+dteam(
+  action="run",
+  goal="重构 src/ui/panel.ts，让完成项不堆积",
+  availableTools=["read", "bash", "edit", "write", "grep", "find", "ls"]
+)
 ```
-
-### 返回值
-
-#### `action="run"`
 
 立即返回：
 
@@ -36,37 +32,106 @@ dteam(action="continue", runId="run-xxx", message="请改 Web 端")
 { "status": "running", "runId": "run-xxx" }
 ```
 
-说明：
+注意：这只是启动确认，不是最终结果。
 
-- 这是**后台启动确认**，不是最终执行结果
-- 实时进度请看 `/dteam`
-- 最终结果会通过 `dteam-report`（结果报告）消息进入主对话
+### 1.3 继续等待中的任务
 
-#### `action="continue"`
+```ts
+dteam(
+  action="continue",
+  runId="run-xxx",
+  message="保留现有中文 UI，不要引入英文状态名"
+)
+```
 
-返回确认文本，例如：
+返回：
 
 ```json
 { "content": "已注入到 run run-xxx，叶子继续执行" }
 ```
 
-#### 最终结果结构
+## 2. 运行态观察
 
-后台任务完成后，最终结果在内部仍是 `RunResult`：
+`run` 返回后，进度不通过 `onUpdate`（流式更新回调）继续推送。观察方式：
 
-```typescript
+| 渠道 | 作用 |
+|---|---|
+| `/dteam` | 展开 / 关闭实时面板 |
+| widget（小组件） | run 进行中自动显示紧凑摘要 |
+| status（状态栏） | 显示 dteam 正在执行 |
+| notify（通知） | 开始、完成、失败提示 |
+| `dteam-report` | 完成后进入主对话的最终报告 |
+
+## 3. 命令：`/dteam`
+
+| 输入 | 行为 |
+|---|---|
+| `/dteam` | toggle（切换）面板展开 / 折叠 |
+| `/dteam 0` | 展开并切到总览 tab（标签页） |
+| `/dteam 1` | 展开并切到第 1 个 worker tab |
+| `/dteam close` | 关闭面板 |
+
+空态示例：
+
+```text
+📊 dteam worker 进度
+──────────────────────
+  （无 worker 正在工作）
+
+  启动 worker：让主 LLM 调 dteam(action="run", goal="...")
+──────────────────────
+```
+
+运行态示例：
+
+```text
+⚙ dteam · 修复 UI 状态 · 00:12 · 1/3 完成
+[0:总览] [1:W:build] [2:W:check]
+──────────────────────
+  目标: 修复 UI 状态
+  耗时: 00:12  1/3 完成, 2 在跑
+  计划: chain · 先实现后验收
+
+  ⚒ build: 调整 panel 清理逻辑
+    ⎿ 已更新 store 状态
+```
+
+## 4. 完成消息：`dteam-report`
+
+后台 run 完成后，扩展会发送一条 `dteam-report` 自定义消息：
+
+折叠态：
+
+```text
+✓ dteam · 3/3 完成 (Ctrl+O 展开)
+```
+
+展开态显示每个 step 的角色、状态和输出摘要。
+
+## 5. 最终结果结构
+
+内部最终结果仍是 `RunResult`：
+
+```ts
 interface RunResult {
   status: "done" | "failed"
   goal: string
   plan: ExecutionPlan
   steps: StepResult[]
   summary: string
+  signals?: Signal[]
+  workers?: WorkerRun[]
+  taskSummary?: { total: number; done: number; failed: number }
 }
+```
 
+`ExecutionPlan`：
+
+```ts
 interface ExecutionPlan {
   mode: "solo" | "chain" | "team"
-  steps: PlanStep[]
   reason: string
+  steps: PlanStep[]
 }
 
 interface PlanStep {
@@ -74,161 +139,36 @@ interface PlanStep {
   task: string
   strategy: "direct" | "build_check" | "adaptive"
   files?: string[]
-}
-
-interface StepResult {
-  role: RoleName
-  task: string
-  strategy: Strategy
-  status: "done" | "failed"
-  output: string
-  rounds?: number  // build_check / adaptive 实际跑的轮次
+  tools?: string[]
 }
 ```
 
-### 真实返回示例
+## 6. `availableTools` 契约
 
-#### 启动返回示例
+| 场景 | 行为 |
+|---|---|
+| 主 LLM 传非空数组 | planner LLM 路径只允许选择这些工具 |
+| 不传 | 回落到 `ROLE_DEFAULTS` |
+| 传空数组 | 等同不传 |
+| LLM 返回不存在的工具名 | intersect（取交集）过滤；全空则回落默认工具 |
 
-```json
-{
-  "status": "running",
-  "runId": "run-123"
-}
-```
+这来自 `41-工具动态加载方案.md` 的方案 D：dteam 不扫描 Pi 已加载工具，而是信任调用方显式传入。
 
-#### 最终 `RunResult` 示例
+## 7. 内部 API
 
-```json
-{
-  "status": "done",
-  "goal": "在 /tmp 下创建 hello.txt",
-  "plan": {
-    "mode": "solo",
-    "reason": "目标简短，直接干",
-    "steps": [{
-      "role": "build",
-      "task": "在 /tmp 下创建 hello.txt",
-      "strategy": "direct"
-    }]
-  },
-  "steps": [{
-    "role": "build",
-    "task": "在 /tmp 下创建 hello.txt",
-    "strategy": "direct",
-    "status": "done",
-    "output": "完成。文件已创建..."
-  }],
-  "summary": "1/1 完成"
-}
-```
+| 函数 | 位置 | 说明 |
+|---|---|---|
+| `run(goal, ctx)` | `src/orchestrator.ts` | 执行一次 goal，返回 `RunResult` |
+| `plan(goal, ctx, availableTools?)` | `src/planner.ts` | 生成 `ExecutionPlan` |
+| `execute(role, task, ctx, goal, tools?)` | `src/leaf.ts` | 执行单个 worker step |
+| `createWorkerSession(options)` | `src/session.ts` | 创建 worker session |
+| `getRoleTools(role)` | `src/session/role-config.ts` | 获取角色默认工具 |
 
-## 命令：`/dteam`
+## 8. 当前不提供的 API
 
-切换 dteam 进度面板。
-
-### 行为
-
-| 当前状态 | 输入 `/dteam` 后 |
-|---------|-----------------|
-| 无 run，面板关闭 | 打开空态面板 |
-| 有 run，面板关闭 | 打开进度面板 |
-| 面板打开 | 关闭面板 |
-
-### 面板内容
-
-> `v0.4.1` 起，后台实时进度以 `/dteam` 面板为主，不再依赖已结束工具调用的流式更新。
-
-**空态**（无 run）：
-
-```
-📊 dteam worker 进度
-──────────────────────
-  （无 worker 正在工作）
-
-  启动 worker：让主 LLM 调 dteam(action="run", goal="...")
-
-──────────────────────
-  再输 /dteam 关闭面板
-```
-
-**进度态**（有 run）：
-
-```
-📊 dteam · <goal> · <duration> · <done>/<total> 完成
-──────────────────────
-  🔍 explore: 探索项目结构
-    ⎿ 项目是 Node.js + TypeScript
-  ⚒️ build: 实现 JWT 认证
-    ⎿ 已实现 14 个源文件
-  🛡️ check: 验收
-    ⎿ 14/14 PASS
-──────────────────────
-  再输 /dteam 关闭面板
-```
-
-## 内部 API
-
-> 这些不是公开 API，但代码里能看到，供扩展用。
-
-### `src/orchestrator.ts`
-
-```typescript
-// 跑一个 goal
-export async function run(goal: string, ctx: any): Promise<RunResult>
-```
-
-### `src/planner.ts`
-
-```typescript
-// 制定执行计划
-export async function plan(goal: string, ctx: any): Promise<ExecutionPlan>
-```
-
-### `src/leaf.ts`
-
-```typescript
-// 用指定角色跑一个 task
-export async function execute(role: RoleName, task: string, ctx: any, goal: string): Promise<string>
-```
-
-### `src/session.ts`
-
-```typescript
-// 创建 worker session（统一入口）
-export async function createWorkerSession(options: CreateSessionOptions): Promise<AgentSession>
-
-// 智能选择可用模型
-export function pickAvailableModel(ctx: any, primary: string, fallback: string): string
-
-// 获取角色工具列表
-export function getRoleTools(role: RoleName): string[]
-```
-
-## 配置
-
-### `package.json` Pi 字段
-
-```json
-{
-  "pi": {
-    "name": "dteam",
-    "extensions": ["./index.ts"]
-  }
-}
-```
-
-### 模型选择
-
-dteam 优先用 `minimax-cn/MiniMax-M3`，找不到时自动降级到 `minimax-cn/MiniMax-M2.7`。
-
-修改 `src/leaf.ts` / `src/planner.ts` 中对 `pickAvailableModel` 的调用，或直接调整 `src/session/model-resolver.ts`，即可自定义模型选择逻辑。
-
-### 角色配置
-
-在 `src/session.ts` 的 `ROLE_DEFAULTS` 表修改：
-- 工具列表
-- thinking level
-- 描述
-
-或在 `agents/*.md` 修改 systemPrompt（需 frontmatter 格式）。
+| 不提供 | 原因 |
+|---|---|
+| `status` action | 当前状态通过 `/dteam` 面板和最终 report 呈现；未来如确有需要再加 |
+| 多个工具名 | 保持 dteam 单工具哲学 |
+| 自定义角色注册 API | 角色写死是当前简化策略 |
+| workflow 脚本 API | dteam 不做固定编排平台 |
