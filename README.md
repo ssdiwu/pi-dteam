@@ -4,7 +4,7 @@
 >
 > 简单任务主 LLM 直接干；复杂编程任务才调 dteam，进入后台多 worker 协作状态。
 >
-> 当前基线：v0.4.1 已完成后台任务稳定性收口；下一阶段准备进入 0.5，重点打磨 `/dteam` 面板、widget（小组件）和最终报告的可观测性。
+> 当前基线：v0.5.0 已落地：轻量依赖图调度 + 运行态 UI 重做。dteam 会把可确定的文件冲突 / 依赖关系交给 runtime（运行时）调度，并通过 widget、`/dteam` 和 `dteam-report` 解释过程。
 
 ## 一句话
 
@@ -53,21 +53,30 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 // → { content: "已注入到 run-xxx" }
 ```
 
-### 后台任务模型（v0.4.1）
+### 后台任务模型
 
-`dteam(action="run")` 现在明确采用后台任务模式：
+`dteam(action="run")` 采用后台任务模式：
 
 1. 启动时立即返回 `runId`
 2. 后台继续执行，不阻塞主对话
 3. 实时进度主要看 `/dteam` 面板 / `widget`（小组件）/ `status`（状态栏）
 4. 完成后通过 `dteam-report`（结果报告）消息回到主对话
-5. 不再依赖已结束工具调用的 `onUpdate`（流式更新回调）推送后台进度
+5. 不依赖已结束工具调用的 `onUpdate`（流式更新回调）推送后台进度
+6. 完成态保留到下一次 dteam run，方便回看上一轮结果
 
 ### `/dteam` 命令
 
 在 Pi 里输入 `/dteam`：
-- 第一次：打开面板（实时显示 worker 进度、信号、策略记录）
-- 第二次：关闭面板
+
+| 命令 | 行为 |
+|---|---|
+| `/dteam` | 展开 / 折叠面板 |
+| `/dteam 0` | 概览：goal、mode、summary、当前批次、关键 warning |
+| `/dteam 1` | 批次：batches、delayedBecause、conflicts |
+| `/dteam 2` | Workers：worker 树、files、最多 2 行输出 |
+| `/dteam 3` | 信号：聚合 found / progress / help / blocked |
+| `/dteam 4` | 报告：运行中待完成，完成后 final summary |
+| `/dteam close` | 关闭面板 |
 
 ### 4 种信号
 
@@ -81,6 +90,22 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 | **help** | 自己解决不了 | 第 1 次：派 explore 收集补充<br>第 2 次：升级到人类，等 dteam(continue) |
 
 工具名 `worker_sendSignal`（已注入到所有 worker 角色）。
+
+## 什么时候该用 dteam
+
+| 场景 | 推荐 |
+|---|---|
+| 简单任务：改一个 typo、解释一段代码、跑一个命令 | 主 LLM 直接做，不调 dteam |
+| 复杂任务：需要先探索、再实现、再验证 | 调 `dteam(action="run", goal="...")` |
+| 多模块任务：多个文件/模块可并行推进，但要避开冲突 | 调 dteam，让 runtime 用轻量依赖图拆 batch |
+
+示例：
+
+```text
+简单任务：把 README 里一个错别字改掉 → 主 LLM 直接改。
+复杂任务：重构 UI 面板并补测试 → 调 dteam。
+并行避让：同时调整 auth/user 两组逻辑 → 调 dteam；如果 auth.ts imports user.ts，runtime 会让 user.ts 相关 step 先跑。
+```
 
 ## 文档
 
@@ -105,7 +130,7 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 .
 ├── index.ts                 # Pi 扩展入口（注册 dteam 工具 + /dteam 命令）
 ├── src/
-│   ├── orchestrator.ts     # 编排主入口（197 行：plan → execute → report）
+│   ├── orchestrator.ts     # 编排主入口：plan → fileGraph/scheduling → execute → report
 │   ├── planner.ts          # Phase 1: 规则判断 + LLM 兜底生成 ExecutionPlan
 │   ├── leaf.ts             # Phase 2: 用角色调 LLM 执行（thin coordinator）
 │   ├── pool.ts             # 任务池（write/claimNext/update/getAll/read/search/list/complete）
@@ -123,6 +148,7 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 │   │   ├── run.ts          # WorkerRun + ISignalBus + IRunsStore
 │   │   ├── role.ts         # RoleName
 │   │   └── context.ts      # DteamContext
+│   ├── scheduler/          # 0.5.0 轻量 file graph + preflight scheduling
 │   ├── ui/                 # UI 模块
 │   │   ├── index.ts        # 统一导出
 │   │   ├── store.ts        # UIStore 单例（workers/strategies/signals）
@@ -149,7 +175,7 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 │           ├── adaptive.ts
 │           └── index.ts
 ├── agents/                 # 5 个角色定义（explore / design / build / check / close）
-├── tests/                  # 16 个测试文件
+├── tests/                  # 19 个测试文件
 ├── doc/                    # 所有文档（中文名）
 └── archive/                # v0 历史归档
 ```
@@ -168,7 +194,10 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 | 实时转发（叶子发的 found/progress 自动转发到其他正在跑的叶子） | ✅ | `src/orchestrator/peer-forwarder.ts` |
 | reference_architecture 工具（design 角色可用，12 模式 + ADR 模板） | ✅ | `src/reference-data.ts` |
 | 3 种 strategy（direct/build_check/adaptive） | ✅ | `src/orchestrator/strategies/` |
-| /dteam 面板（实时信号 + 策略记录） | ✅ | `src/ui/panel.ts` |
+| /dteam 面板（概览 / 批次 / Workers / 信号 / 报告） | ✅ | `src/ui/panel.ts` |
+| 轻量依赖图调度（fileGraph + scheduling） | ✅ | `src/scheduler/` |
+| team 冲突拆批（hard/shared/dependency/unknown） | ✅ | `src/scheduler/preflight.ts` |
+| 完成态保留到下一次 run | ✅ | `src/ui/store.ts` / `index.ts` |
 
 ## 设计哲学
 
@@ -185,13 +214,13 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 
 - ✅ v1 核心代码落地 + 重构完成（orchestrator 562→197，session 299→78）
 - ✅ `npm run build` 通过
-- ✅ `npm test` 可作为当前单元测试基线
+- ✅ `npm test` 可作为当前单元测试基线（19 个测试文件，300 个测试）
 - ✅ 4 个真实任务实测通过（solo/chain/team/adaptive 全部命中）
 - ✅ 代码主干与历史归档已分层：运行核心 / 说明层 / 归档层边界清晰
 - ✅ 信号通路实测通过（progress/found/blocked/help 都能在面板看到）
 - ✅ 后台运行 + dteam-report 注入实测通过
 - ⏳ 实时转发需更多 task 验证（单元测过）
-- ⏳ v1.1：分支层（v2+）
+- ⏳ 0.5.x 后续：按真实痛点评估 status action、doctor、Goal verifier 等轻量增强
 
 ## 相关链接
 
