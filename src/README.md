@@ -77,8 +77,10 @@ Phase 0 已冻结以下类型 / 状态边界，后续阶段逐步填充真实数
 - `src/scheduler/file-graph.ts`：已实现轻量 import graph
 - `src/scheduler/preflight.ts`：已实现 hard/shared/dependency/unknown conflict 分类与 batch 生成
 - `orchestrator.ts`：已接入 scheduler；`team` 按 scheduling batches 执行，`solo` / `chain` 只附带 scheduling 信息不改顺序
+- `orchestrator.ts`：已通过 `ctx.dteamAppendEntry` 写入 `dteam-plan` / `dteam-scheduling` checkpoint
+- `index.ts`：`dteam-report.details` 已包含 plan / fileGraph / scheduling / step task-strategy-files
 
-当前阶段**尚未写入 session checkpoint / dteam-report.details**；这些在 Phase 4 落地。
+当前阶段**尚未重做 widget 和 `/dteam` expanded panel**；这些在 Phase 5 / Phase 6 落地。
 
 ## 扩展点
 
