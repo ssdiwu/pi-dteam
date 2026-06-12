@@ -6,9 +6,9 @@
 ## [0.5.0] - Unreleased
 
 ### 计划
-- 打磨 `/dteam` 面板和 widget（小组件）：完成项保留、4 状态清晰、mode 标签稳定展示。
-- 加入轻量并行治理：`PlanStep.files` 展示、显式同文件冲突预检、冲突 step 自动拆批。
-- 强化 `dteam-report`（结果报告）：保留 worker tree（工作树）结构、plan mode、files / 冲突说明、失败摘要。
+- 一次性重做 `/dteam` 面板和 widget（小组件）：完成项保留到下一次 dteam run、4 状态清晰、mode 标签稳定展示、done 删除线弱化。
+- 加入轻量依赖图调度：planner 给初始 `PlanStep.files`，dteam runtime 补 import graph，显式同文件 / shared file / dependency edge 自动拆批。
+- 强化 `dteam-report`（结果报告）：保留 worker tree（工作树）结构、plan mode、file graph、scheduling、冲突说明、失败摘要。
 - 补自然语言使用示例：明确什么任务该主 LLM 直接做，什么任务该调 dteam。
 
 ### 不做
