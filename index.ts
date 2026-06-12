@@ -175,7 +175,10 @@ export default function (pi: ExtensionAPI) {
       runId: string;
       status: string;
       summary: string;
-      steps: Array<{ role: string; status: string; output: string }>;
+      plan?: RunResult["plan"];
+      fileGraph?: RunResult["fileGraph"];
+      scheduling?: RunResult["scheduling"];
+      steps: Array<{ role: string; task?: string; strategy?: string; files?: string[]; status: string; output: string }>;
     } | undefined;
 
     if (!details) {
@@ -194,10 +197,25 @@ export default function (pi: ExtensionAPI) {
 
     // 展开态：步骤详情
     const w = (process.stdout.columns || 80) - 4;
+    if (details.plan) {
+      text += `\n${theme.fg("dim", `  plan: ${details.plan.mode} · ${truncateToWidth(details.plan.reason, w - 12, "…")}`)}`;
+    }
+    if (details.scheduling) {
+      text += `\n${theme.fg("dim", `  batches: ${details.scheduling.batches.map((b) => `[${b.stepIndexes.join(",")}]`).join(" → ")}`)}`;
+      if (details.scheduling.conflicts.length > 0) {
+        text += `\n${theme.fg("dim", `  conflicts: ${details.scheduling.conflicts.map((c) => c.type).join(", ")}`)}`;
+      }
+    }
+    if (details.fileGraph) {
+      text += `\n${theme.fg("dim", `  fileGraph: ${details.fileGraph.boundaryStatus}, ${details.fileGraph.nodes.length} files`)}`;
+    }
     for (const s of details.steps) {
       const si = statusIcon(s.status);
       const output = s.output ? truncateToWidth(s.output.split("\n")[0] ?? "", w - 8, "…") : "(无输出)";
-      text += `\n${theme.fg("dim", `  ${si} ${s.role}: ${output}`)}`;
+      const title = truncateToWidth(`${s.role}${s.strategy ? `/${s.strategy}` : ""}: ${s.task ?? ""}`, w - 8, "…");
+      const files = s.files && s.files.length > 0 ? ` [${s.files.join(", ")}]` : "";
+      text += `\n${theme.fg("dim", `  ${si} ${title}${files}`)}`;
+      text += `\n${theme.fg("dim", `    ⎿ ${output}`)}`;
     }
 
     return new Text(text, 0, 0);
@@ -276,7 +294,14 @@ export default function (pi: ExtensionAPI) {
 
       // 构建 run context（浅拷贝，不污染主对话 ctx）
       // 0.4.1：把 availableTools 挂到 runCtx，orchestrator/planner 会读它
-      const runCtx = { ...ctx, reporter, dteam: dteamCtx, dteamAvailableTools: availableTools };
+      // 0.5.0：把 pi.appendEntry 包成 dteamAppendEntry，便于 orchestrator 写 checkpoint 和测试 mock
+      const runCtx = {
+        ...ctx,
+        reporter,
+        dteam: dteamCtx,
+        dteamAvailableTools: availableTools,
+        dteamAppendEntry: (customType: string, data: unknown) => pi.appendEntry(customType, data),
+      };
 
       ctx.ui.notify(`dteam: 后台开始执行`, "info");
       ctx.ui.setStatus("dteam", `执行中: ${goal}`);
@@ -327,8 +352,14 @@ export default function (pi: ExtensionAPI) {
                   runId: newRunId,
                   status: result.status,
                   summary: result.summary,
+                  plan: result.plan,
+                  fileGraph: result.fileGraph,
+                  scheduling: result.scheduling,
                   steps: result.steps.map((s: any) => ({
                     role: s.role,
+                    task: s.task,
+                    strategy: s.strategy,
+                    files: s.files,
                     status: s.status,
                     output: s.output?.slice(0, 500) ?? "",
                   })),

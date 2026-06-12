@@ -23,6 +23,7 @@ function createPiMock() {
       registerCommand: vi.fn(),
       registerMessageRenderer: vi.fn(),
       sendMessage: vi.fn(),
+      appendEntry: vi.fn(),
     },
   };
 }
@@ -76,9 +77,20 @@ describe("index 后台 run", () => {
     resolveRun?.({
       status: "done",
       goal: "后台任务测试",
-      plan: { mode: "solo", reason: "测试", steps: [] },
-      steps: [],
-      summary: "0/0 完成",
+      plan: { mode: "team", reason: "测试", steps: [] },
+      steps: [{ role: "build", task: "改 a", strategy: "direct", status: "done", output: "ok", files: ["src/a.ts"] }],
+      summary: "1/1 完成",
+      fileGraph: {
+        roots: ["src/a.ts"],
+        nodes: [{ file: "src/a.ts", imports: [], importedBy: [], exists: true }],
+        unresolved: [],
+        boundaryStatus: "known",
+      },
+      scheduling: {
+        batches: [{ index: 0, stepIndexes: [0], reason: "无前置冲突，可并行" }],
+        conflicts: [],
+        delayedSteps: [],
+      },
     });
 
     await Promise.resolve();
@@ -86,5 +98,10 @@ describe("index 后台 run", () => {
 
     expect(onUpdate).not.toHaveBeenCalled();
     expect(api.sendMessage).toHaveBeenCalledTimes(1);
+    const report = api.sendMessage.mock.calls[0][0];
+    expect(report.details.plan.mode).toBe("team");
+    expect(report.details.fileGraph.boundaryStatus).toBe("known");
+    expect(report.details.scheduling.batches[0].stepIndexes).toEqual([0]);
+    expect(report.details.steps[0]).toMatchObject({ task: "改 a", strategy: "direct", files: ["src/a.ts"] });
   });
 });

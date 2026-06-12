@@ -51,10 +51,12 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
     };
   }
 
+  appendDteamEntry(ctx, "dteam-plan", { runId: dteam?.runId, goal, plan: executionPlan });
   reporter.setPlan({ mode: executionPlan.mode, reason: executionPlan.reason });
 
   const fileGraph = buildFileGraphFromSteps(executionPlan.steps, { cwd: ctx.cwd });
   const scheduling = preflightSchedule(executionPlan.steps, fileGraph);
+  appendDteamEntry(ctx, "dteam-scheduling", { runId: dteam?.runId, goal, fileGraph, scheduling });
   reporter.setScheduling(scheduling);
   reportSchedulingDelays(scheduling, reporter);
 
@@ -111,6 +113,13 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
 }
 
 // ═══ 执行调度 ═══
+
+function appendDteamEntry(ctx: any, customType: string, data: unknown): void {
+  if (typeof ctx.dteamAppendEntry !== "function") return;
+  try {
+    ctx.dteamAppendEntry(customType, data);
+  } catch { /* appendEntry 不应影响主流程 */ }
+}
 
 function reportSchedulingDelays(scheduling: SchedulingPlan, reporter: Reporter): void {
   for (const delay of scheduling.delayedSteps) {

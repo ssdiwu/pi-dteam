@@ -217,6 +217,24 @@ describe("orchestrator", () => {
     expect(result.scheduling?.batches.map((batch) => batch.stepIndexes)).toEqual([[0, 1]]);
   });
 
+  it("写入 dteam-plan 和 dteam-scheduling checkpoint", async () => {
+    const appendEntry = vi.fn();
+    mockPlan.mockResolvedValue({
+      mode: "solo",
+      reason: "checkpoint",
+      steps: [{ role: "build", task: "写", strategy: "direct", files: ["src/a.ts"] }],
+    });
+    mockExecute.mockResolvedValue("ok");
+
+    await run("checkpoint", { ...mockCtx, dteamAppendEntry: appendEntry });
+
+    expect(appendEntry).toHaveBeenCalledTimes(2);
+    expect(appendEntry.mock.calls[0][0]).toBe("dteam-plan");
+    expect(appendEntry.mock.calls[0][1].plan.reason).toBe("checkpoint");
+    expect(appendEntry.mock.calls[1][0]).toBe("dteam-scheduling");
+    expect(appendEntry.mock.calls[1][1].scheduling.batches[0].stepIndexes).toEqual([0]);
+  });
+
   it("chain 中一步失败 → 后续步骤不执行", async () => {
     mockPlan.mockResolvedValue({
       mode: "chain",
