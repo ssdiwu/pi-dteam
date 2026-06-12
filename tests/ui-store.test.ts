@@ -13,6 +13,27 @@ describe("UIStore 信号功能", () => {
     uiStore.startRun("test goal");
   }
 
+  describe("plan / scheduling", () => {
+    it("setPlan 记录 mode 和 reason", () => {
+      resetStore();
+      uiStore.setPlan({ mode: "team", reason: "并行" });
+      const state = uiStore.getState();
+      expect(state.mode).toBe("team");
+      expect(state.planReason).toBe("并行");
+    });
+
+    it("setScheduling 记录 batch 调度计划", () => {
+      resetStore();
+      uiStore.setScheduling({
+        batches: [{ index: 0, stepIndexes: [0, 1], reason: "无冲突" }],
+        conflicts: [{ type: "unknown", stepIndexes: [2], reason: "缺少 files" }],
+      });
+      const state = uiStore.getState();
+      expect(state.scheduling?.batches).toHaveLength(1);
+      expect(state.scheduling?.conflicts[0].type).toBe("unknown");
+    });
+  });
+
   describe("addSignal", () => {
     it("信号记录到对应 worker", () => {
       resetStore();

@@ -8,6 +8,13 @@
  */
 
 import { uiStore } from "./ui/index.js";
+import type { ExecMode, SchedulingPlan } from "./tools.js";
+
+/** Plan 视图（业务用，不依赖 uiStore 内部类型） */
+export interface PlanView {
+  mode: ExecMode;
+  reason: string;
+}
 
 /** Worker 视图（业务用，不依赖 uiStore 内部类型） */
 export interface WorkerView {
@@ -40,6 +47,8 @@ export interface StrategyView {
  */
 export interface Reporter {
   startRun(goal: string): void;
+  setPlan(plan: PlanView): void;
+  setScheduling(scheduling: SchedulingPlan): void;
   addWorker(w: WorkerView): void;
   updateWorker(id: string, patch: { status?: string; recentOutput?: string }): void;
   addSignal(workerId: string, sig: SignalView): void;
@@ -55,6 +64,12 @@ export interface Reporter {
 export const defaultReporter: Reporter = {
   startRun(goal) {
     uiStore.startRun(goal);
+  },
+  setPlan(plan) {
+    uiStore.setPlan(plan);
+  },
+  setScheduling(scheduling) {
+    uiStore.setScheduling(scheduling);
   },
   addWorker(w) {
     uiStore.addWorker({ id: w.id, parentId: w.parentId, title: w.title });

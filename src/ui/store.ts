@@ -5,6 +5,8 @@
  * 对外暴露只读快照，确保 UI 层无法意外突变内部状态。
  */
 
+import type { ExecMode, SchedulingPlan } from "../tools.js";
+
 // ---------------------------------------------------------------------------
 // 类型
 // ---------------------------------------------------------------------------
@@ -42,9 +44,13 @@ export interface UIWorkerState {
 /** 整个 run 的 UI 状态快照 */
 export interface UIState {
   goal: string;
+  mode?: ExecMode;
+  planReason?: string;
   workers: UIWorkerState[];
   startedAt: number;
   finishedAt: number | null;
+  /** 0.5.0：preflight 后的 batch 调度计划 */
+  scheduling?: SchedulingPlan;
   /** 根的策略下发记录 */
   strategies: UIStrategy[];
 }
@@ -74,6 +80,15 @@ export class UIStore {
       finishedAt: null,
       strategies: [],
     };
+  }
+
+  setPlan(plan: { mode: ExecMode; reason: string }): void {
+    this.state.mode = plan.mode;
+    this.state.planReason = plan.reason;
+  }
+
+  setScheduling(scheduling: SchedulingPlan): void {
+    this.state.scheduling = scheduling;
   }
 
   addWorker(worker: { id: string; parentId: string | null; title: string }): void {

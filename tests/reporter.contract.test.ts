@@ -19,6 +19,23 @@ describe("Reporter 契约", () => {
     expect(uiStore.getState().goal).toBe("test goal");
   });
 
+  it("setPlan → uiStore 拿到 mode 和 reason", () => {
+    defaultReporter.startRun("test goal");
+    defaultReporter.setPlan({ mode: "team", reason: "并行执行" });
+    const state = uiStore.getState();
+    expect(state.mode).toBe("team");
+    expect(state.planReason).toBe("并行执行");
+  });
+
+  it("setScheduling → uiStore 拿到调度计划", () => {
+    defaultReporter.startRun("test goal");
+    defaultReporter.setScheduling({
+      batches: [{ index: 0, stepIndexes: [0], reason: "无冲突" }],
+      conflicts: [],
+    });
+    expect(uiStore.getState().scheduling?.batches[0].reason).toBe("无冲突");
+  });
+
   it("addWorker → uiStore 拿到 worker 状态", () => {
     defaultReporter.addWorker({ id: "w-1", parentId: null, title: "build: test" });
     const w = uiStore.getState().workers.find((x) => x.id === "w-1");
