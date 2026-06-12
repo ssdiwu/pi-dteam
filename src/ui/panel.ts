@@ -75,37 +75,37 @@ function currentBatchLine(state: UIState): string {
 }
 
 function renderOverview(state: UIState, width: number, theme: any): string[] {
-  const lines = [
-    "",
-    truncateToWidth(`  目标: ${state.goal}`, width, "…"),
-    truncateToWidth(`  mode: ${state.mode ?? "unknown"} · ${runSummary(state)} · ${formatDuration(elapsedForRun(state))}`, width, "…"),
-    truncateToWidth(`  reason: ${state.planReason ?? "未记录"}`, width, "…"),
-    truncateToWidth(`  ${currentBatchLine(state)}`, width, "…"),
-  ];
   const conflicts = state.scheduling?.conflicts ?? [];
   const warnings = conflicts.filter((conflict) => conflict.type === "unknown" || conflict.type === "shared" || conflict.type === "hard");
-  if (warnings.length > 0) lines.push(theme.fg("warning", `  warning: ${warnings.length} 个调度提示`));
+  const lines = [
+    "",
+    truncateToWidth(`  goal   ${state.goal}`, width, "…"),
+    truncateToWidth(`  plan   ${state.mode ?? "unknown"} · ${state.planReason ?? "未记录"}`, width, "…"),
+    truncateToWidth(`  state  ${runSummary(state)} · ${formatDuration(elapsedForRun(state))}`, width, "…"),
+    truncateToWidth(`  batch  ${currentBatchLine(state).replace(/^当前批次: |^下一批次: /, "")}`, width, "…"),
+  ];
+  if (warnings.length > 0) lines.push(theme.fg("warning", `  warn   ${warnings.length} 个调度提示`));
   return lines;
 }
 
 function renderBatches(state: UIState, width: number, theme: any): string[] {
   const scheduling = state.scheduling;
   if (!scheduling) return ["", theme.fg("muted", "  （暂无调度计划）")];
-  const lines = ["", theme.fg("accent", "  批次")];
+  const lines = [""];
   for (const batch of scheduling.batches) {
-    lines.push(truncateToWidth(`  #${batch.index} steps [${batch.stepIndexes.join(", ")}] · ${batch.reason}`, width, "…"));
+    lines.push(truncateToWidth(`  [${batch.index}] steps ${batch.stepIndexes.join(",")}  ${batch.reason}`, width, "…"));
   }
   if (scheduling.delayedSteps.length > 0) {
-    lines.push("", theme.fg("warning", "  延后"));
+    lines.push("");
     for (const delay of scheduling.delayedSteps) {
-      lines.push(truncateToWidth(`  ↳ step-${delay.stepIndex}: ${delay.delayedBecause.join("；")}`, width, "…"));
+      lines.push(truncateToWidth(theme.fg("warning", `  ↳ step-${delay.stepIndex}  ${delay.delayedBecause.join("；")}`), width, "…"));
     }
   }
   if (scheduling.conflicts.length > 0) {
-    lines.push("", theme.fg("warning", "  冲突 / 提示"));
-    for (const conflict of scheduling.conflicts.slice(0, 8)) {
-      const files = conflict.files?.length ? ` · ${conflict.files.join(", ")}` : "";
-      lines.push(truncateToWidth(`  ${conflict.type}: steps [${conflict.stepIndexes.join(", ")}]${files} · ${conflict.reason}`, width, "…"));
+    lines.push("");
+    for (const conflict of scheduling.conflicts.slice(0, 6)) {
+      const files = conflict.files?.length ? `  ${conflict.files.join(", ")}` : "";
+      lines.push(truncateToWidth(theme.fg("dim", `  ${conflict.type}  steps ${conflict.stepIndexes.join(",")}${files}`), width, "…"));
     }
   }
   return lines;
@@ -117,11 +117,12 @@ function renderWorkers(state: UIState, width: number, theme: any): string[] {
   const lines = [""];
   workers.forEach((worker, index) => {
     const branch = index === workers.length - 1 ? "└" : "├";
-    lines.push(renderCompactWorkerLine(worker, branch, width, theme));
-    if (worker.files?.length) lines.push(truncateToWidth(theme.fg("dim", `│   files: ${worker.files.join(", ")}`), width, "…"));
+    const title = truncateToWidth(worker.title, Math.max(18, width - 10), "…");
+    lines.push(truncateToWidth(theme.fg(statusColor(worker.status), `  ${branch} ${statusIcon(worker.status)} ${title}`), width, "…"));
+    if (worker.files?.length) lines.push(truncateToWidth(theme.fg("dim", `     files ${worker.files.join(", ")}`), width, "…"));
     for (const output of worker.recentOutput.slice(-2)) {
       const firstLine = output.split("\n")[0]?.trim();
-      if (firstLine) lines.push(truncateToWidth(theme.fg("muted", `│   ⎿ ${firstLine}`), width, "…"));
+      if (firstLine) lines.push(truncateToWidth(theme.fg("muted", `     ⎿ ${firstLine}`), width, "…"));
     }
   });
   return lines;
@@ -132,9 +133,9 @@ function renderSignals(state: UIState, width: number, theme: any): string[] {
   if (signals.length === 0) return ["", theme.fg("muted", "  （暂无信号）")];
   const lines = [""];
   for (const [type, items] of groupedSignals(signals)) {
-    lines.push(theme.fg("accent", `  ${signalIcon(type)} ${signalLabel(type)}: ${items.length} 条`));
-    for (const signal of items.slice(-5)) {
-      lines.push(truncateToWidth(theme.fg("dim", `    ⎿ ${signal.workerId}: ${signal.summary}`), width, "…"));
+    lines.push(theme.fg("accent", `  ${signalIcon(type)} ${signalLabel(type)}  ${items.length}`));
+    for (const signal of items.slice(-4)) {
+      lines.push(truncateToWidth(theme.fg("dim", `     ⎿ ${signal.workerId}  ${signal.summary}`), width, "…"));
     }
   }
   return lines;
@@ -144,14 +145,14 @@ function renderReport(state: UIState, width: number, theme: any): string[] {
   const lines = [""];
   if (!state.finishedAt) {
     lines.push(theme.fg("muted", "  报告待完成"));
-    lines.push(truncateToWidth(`  当前: ${runSummary(state)}`, width, "…"));
+    lines.push(truncateToWidth(`  当前 ${runSummary(state)}`, width, "…"));
     return lines;
   }
-  lines.push(theme.fg("accent", `  final: ${runSummary(state)}`));
-  lines.push(truncateToWidth(`  mode: ${state.mode ?? "unknown"}`, width, "…"));
+  lines.push(theme.fg("accent", `  final ${runSummary(state)}`));
+  lines.push(truncateToWidth(`  mode ${state.mode ?? "unknown"}`, width, "…"));
   if (state.scheduling) {
-    lines.push(truncateToWidth(`  batches: ${state.scheduling.batches.map((b) => `[${b.stepIndexes.join(",")}]`).join(" → ")}`, width, "…"));
-    lines.push(truncateToWidth(`  conflicts: ${state.scheduling.conflicts.length}`, width, "…"));
+    lines.push(truncateToWidth(`  batches ${state.scheduling.batches.map((b) => `[${b.stepIndexes.join(",")}]`).join(" → ")}`, width, "…"));
+    lines.push(truncateToWidth(`  conflicts ${state.scheduling.conflicts.length}`, width, "…"));
   }
   return lines;
 }
@@ -165,9 +166,9 @@ function groupedSignals(signals: UISignal[]): Array<[string, UISignal[]]> {
 function buildTabBarLine(theme: any, currentIdx: number, width: number): string {
   const parts = CONTENT_TABS.map((tab, index) => {
     const label = `${index}:${tab.label}`;
-    return index === currentIdx ? theme.fg("accent", `[${label}]`) : theme.fg("muted", ` ${label} `);
+    return index === currentIdx ? theme.fg("accent", `● ${label}`) : theme.fg("muted", `○ ${label}`);
   });
-  return truncateToWidth(parts.join(" "), width, "…");
+  return truncateToWidth(`  ${parts.join("  ")}`, width, "…");
 }
 
 function renderCompactWorkerLine(worker: UIWorkerState, branch: string, width: number, theme: any): string {
@@ -203,15 +204,15 @@ function stepIndexFromWorker(worker: UIWorkerState): number | null {
 function renderExpanded(state: UIState, width: number, innerW: number, theme: any): string[] {
   if (!state.goal) return renderEmptyExpanded(innerW, theme);
   if (activeTabIdx >= CONTENT_TABS.length) activeTabIdx = CONTENT_TABS.length - 1;
-  const goalText = truncateToWidth(state.goal || "dteam", innerW - 32, "…");
+  const header = ` dteam  ${state.mode ?? "unknown"}  ${runSummary(state)}  ${formatDuration(elapsedForRun(state))}`;
   const lines = [
     "",
-    theme.fg("accent", ` ⚙ dteam · ${goalText} · ${formatDuration(elapsedForRun(state))} · ${runSummary(state)}`),
+    theme.fg("accent", truncateToWidth(header, width, "…")),
     buildTabBarLine(theme, activeTabIdx, width),
     theme.fg("borderMuted", "─".repeat(innerW)),
     ...renderActiveTab(state, width, theme),
-    theme.fg("borderMuted", "─".repeat(innerW)),
-    theme.fg("dim", "  /dteam N 切换 tab · /dteam close 关闭"),
+    "",
+    theme.fg("dim", "  /dteam 0-4 切换 · /dteam close 关闭"),
     "",
   ];
   return lines;

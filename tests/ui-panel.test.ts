@@ -72,11 +72,11 @@ describe("ui panel compact widget", () => {
 
     const text = renderExpandedTab(0).join("\n");
 
-    expect(text).toContain("[0:概览]");
-    expect(text).toContain("1:批次");
-    expect(text).toContain("2:Workers");
-    expect(text).toContain("3:信号");
-    expect(text).toContain("4:报告");
+    expect(text).toContain("● 0:概览");
+    expect(text).toContain("○ 1:批次");
+    expect(text).toContain("○ 2:Workers");
+    expect(text).toContain("○ 3:信号");
+    expect(text).toContain("○ 4:报告");
     expect(text).not.toContain("W:");
   });
 
@@ -90,9 +90,9 @@ describe("ui panel compact widget", () => {
 
     const text = renderExpandedTab(1).join("\n");
 
-    expect(text).toContain("#0 steps [0]");
-    expect(text).toContain("step-1: 同文件冲突：src/a.ts");
-    expect(text).toContain("hard: steps [0, 1]");
+    expect(text).toContain("[0] steps 0");
+    expect(text).toContain("step-1  同文件冲突：src/a.ts");
+    expect(text).toContain("hard  steps 0,1");
   });
 
   it("Workers tab 显示 worker 树、files 和最多 2 行输出", () => {
@@ -119,10 +119,10 @@ describe("ui panel compact widget", () => {
 
     const text = renderExpandedTab(3).join("\n");
 
-    expect(text).toContain("发现: 1 条");
-    expect(text).toContain("进度: 1 条");
-    expect(text).toContain("求助: 1 条");
-    expect(text).toContain("阻塞: 1 条");
+    expect(text).toContain("💡 发现  1");
+    expect(text).toContain("📤 进度  1");
+    expect(text).toContain("🆘 求助  1");
+    expect(text).toContain("🚫 阻塞  1");
   });
 
   it("报告 tab 运行中显示待完成，完成后显示 final summary", () => {
@@ -133,7 +133,7 @@ describe("ui panel compact widget", () => {
     uiStore.updateWorker("step-0", { status: "done" });
     uiStore.finishRun();
 
-    expect(renderExpandedTab(4).join("\n")).toContain("final: 1/1 完成");
+    expect(renderExpandedTab(4).join("\n")).toContain("final 1/1 完成");
   });
 
   it("完成后 uiStore 保留快照，下一次 startRun 才清理", () => {
