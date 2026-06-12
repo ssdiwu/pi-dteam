@@ -160,7 +160,7 @@ async function executeSteps(
       const enhancedStep = { ...step, task: taskWithPrev };
 
       taskPool.claimNext();
-      const result = await runStepWithStrategy(enhancedStep, ctx, goal, dteam, reporter);
+      const result = await runStepWithStrategy(enhancedStep, ctx, goal, dteam, reporter, i);
       results.push(result);
       if (result.status === "done") {
         taskPool.complete(`task-${i}`, result.output);
@@ -176,7 +176,7 @@ async function executeSteps(
         const batchResults = await Promise.all(
           chunk.map((idx) => {
             taskPool.update(`task-${idx}`, { status: "in_progress" });
-            return runStepWithStrategy(steps[idx], ctx, goal, dteam, reporter)
+            return runStepWithStrategy(steps[idx], ctx, goal, dteam, reporter, idx)
               .then(r => {
                 if (r.status === "done") taskPool.complete(`task-${idx}`, r.output);
                 else taskPool.update(`task-${idx}`, { status: "failed", result: r.output });
@@ -195,9 +195,9 @@ async function executeSteps(
 /** 按策略执行单个 step（4e 用 STRATEGIES 表调度，fallback 到 direct） */
 async function runStepWithStrategy(
   step: PlanStep, ctx: any, goal: string,
-  dteam: DteamContext | undefined, reporter: Reporter,
+  dteam: DteamContext | undefined, reporter: Reporter, stepIndex?: number,
 ): Promise<StepResult> {
-  const stepId = `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const stepId = stepIndex === undefined ? `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` : `step-${stepIndex}`;
   const workerId = `w-${step.role}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const icon = ROLE_ICONS[step.role] ?? "●";
   reporter.addWorker({

@@ -12,7 +12,7 @@
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { uiStore, type UIWorkerState, type UISignal } from "./store.js";
-import { statusIcon, formatDuration, signalIcon, signalLabel } from "./helpers.js";
+import { statusIcon, statusColor, formatDuration, signalIcon, signalLabel, strike } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
 // 状态
@@ -182,6 +182,40 @@ function buildTabBarLine(
   return truncateToWidth(parts.join(" "), width, "…");
 }
 
+function renderCompactWorkerLine(worker: UIWorkerState, branch: string, width: number, theme: any): string {
+  const icon = statusIcon(worker.status);
+  const color = statusColor(worker.status);
+  const titleMaxW = Math.max(20, width - 8);
+  const rawTitle = truncateToWidth(worker.title ?? "", titleMaxW, "…");
+  const title = worker.status === "done" ? strike(rawTitle) : rawTitle;
+  return truncateToWidth(theme.fg(color, `${branch} ${icon} ${title}`), width, "…");
+}
+
+function latestOutputLine(worker: UIWorkerState): string {
+  const last = worker.recentOutput[worker.recentOutput.length - 1] ?? "";
+  return last.split("\n")[0]?.trim() ?? "";
+}
+
+function prioritizeWorkers(workers: UIWorkerState[]): UIWorkerState[] {
+  const score: Record<string, number> = { failed: 0, error: 0, running: 1, delayed: 2, idle: 3, pending: 3, done: 4 };
+  return [...workers].sort((a, b) => {
+    const byStatus = (score[a.status] ?? 3) - (score[b.status] ?? 3);
+    if (byStatus !== 0) return byStatus;
+    return (a.startedAt ?? 0) - (b.startedAt ?? 0);
+  });
+}
+
+function delayedStepIndexes(scheduling: ReturnType<typeof uiStore.getState>["scheduling"]): Map<number, string> {
+  const delayed = new Map<number, string>();
+  for (const item of scheduling?.delayedSteps ?? []) delayed.set(item.stepIndex, item.delayedBecause.join("；"));
+  return delayed;
+}
+
+function stepIndexFromWorker(worker: UIWorkerState): number | null {
+  const match = worker.id.match(/^step-(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
 // ---------------------------------------------------------------------------
 // 统一组件构建（供 setWidget 使用）
 // ---------------------------------------------------------------------------
@@ -274,48 +308,40 @@ function buildComponent(): (_tui: unknown, theme: any) => {
         const workers = state.workers ?? [];
         const realWorkers = workers.filter((w) => w.id !== "plan");
         const realWorkersCount = realWorkers.length;
-        const elapsed = Date.now() - (state.startedAt || Date.now());
+        const elapsed = (state.finishedAt ?? Date.now()) - (state.startedAt || Date.now());
         const done = realWorkers.filter((w) => w.status === "done").length;
-        const failed = realWorkers.filter((w) => w.status === "failed").length;
-        const goalText = truncateToWidth(state.goal, 25, "…");
-        const summary =
-          failed > 0
-            ? `${done}/${realWorkersCount} 完成, ${failed} 失败`
-            : `${done}/${realWorkersCount} 完成`;
+        const failed = realWorkers.filter((w) => w.status === "failed" || w.status === "error").length;
+        const mode = state.mode ? `[${state.mode}] ` : "";
+        const summary = failed > 0 ? `${done}/${realWorkersCount} done · ${failed} failed` : `${done}/${realWorkersCount} done`;
 
         const lines: string[] = [
           truncateToWidth(
-            theme.fg("dim", `⚙ dteam · ${goalText} · ${formatDuration(elapsed)} · ${summary}`),
+            theme.fg("accent", `● dteam ${mode}${summary} · ${formatDuration(elapsed)}`),
             width,
             "…",
           ),
         ];
 
-        for (let i = 0; i < workers.length; i++) {
-          const w = workers[i];
-          if (w.id === "plan") continue; // plan 不是真 worker
-          const isLast = i === workers.length - 1;
+        const orderedWorkers = prioritizeWorkers(realWorkers).slice(0, 6);
+        const delayed = delayedStepIndexes(state.scheduling);
+        for (let i = 0; i < orderedWorkers.length; i++) {
+          const worker = orderedWorkers[i];
+          const isLast = i === orderedWorkers.length - 1;
           const branch = isLast ? "└" : "├";
           const cont = isLast ? "  " : "│ ";
-          const icon = statusIcon(w.status);
-          // 给后面 duration / status icon 预留位置
-          const titleMaxW = Math.max(20, width - 12);
-          const title = truncateToWidth(w.title ?? "", titleMaxW, "…");
-          lines.push(
-            truncateToWidth(theme.fg("dim", `${branch} ${icon} ${title}`), width, "…"),
-          );
-          // 显示最新一条输出（取第一行），让用户看到 step 实际返回的内容
-          if (w.recentOutput?.length) {
-            const last = w.recentOutput[w.recentOutput.length - 1] ?? "";
-            const firstLine = last.split("\n")[0]?.trim() ?? "";
-            if (firstLine) {
-              const outMaxW = Math.max(20, width - 10);
-              const out = truncateToWidth(firstLine, outMaxW, "…");
-              lines.push(
-                truncateToWidth(theme.fg("muted", `${cont}  ⎿ ${out}`), width, "…"),
-              );
-            }
+          lines.push(renderCompactWorkerLine(worker, branch, width, theme));
+          if (worker.status === "running") {
+            const output = latestOutputLine(worker);
+            if (output) lines.push(truncateToWidth(theme.fg("muted", `${cont}  ⎿ ${output}`), width, "…"));
           }
+          const stepIndex = stepIndexFromWorker(worker);
+          if (stepIndex !== null && delayed.has(stepIndex)) {
+            lines.push(truncateToWidth(theme.fg("warning", `${cont}  ↳ delayed: ${delayed.get(stepIndex)}`), width, "…"));
+          }
+        }
+
+        if (realWorkers.length > orderedWorkers.length) {
+          lines.push(theme.fg("dim", `└ … ${realWorkers.length - orderedWorkers.length} more`));
         }
 
         return safe(lines, width);

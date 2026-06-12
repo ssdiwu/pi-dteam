@@ -14,14 +14,10 @@ import { run } from "./src/orchestrator.js";
 import { defaultReporter } from "./src/reporter.js";
 import { SignalBus, RunsStore } from "./src/signals/index.js";
 import {
-  uiStore,
   handlePanelCommand,
   renderWidget,
   renderWidgetIfChanged,
-  clearWidget,
-  WIDGET_KEY,
 } from "./src/ui/index.js";
-import { formatDuration, signalIcon, signalLabel, statusIcon as helperStatusIcon } from "./src/ui/helpers.js";
 import type { RunResult } from "./src/tools.js";
 
 // ---------------------------------------------------------------------------
@@ -333,11 +329,8 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify(`dteam: 完成 — ${result.summary}`, "info");
           stopRefresh();
 
-          // 清空 uiStore + 重新渲染 widget（让面板内容变空）
-          uiStore.reset();
+          // 保留最后一轮 uiStore 快照，直到下一次 dteam(run) 再清理
           if (ctx.hasUI) {
-            ctx.ui.setWidget(WIDGET_KEY, undefined);
-            // renderWidget 会在 uiStore 为空时返回空内容
             renderWidget(ctx);
           }
 
@@ -379,7 +372,9 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.setStatus("dteam", undefined);
           ctx.ui.notify(`dteam: 失败 — ${(e as Error).message}`, "error");
           stopRefresh();
-          clearWidget(runCtx);
+          if (ctx.hasUI) {
+            renderWidget(ctx);
+          }
         } finally {
           cleanupRun(newRunId);
         }

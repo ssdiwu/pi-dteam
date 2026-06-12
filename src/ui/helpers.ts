@@ -7,9 +7,22 @@
 /** 状态→图标 */
 export function statusIcon(s: string): string {
   return (
-    { pending: "◦", running: "⚒", done: "✓", failed: "✗", in_progress: "⚒", decomposed: "✓" }[s] ??
+    { idle: "○", pending: "○", running: "◐", done: "✓", failed: "✕", error: "✕", delayed: "↳", in_progress: "◐", decomposed: "✓" }[s] ??
     "?"
   );
+}
+
+/** 状态→主题色 */
+export function statusColor(s: string): string {
+  return (
+    { idle: "muted", pending: "muted", running: "accent", done: "dim", failed: "error", error: "error", delayed: "warning", in_progress: "accent" }[s] ??
+    "muted"
+  );
+}
+
+/** 删除线文本（用于 done worker 低噪声显示） */
+export function strike(text: string): string {
+  return text.split("").map((ch) => `${ch}\u0336`).join("");
 }
 
 /** 毫秒→可读时长 */

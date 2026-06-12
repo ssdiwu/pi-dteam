@@ -117,7 +117,7 @@ export class UIStore {
       if (patch.status === "running" && worker.startedAt === null) {
         worker.startedAt = Date.now();
       }
-      if ((patch.status === "done" || patch.status === "error") && worker.finishedAt === null) {
+      if ((patch.status === "done" || patch.status === "failed" || patch.status === "error") && worker.finishedAt === null) {
         worker.finishedAt = Date.now();
       }
     }
