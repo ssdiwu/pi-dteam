@@ -1,16 +1,16 @@
 # dteam
 
-> **半自动多角色编排引擎**，作为 Pi 扩展运行。
+> **Pi 里的轻量多 subagent（子代理）协作引擎**。
 >
-> v1 状态：信号通路 + 后台运行 + 链式/team 模式落地，16 个测试文件通过，重构完成（orchestrator 562→197 行）。
+> 简单任务主 LLM 直接干；复杂编程任务才调 dteam，进入后台多 worker 协作状态。
 >
-> `v0.4.2`（当前版本）重点：把 dteam 收敛成稳定的后台任务系统——`run` 只返回 `runId`（任务编号），实时进度主要看 `/dteam` 面板，完成后再向主对话发送结果消息。
+> 当前基线：v0.4.1 已完成后台任务稳定性收口；下一阶段准备进入 0.5，重点打磨 `/dteam` 面板、widget（小组件）和最终报告的可观测性。
 
 ## 一句话
 
-dteam 把"派一个 worker 干一件事"做成一棵二维编排的 worker 树——**组织形式**（solo / chain / team）× **执行策略**（direct / build_check / adaptive），每个 step 选 5 个角色之一（explore / design / build / check / close）执行。
+dteam 让主 LLM 在遇到复杂任务时，把工作交给一组写死角色的 worker：`explore` / `design` / `build` / `check` / `close`。
 
-叶子之间通过 **4 种信号**（progress/found/blocked/help）实时通信，根自动收集并转发、注入上下文，**整棵 worker 树自协调**。
+它用二维编排描述协作：**组织形式**（solo / chain / team）× **执行策略**（direct / build_check / adaptive）。运行方式是后台：`run` 立即返回 `runId`，过程看 `/dteam` 面板，结束看 `dteam-report`。
 
 ## 快速开始
 
@@ -92,9 +92,10 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 - [工具 API 参考](./doc/10-架构与运行/12-API参考.md)
 - [v2 设计与实施现状](./doc/10-架构与运行/13-设计-v2与实施现状.md)
 - [项目路线图](./doc/30-路线图/30-项目路线图.md)
-- [v0.4.1 后台任务稳定性实施方案](./doc/40-版本实施方案/42-v0.4.1-后台任务稳定性实施方案.md)
-- [Agent Teams 借鉴实施方案](./doc/40-版本实施方案/40-Agent-Teams借鉴实施方案.md)
+- [v0.5 可观测性与轻量协作实施方案](./doc/40-版本实施方案/43-v0.5-可观测性与轻量协作实施方案.md)
 - [工具动态加载方案](./doc/40-版本实施方案/41-工具动态加载方案.md)
+- [v0.4.1 后台任务稳定性实施方案（已归档）](./doc/90-归档/版本实施方案/42-v0.4.1-后台任务稳定性实施方案.md)
+- [多 worker 系统参考](./doc/20-能力参考/28-多worker系统参考.md)
 - [src/ 内部架构](./src/README.md)
 - [CHANGELOG.md](./CHANGELOG.md)
 

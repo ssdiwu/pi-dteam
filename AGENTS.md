@@ -89,7 +89,7 @@ pending → in_progress → done
 示例：
 - `feat: 让 leaf 实际能改文件`
 - `fix: 修正 planner 结构化输出解析逻辑`
-- `docs: 更新 doc/设计-v2.md`
+- `docs: 更新 doc/30-路线图/30-项目路线图.md`
 
 **提交前**：
 - `npm run build` 通过
