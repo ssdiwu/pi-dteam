@@ -1,6 +1,6 @@
 {
   "name": "pi-dteam",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "dteam - 轻量级多代理编排系统",
   "type": "module",
   "keywords": [

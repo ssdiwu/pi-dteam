@@ -3,18 +3,34 @@
 本文件记录 dteam 的用户可感知变更与关键实现收口。  
 格式参考 Keep a Changelog，但保持中文、简洁、面向项目实际。
 
-## [0.5.0] - Unreleased
+## [0.5.0] - 2026-06-11
 
-### 计划
-- 一次性重做 `/dteam` 面板和 widget（小组件）：完成项保留到下一次 dteam run、4 状态清晰、mode 标签稳定展示、done 删除线弱化。
-- 加入轻量依赖图调度：planner 给初始 `PlanStep.files`，dteam runtime 补 import graph，显式同文件 / shared file / dependency edge 自动拆批。
-- 强化 `dteam-report`（结果报告）：保留 worker tree（工作树）结构、plan mode、file graph、scheduling、冲突说明、失败摘要。
-- 补自然语言使用示例：明确什么任务该主 LLM 直接做，什么任务该调 dteam。
+### 新增
+- 新增轻量依赖图调度：基于 `PlanStep.files` 生成 `FileGraph`，支持相对 `import`、`export from`、`require`、目录 `index.*` 和 JS/TS 常见扩展。
+- 新增 preflight scheduling：`team` 模式在执行前识别 hard conflict、shared file、dependency edge、unknown boundary，并生成可解释 `SchedulingPlan.batches`。
+- 新增 `pi.appendEntry()` checkpoint：写入 `dteam-plan` 和 `dteam-scheduling`，不污染 LLM context。
+- 新增 `dteam-report.details` 的 plan / fileGraph / scheduling / step task-strategy-files，完成后可回溯计划、批次和冲突原因。
+- 新增运行态 compact widget（小组件）任务树：显示 mode、done/total、耗时、running worker 最新输出、delayed reason。
+- 新增 `/dteam` 内容型 tabs：`0 概览`、`1 批次`、`2 Workers`、`3 信号`、`4 报告`。
+
+### 变更
+- `team` 不再只按固定 batchSize 顺序并行，而是先经过 preflight batches；无冲突仍并行，有明确冲突则自动拆批。
+- `solo` / `chain` 只附带 fileGraph / scheduling 信息，不改变 planner 给出的执行顺序。
+- 完成态不再立即清空：widget 和 `/dteam` 保留上一轮结果，直到下一次 `dteam(action="run")` 开始。
+- done worker 在 widget 中使用删除线 + dim 弱化；running / failed / delayed 使用更清晰的图标和颜色语义。
+- `Workers` tab 显示 step files，每个 worker 最多显示 2 行输出，避免 debug panel 式堆叠。
+- `SchedulingPlan` 增加 `delayedSteps`，用于解释每个被延后的 step 和原因。
 
 ### 不做
 - 不做固定 6 阶段流水线。
 - 不开放自定义角色系统；继续保留 5 个写死角色。
+- 不做文件锁、worktree、自动 merge/rebase。
 - 不默认做持久化 / resume（恢复）/ 进程级隔离。
+- 不引入 TypeScript compiler API 或 Babel AST；file graph 保持文本扫描。
+
+### 验证
+- `npm run build` 通过。
+- `npm test` 通过（19 个测试文件，300 个测试）。
 
 ## [0.4.2] - 2026-06-11
 
