@@ -67,8 +67,11 @@ dteam(
 | 输入 | 行为 |
 |---|---|
 | `/dteam` | toggle（切换）面板展开 / 折叠 |
-| `/dteam 0` | 展开并切到总览 tab（标签页） |
-| `/dteam 1` | 展开并切到第 1 个 worker tab |
+| `/dteam 0` | 概览：goal、mode、summary、当前批次、关键 warning |
+| `/dteam 1` | 批次：batches、delayedBecause、conflicts |
+| `/dteam 2` | Workers：worker 树、files、最多 2 行输出 |
+| `/dteam 3` | 信号：聚合 found / progress / help / blocked |
+| `/dteam 4` | 报告：运行中待完成，完成后 final summary |
 | `/dteam close` | 关闭面板 |
 
 空态示例：
@@ -85,15 +88,22 @@ dteam(
 运行态示例：
 
 ```text
-⚙ dteam · 修复 UI 状态 · 00:12 · 1/3 完成
-[0:总览] [1:W:build] [2:W:check]
+⚙ dteam · 修复 UI 状态 · 12s · 1/3 完成
+[0:概览]  1:批次   2:Workers   3:信号   4:报告
 ──────────────────────
   目标: 修复 UI 状态
-  耗时: 00:12  1/3 完成, 2 在跑
-  计划: chain · 先实现后验收
+  mode: team · 1/3 完成 · 12s
+  reason: 多模块并行
+  当前批次: #1 [2]
+```
 
-  ⚒ build: 调整 panel 清理逻辑
-    ⎿ 已更新 store 状态
+折叠 widget 示例：
+
+```text
+● dteam [team] 1/3 done · 12s
+├ ◐ build: 调整 panel 清理逻辑
+│   ⎿ 已更新 store 状态
+└ ✓ 已完成任务（删除线 + dim）
 ```
 
 ## 4. 完成消息：`dteam-report`
@@ -106,7 +116,7 @@ dteam(
 ✓ dteam · 3/3 完成 (Ctrl+O 展开)
 ```
 
-展开态显示每个 step 的角色、状态和输出摘要。
+展开态显示 plan、fileGraph、scheduling、step 的 task / strategy / files / output 摘要。
 
 ## 5. 最终结果结构
 
@@ -122,6 +132,8 @@ interface RunResult {
   signals?: Signal[]
   workers?: WorkerRun[]
   taskSummary?: { total: number; done: number; failed: number }
+  fileGraph?: FileGraph
+  scheduling?: SchedulingPlan
 }
 ```
 
@@ -143,6 +155,23 @@ interface PlanStep {
 }
 ```
 
+`FileGraph` / `SchedulingPlan`：
+
+```ts
+interface FileGraph {
+  roots: string[]
+  nodes: Array<{ file: string; imports: string[]; importedBy: string[]; exists: boolean }>
+  unresolved: Array<{ from: string; specifier: string; reason: string }>
+  boundaryStatus: "known" | "unknown" | "unresolved" | "truncated"
+}
+
+interface SchedulingPlan {
+  batches: Array<{ index: number; stepIndexes: number[]; reason: string }>
+  conflicts: Array<{ type: "hard" | "shared" | "dependency" | "unknown"; stepIndexes: number[]; files?: string[]; reason: string }>
+  delayedSteps: Array<{ stepIndex: number; delayedBecause: string[] }>
+}
+```
+
 ## 6. `availableTools` 契约
 
 | 场景 | 行为 |
@@ -161,6 +190,8 @@ interface PlanStep {
 | `run(goal, ctx)` | `src/orchestrator.ts` | 执行一次 goal，返回 `RunResult` |
 | `plan(goal, ctx, availableTools?)` | `src/planner.ts` | 生成 `ExecutionPlan` |
 | `execute(role, task, ctx, goal, tools?)` | `src/leaf.ts` | 执行单个 worker step |
+| `buildFileGraphFromSteps(steps, options?)` | `src/scheduler/file-graph.ts` | 生成轻量文件依赖图 |
+| `preflightSchedule(steps, fileGraph)` | `src/scheduler/preflight.ts` | 生成 batch 调度计划 |
 | `createWorkerSession(options)` | `src/session.ts` | 创建 worker session |
 | `getRoleTools(role)` | `src/session/role-config.ts` | 获取角色默认工具 |
 
