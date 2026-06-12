@@ -15,9 +15,10 @@ import { defaultReporter } from "./reporter.js";
 import { installSignalHandlers } from "./orchestrator/signal-handlers.js";
 import { buildHistoryContext } from "./orchestrator/history-context.js";
 import { STRATEGIES } from "./orchestrator/strategies/index.js";
+import { buildFileGraphFromSteps, preflightSchedule } from "./scheduler/index.js";
 import type { Reporter } from "./reporter.js";
 import type {
-  ExecutionPlan, PlanStep, RunResult, StepResult, RoleName, Strategy, DteamContext,
+  ExecutionPlan, PlanStep, RunResult, SchedulingPlan, StepResult, RoleName, Strategy, DteamContext,
 } from "./tools.js";
 
 const ROLE_ICONS: Record<RoleName, string> = {
@@ -50,6 +51,13 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
     };
   }
 
+  reporter.setPlan({ mode: executionPlan.mode, reason: executionPlan.reason });
+
+  const fileGraph = buildFileGraphFromSteps(executionPlan.steps, { cwd: ctx.cwd });
+  const scheduling = preflightSchedule(executionPlan.steps, fileGraph);
+  reporter.setScheduling(scheduling);
+  reportSchedulingDelays(scheduling, reporter);
+
   // Plan → TaskPool
   for (let i = 0; i < executionPlan.steps.length; i++) {
     const step = executionPlan.steps[i];
@@ -77,7 +85,7 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
 
   try {
     const order: "serial" | "parallel" = executionPlan.mode === "team" ? "parallel" : "serial";
-    await executeSteps(executionPlan.steps, ctx, goal, stepResults, taskPool, dteam, order, reporter);
+    await executeSteps(executionPlan.steps, ctx, goal, stepResults, taskPool, dteam, order, reporter, scheduling);
   } catch {
     // 致命错误，继续到 report
   } finally {
@@ -98,11 +106,28 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
     summary: failed > 0
       ? `${done}/${stepResults.length} 完成, ${failed} 失败`
       : `${done}/${stepResults.length} 完成`,
-    signals, workers, taskSummary,
+    signals, workers, taskSummary, fileGraph, scheduling,
   };
 }
 
 // ═══ 执行调度 ═══
+
+function reportSchedulingDelays(scheduling: SchedulingPlan, reporter: Reporter): void {
+  for (const delay of scheduling.delayedSteps) {
+    reporter.addStrategy({
+      action: "delay",
+      target: `step-${delay.stepIndex}`,
+      detail: delay.delayedBecause.join("；"),
+      timestamp: Date.now(),
+    });
+  }
+}
+
+function chunks<T>(items: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let i = 0; i < items.length; i += size) result.push(items.slice(i, i + size));
+  return result;
+}
 
 /**
  * serial = chain 模式（串行，前一步输出注入下一步）。
@@ -111,7 +136,7 @@ export async function run(goal: string, ctx: any): Promise<RunResult> {
 async function executeSteps(
   steps: PlanStep[], ctx: any, goal: string, results: StepResult[],
   taskPool: TaskPool, dteam: DteamContext | undefined,
-  order: "serial" | "parallel", reporter: Reporter,
+  order: "serial" | "parallel", reporter: Reporter, scheduling: SchedulingPlan,
 ): Promise<void> {
   if (order === "serial") {
     let prevOutput = "";
@@ -137,22 +162,21 @@ async function executeSteps(
       prevOutput = result.output;
     }
   } else {
-    const batchSize = DTEAM_CONFIG.team.batchSize;
-    for (let batchStart = 0; batchStart < steps.length; batchStart += batchSize) {
-      const batch = steps.slice(batchStart, batchStart + batchSize);
-      const batchResults = await Promise.all(
-        batch.map((step, j) => {
-          const idx = batchStart + j;
-          taskPool.claimNext();
-          return runStepWithStrategy(step, ctx, goal, dteam, reporter)
-            .then(r => {
-              if (r.status === "done") taskPool.complete(`task-${idx}`, r.output);
-              else taskPool.update(`task-${idx}`, { status: "failed", result: r.output });
-              return r;
-            });
-        }),
-      );
-      results.push(...batchResults);
+    for (const batch of scheduling.batches) {
+      for (const chunk of chunks(batch.stepIndexes, DTEAM_CONFIG.team.batchSize)) {
+        const batchResults = await Promise.all(
+          chunk.map((idx) => {
+            taskPool.update(`task-${idx}`, { status: "in_progress" });
+            return runStepWithStrategy(steps[idx], ctx, goal, dteam, reporter)
+              .then(r => {
+                if (r.status === "done") taskPool.complete(`task-${idx}`, r.output);
+                else taskPool.update(`task-${idx}`, { status: "failed", result: r.output });
+                return r;
+              });
+          }),
+        );
+        results.push(...batchResults);
+      }
     }
   }
 }
@@ -194,7 +218,7 @@ async function runStepWithStrategy(
     recentOutput: result.output?.slice(0, 200) ?? "",
   });
   if (dteam) dteam.currentStepId = undefined;
-  return result;
+  return { ...result, files: step.files };
 }
 
 // ═══ 兼容导出（4c/4d：实现在子模块；tests/chain-forward.test.ts 仍 import 自此） ═══

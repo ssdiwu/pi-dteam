@@ -4,7 +4,10 @@
  * mock planner + leaf，测试 solo/chain/team + direct/build_check/adaptive
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ExecutionPlan, StepResult, RoleName, Strategy } from "../src/tools.js";
 
 // ═══ mock planner ═══
@@ -43,9 +46,28 @@ const mockCtx: any = {
   ui: { notify: vi.fn(), setStatus: vi.fn() },
 };
 
+let tmpCwd: string | null = null;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockCtx.cwd = "/tmp";
 });
+
+afterEach(() => {
+  if (tmpCwd) rmSync(tmpCwd, { recursive: true, force: true });
+  tmpCwd = null;
+});
+
+function tempProject(): string {
+  tmpCwd = mkdtempSync(path.join(tmpdir(), "dteam-orchestrator-"));
+  return tmpCwd;
+}
+
+function writeProjectFile(cwd: string, relativePath: string, content: string): void {
+  const absolute = path.join(cwd, relativePath);
+  mkdirSync(path.dirname(absolute), { recursive: true });
+  writeFileSync(absolute, content);
+}
 
 describe("orchestrator", () => {
   it("solo + direct → done", async () => {
@@ -105,6 +127,94 @@ describe("orchestrator", () => {
 
     expect(result.status).toBe("done");
     expect(result.steps).toHaveLength(4);
+  });
+
+  it("team 同文件冲突 → 按 preflight batches 拆批执行", async () => {
+    mockPlan.mockResolvedValue({
+      mode: "team",
+      reason: "冲突并行",
+      steps: [
+        { role: "build", task: "任务1", strategy: "direct", files: ["src/a.ts"] },
+        { role: "build", task: "任务2", strategy: "direct", files: ["src/a.ts"] },
+      ],
+    });
+    let resolveFirst: ((value: string) => void) | null = null;
+    mockExecute
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce("第二步完成");
+
+    const pending = run("同文件冲突", mockCtx);
+    await Promise.resolve();
+
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    resolveFirst?.("第一步完成");
+    const result = await pending;
+
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(result.scheduling?.conflicts.some((conflict) => conflict.type === "hard")).toBe(true);
+    expect(result.scheduling?.batches.map((batch) => batch.stepIndexes)).toEqual([[0], [1]]);
+  });
+
+  it("team dependency edge → 被依赖文件先执行", async () => {
+    const cwd = tempProject();
+    mockCtx.cwd = cwd;
+    writeProjectFile(cwd, "src/user.ts", "export const user = 1;");
+    writeProjectFile(cwd, "src/auth.ts", "import { user } from './user'; export const auth = user;");
+    mockPlan.mockResolvedValue({
+      mode: "team",
+      reason: "依赖并行",
+      steps: [
+        { role: "build", task: "改 auth", strategy: "direct", files: ["src/auth.ts"] },
+        { role: "build", task: "改 user", strategy: "direct", files: ["src/user.ts"] },
+      ],
+    });
+    mockExecute.mockResolvedValue("完成");
+
+    const result = await run("依赖方向", mockCtx);
+
+    expect(mockExecute.mock.calls[0][1]).toBe("改 user");
+    expect(mockExecute.mock.calls[1][1]).toBe("改 auth");
+    expect(result.scheduling?.batches.map((batch) => batch.stepIndexes)).toEqual([[1], [0]]);
+  });
+
+  it("chain 不被 scheduler 改写执行顺序", async () => {
+    const cwd = tempProject();
+    mockCtx.cwd = cwd;
+    writeProjectFile(cwd, "src/user.ts", "export const user = 1;");
+    writeProjectFile(cwd, "src/auth.ts", "import { user } from './user'; export const auth = user;");
+    mockPlan.mockResolvedValue({
+      mode: "chain",
+      reason: "串行保持 planner 顺序",
+      steps: [
+        { role: "build", task: "改 auth", strategy: "direct", files: ["src/auth.ts"] },
+        { role: "build", task: "改 user", strategy: "direct", files: ["src/user.ts"] },
+      ],
+    });
+    mockExecute.mockResolvedValue("完成");
+
+    const result = await run("串行保持", mockCtx);
+
+    expect(mockExecute.mock.calls[0][1]).toContain("改 auth");
+    expect(mockExecute.mock.calls[1][1]).toContain("改 user");
+    expect(result.scheduling?.batches.map((batch) => batch.stepIndexes)).toEqual([[1], [0]]);
+  });
+
+  it("team unknown files 不阻塞并行", async () => {
+    mockPlan.mockResolvedValue({
+      mode: "team",
+      reason: "未知边界",
+      steps: [
+        { role: "build", task: "任务1", strategy: "direct", files: ["src/a.ts"] },
+        { role: "build", task: "任务2", strategy: "direct" },
+      ],
+    });
+    mockExecute.mockResolvedValue("完成");
+
+    const result = await run("未知边界", mockCtx);
+
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(result.scheduling?.conflicts.some((conflict) => conflict.type === "unknown")).toBe(true);
+    expect(result.scheduling?.batches.map((batch) => batch.stepIndexes)).toEqual([[0, 1]]);
   });
 
   it("chain 中一步失败 → 后续步骤不执行", async () => {

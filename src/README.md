@@ -76,8 +76,9 @@ Phase 0 已冻结以下类型 / 状态边界，后续阶段逐步填充真实数
 - `Reporter.setPlan()` / `Reporter.setScheduling()`：业务层向 UI 层传递 plan / scheduling
 - `src/scheduler/file-graph.ts`：已实现轻量 import graph
 - `src/scheduler/preflight.ts`：已实现 hard/shared/dependency/unknown conflict 分类与 batch 生成
+- `orchestrator.ts`：已接入 scheduler；`team` 按 scheduling batches 执行，`solo` / `chain` 只附带 scheduling 信息不改顺序
 
-当前阶段**尚未接入 orchestrator**；调度只在 scheduler 模块和单测中生效。
+当前阶段**尚未写入 session checkpoint / dteam-report.details**；这些在 Phase 4 落地。
 
 ## 扩展点
 
