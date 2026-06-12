@@ -81,8 +81,9 @@ Phase 0 已冻结以下类型 / 状态边界，后续阶段逐步填充真实数
 - `index.ts`：`dteam-report.details` 已包含 plan / fileGraph / scheduling / step task-strategy-files
 - `ui/panel.ts`：折叠态 widget 已重做为低噪声任务树；running worker 显示最新输出，done worker 删除线弱化，delayed reason 单独显示
 - `index.ts`：完成后不再 reset `uiStore`，保留最后快照到下一次 run
+- `ui/panel.ts`：展开态已改为固定内容 tabs：概览 / 批次 / Workers / 信号 / 报告
 
-当前阶段**尚未重做 `/dteam` expanded panel 的内容型 tabs**；这是 Phase 6。
+当前阶段 0.5.0 主要代码能力已落地；剩余是 Phase 7 文档、示例和最终验收收口。
 
 ## 扩展点
 
