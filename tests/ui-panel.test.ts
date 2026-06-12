@@ -46,7 +46,7 @@ describe("ui panel compact widget", () => {
     expect(text).toContain("✓");
     expect(text).toContain("⎿ running output");
     expect(text).not.toContain("done output");
-    expect(text).toContain("\u0336");
+    expect(text).not.toContain("\u0336");
   });
 
   it("折叠态显示 delayed warning", () => {

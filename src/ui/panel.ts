@@ -7,7 +7,7 @@
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { uiStore, type UIState, type UIWorkerState, type UISignal } from "./store.js";
-import { statusIcon, statusColor, formatDuration, signalIcon, signalLabel, strike } from "./helpers.js";
+import { statusIcon, statusColor, formatDuration, signalIcon, signalLabel } from "./helpers.js";
 
 let panelExpanded = false;
 let activeTabIdx = 0;
@@ -175,7 +175,7 @@ function renderCompactWorkerLine(worker: UIWorkerState, branch: string, width: n
   const color = statusColor(worker.status);
   const titleMaxW = Math.max(20, width - 8);
   const rawTitle = truncateToWidth(worker.title ?? "", titleMaxW, "…");
-  const title = worker.status === "done" ? strike(rawTitle) : rawTitle;
+  const title = rawTitle;
   return truncateToWidth(theme.fg(color, `${branch} ${icon} ${title}`), width, "…");
 }
 
