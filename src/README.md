@@ -74,8 +74,10 @@ Phase 0 已冻结以下类型 / 状态边界，后续阶段逐步填充真实数
 - `UIState.mode` / `UIState.planReason` / `UIState.scheduling`：运行态 UI 展示入口
 - `DTEAM_CONFIG.scheduler`：shared file patterns、支持扩展名、扫描上限
 - `Reporter.setPlan()` / `Reporter.setScheduling()`：业务层向 UI 层传递 plan / scheduling
+- `src/scheduler/file-graph.ts`：已实现轻量 import graph
+- `src/scheduler/preflight.ts`：已实现 hard/shared/dependency/unknown conflict 分类与 batch 生成
 
-当前阶段**不改变运行行为**；真正的 file graph / preflight scheduling 在 `src/scheduler/` 阶段落地。
+当前阶段**尚未接入 orchestrator**；调度只在 scheduler 模块和单测中生效。
 
 ## 扩展点
 

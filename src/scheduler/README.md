@@ -5,8 +5,8 @@
 职责：
 
 - `file-graph.ts`：基于 `PlanStep.files` 做轻量 import / require 文本扫描，生成 `FileGraph`。
-- `preflight.ts`：后续阶段实现 conflict 分类与 batch 调度。
-- `shared-files.ts`：后续阶段集中 shared file patterns。
+- `preflight.ts`：基于 file graph + step files 生成 SchedulingPlan，做 conflict 分类与 batch 调度。
+- `shared-files.ts`：集中 shared file patterns 判断。
 - `index.ts`：统一导出 scheduler 能力。
 
 边界：
