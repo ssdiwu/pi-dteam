@@ -4,7 +4,7 @@
 
 ## 一句话
 
-dteam 是一个 Pi 扩展，把"派一个 worker"做成一棵递归的 worker 树。代码组织见 `src/README.md`。
+dteam 是 **Pi 里的多 subagent 协作引擎**——简单任务主 LLM 直接干，复杂任务派多 worker 协作（**后台运行不阻塞主对话**）。代码组织见 `src/README.md`。
 
 **先读 [`src/README.md`](./src/README.md) 再动手。**
 
