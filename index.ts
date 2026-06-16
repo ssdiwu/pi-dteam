@@ -26,20 +26,34 @@ import type { RunResult } from "./src/tools.js";
 // widget 刷新定时器
 // ---------------------------------------------------------------------------
 //
-// 设计：500ms 心跳检查 uiStore 内容指纹（+ 每秒至少刷一次让耗时走动）。
-// - 内容没变 → 跳过 setWidget，避免无意义重绘
-// - 内容变了 / 时间到 1s → 重新渲染
+// 设计：500ms 心跳检查 uiStore 内容指纹。
+// - 内容没变 → 跳过 setWidget，避免在部分 TUI 场景里刷屏
+// - 内容变了 → 重新渲染；不为了 duration 秒表强制重绘
 
-let refreshTimer: ReturnType<typeof setInterval> | null = null;
+const REFRESH_TIMER_KEY = "__piDteamRefreshTimer";
+type DteamGlobal = typeof globalThis & { [REFRESH_TIMER_KEY]?: ReturnType<typeof setInterval> | null };
+
+function dteamGlobal(): DteamGlobal {
+  return globalThis as DteamGlobal;
+}
+
+let refreshTimer: ReturnType<typeof setInterval> | null = dteamGlobal()[REFRESH_TIMER_KEY] ?? null;
+
+function isDteamEnabled(): boolean {
+  return process.env.DTEAM_ENABLE === "1" || process.env.DTEAM_ENABLED === "1";
+}
 
 function startRefresh(ctx: any) {
   stopRefresh();
   renderWidget(ctx);
-  refreshTimer = setInterval(() => renderWidgetIfChanged(ctx, 1000), 500);
+  refreshTimer = setInterval(() => renderWidgetIfChanged(ctx), 500);
+  dteamGlobal()[REFRESH_TIMER_KEY] = refreshTimer;
 }
 
 function stopRefresh() {
-  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
+  dteamGlobal()[REFRESH_TIMER_KEY] = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,13 +80,15 @@ function renderDteamResult(result: any, options: { expanded: boolean; isPartial?
   }
 
   let parsed: any = null;
+  const raw = result.content?.[0]?.text;
   try {
-    const raw = result.content?.[0]?.text;
-    if (raw) parsed = JSON.parse(raw);
+    if (typeof raw === "string" && raw.trim()) parsed = JSON.parse(raw);
+    else if (raw && typeof raw === "object") parsed = raw;
   } catch { /* fallback */ }
 
   if (!parsed) {
-    return new Text(theme.fg("success", `✓ dteam 完成`), 0, 0);
+    const text = typeof raw === "string" && raw.trim() ? raw : "后台任务状态未知";
+    return new Text(theme.fg("info", `⚙ dteam · ${truncateToWidth(text, w, "…")}`), 0, 0);
   }
 
   // 后台运行中（action=run 立即返回）
@@ -167,6 +183,26 @@ function cleanupRun(runId: string) {
 // ---------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
+  stopRefresh();
+  pi.on("session_shutdown", () => {
+    stopRefresh();
+  });
+
+  if (!isDteamEnabled()) {
+    pi.registerCommand("dteam", {
+      description: "dteam 已禁用（设置 DTEAM_ENABLE=1 后重载可启用）",
+      async handler(_args, ctx) {
+        stopRefresh();
+        if (ctx.hasUI) {
+          clearWidget(ctx);
+          ctx.ui.setStatus("dteam", undefined);
+          ctx.ui.notify("dteam 已禁用；设置 DTEAM_ENABLE=1 后重载可启用", "info");
+        }
+      },
+    });
+    return;
+  }
+
   // ═══ 注册 dteam-report 消息渲染器（折叠/展开） ═══
   pi.registerMessageRenderer("dteam-report", (message, { expanded }, theme) => {
     const details = message.details as {
@@ -224,10 +260,11 @@ export default function (pi: ExtensionAPI) {
     name: "dteam",
     label: "dteam",
     description:
-      "通过 dteam 递归 worker 树端到端执行一个目标。支持后台运行，不阻塞前台。" +
-      "action=run 启动后台执行，立即返回 runId；" +
-      "action=continue 用户回复后注入信息让暂停的叶子继续。" +
-      "提示：调用 run 时建议传 availableTools（你当前可用的工具名列表），dteam 会用它做工具验证，避免硬编码 ROLE_DEFAULTS 的限制。",
+      "Pi 里的轻量多 subagent 协作引擎，用于复杂 coding task（编程任务）的后台执行；简单任务应由主 LLM 直接完成。" +
+      "必须调用 dteam 的场景：用户明确说“用 dteam/走 dteam/交给 dteam”；版本实施方案完整实现；多模块、多阶段、有 checklist/验收标准/风险门禁的任务；需要探索+实现+验证接力或并行避让的任务。" +
+      "不要调用 dteam 的场景：普通问答、代码解释、方案评审但不实施、单文件小改、typo/文案修正、只跑一个命令。" +
+      "action=run 启动后台执行，立即返回 runId；action=continue 用户回复后注入信息让暂停的叶子继续。" +
+      "调用 run 时建议传 availableTools（你当前可用的工具名列表），dteam 会用它做工具验证，避免硬编码 ROLE_DEFAULTS 的限制。", 
     parameters: {
       type: "object",
       properties: {

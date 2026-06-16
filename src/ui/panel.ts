@@ -180,9 +180,25 @@ function renderCompactWorkerLine(worker: UIWorkerState, branch: string, width: n
   return truncateToWidth(theme.fg(color, `${branch} ${icon} ${title}`), width, "…");
 }
 
+function cleanCompactOutputLine(raw: string): string {
+  const line = raw.replace(/[─━═]{3,}.*/, "").trim();
+  if (!line) return "";
+  if (/^#{1,6}\s/.test(line)) return "";
+  if (/^```/.test(line)) return "";
+  if (/^[-*]\s/.test(line)) return "";
+  if (/^\*\*.*\*\*$/.test(line)) return "";
+  if (/^[─━═\-=—_\s]+$/.test(line)) return "";
+  return line;
+}
+
 function latestOutputLine(worker: UIWorkerState): string {
-  const last = worker.recentOutput[worker.recentOutput.length - 1] ?? "";
-  return last.split("\n")[0]?.trim() ?? "";
+  for (const output of [...worker.recentOutput].reverse()) {
+    for (const rawLine of output.split("\n")) {
+      const line = cleanCompactOutputLine(rawLine);
+      if (line) return line;
+    }
+  }
+  return "";
 }
 
 function prioritizeWorkers(workers: UIWorkerState[]): UIWorkerState[] {
@@ -249,14 +265,15 @@ function renderCollapsed(state: UIState, width: number, theme: any): string[] {
   const mode = state.mode ? `[${state.mode}] ` : "";
   const summary = failed > 0 ? `${done}/${workers.length} done · ${failed} failed` : `${done}/${workers.length} done`;
   const lines = [theme.fg("accent", `● dteam ${mode}${summary} · ${formatDuration(elapsedForRun(state))}`)];
-  const delayed = delayedStepIndexes(state.scheduling);
+  const delayed = state.mode === "team" ? delayedStepIndexes(state.scheduling) : new Map<number, string>();
   const visibleWorkers = prioritizeWorkers(workers).slice(0, 6);
   visibleWorkers.forEach((worker, index) => {
     const branch = index === visibleWorkers.length - 1 ? "└" : "├";
     const cont = index === visibleWorkers.length - 1 ? "  " : "│ ";
     lines.push(renderCompactWorkerLine(worker, branch, width, theme));
-    if (worker.status === "running" && latestOutputLine(worker)) {
-      lines.push(theme.fg("muted", `${cont}  ⎿ ${latestOutputLine(worker)}`));
+    const outputLine = latestOutputLine(worker);
+    if (worker.status === "running" && outputLine) {
+      lines.push(theme.fg("muted", `${cont}  ⎿ ${outputLine}`));
     }
     const stepIndex = stepIndexFromWorker(worker);
     if (stepIndex !== null && delayed.has(stepIndex)) lines.push(theme.fg("warning", `${cont}  ↳ delayed: ${delayed.get(stepIndex)}`));
@@ -305,14 +322,13 @@ function computeFingerprint(state: UIState): string {
   });
 }
 
-export function renderWidgetIfChanged(ctx: any, intervalMs = 1000): void {
+export function renderWidgetIfChanged(ctx: any, _intervalMs = 1000): void {
   if (!ctx.hasUI) return;
   const state = uiStore.getState();
-  const now = Date.now();
   const fp = computeFingerprint(state);
-  if (fp !== lastFingerprint || now - lastTimeRender >= intervalMs) {
+  if (fp !== lastFingerprint) {
     lastFingerprint = fp;
-    lastTimeRender = now;
+    lastTimeRender = Date.now();
     ctx.ui.setWidget(WIDGET_KEY, buildComponent());
   }
 }

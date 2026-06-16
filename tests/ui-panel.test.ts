@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { clearWidget, handlePanelCommand, renderWidget } from "../src/ui/panel.js";
+import { clearWidget, handlePanelCommand, renderWidget, renderWidgetIfChanged } from "../src/ui/panel.js";
 import { uiStore } from "../src/ui/store.js";
 
 const theme = {
@@ -49,8 +49,9 @@ describe("ui panel compact widget", () => {
     expect(text).not.toContain("\u0336");
   });
 
-  it("折叠态显示 delayed warning", () => {
+  it("折叠态 team 模式显示 delayed warning", () => {
     uiStore.startRun("复杂任务");
+    uiStore.setPlan({ mode: "team", reason: "并行" });
     uiStore.setScheduling({
       batches: [{ index: 0, stepIndexes: [0], reason: "先跑 0" }, { index: 1, stepIndexes: [1], reason: "后跑 1" }],
       conflicts: [{ type: "hard", stepIndexes: [0, 1], files: ["src/a.ts"], reason: "同文件" }],
@@ -64,6 +65,53 @@ describe("ui panel compact widget", () => {
     const text = renderLines().join("\n");
 
     expect(text).toContain("↳ delayed: 同文件冲突：src/a.ts");
+  });
+
+  it("折叠态 chain 模式不显示调度 delayed", () => {
+    uiStore.startRun("复杂任务");
+    uiStore.setPlan({ mode: "chain", reason: "串行检查" });
+    uiStore.setScheduling({
+      batches: [{ index: 0, stepIndexes: [0], reason: "先跑 0" }, { index: 1, stepIndexes: [1], reason: "后跑 1" }],
+      conflicts: [{ type: "hard", stepIndexes: [0, 1], files: ["src/a.ts"], reason: "同文件" }],
+      delayedSteps: [{ stepIndex: 1, delayedBecause: ["同文件冲突：src/a.ts"] }],
+    });
+    uiStore.addWorker({ id: "step-0", parentId: null, title: "🔍 explore: 读取并定位触发规则" });
+    uiStore.addWorker({ id: "step-1", parentId: null, title: "🛡️ check: 比对规则一致性" });
+    uiStore.updateWorker("step-0", { status: "done" });
+    uiStore.updateWorker("step-1", { status: "running" });
+
+    const text = renderLines().join("\n");
+
+    expect(text).not.toContain("↳ delayed");
+    expect(text).not.toContain("同文件冲突：src/a.ts");
+  });
+
+  it("折叠态过滤 Markdown 标题和长分隔线输出", () => {
+    uiStore.startRun("复杂任务");
+    uiStore.setPlan({ mode: "chain", reason: "串行" });
+    uiStore.addWorker({ id: "step-0", parentId: null, title: "🛡️ check: 比对规则" });
+    uiStore.updateWorker("step-0", {
+      status: "running",
+      recentOutput: "## 上一步输出\n────────────────────────────────────\n**发现**\n- README 一致\n只读核对完成，未修改文件。",
+    });
+
+    const text = renderLines().join("\n");
+
+    expect(text).toContain("⎿ 只读核对完成，未修改文件。");
+    expect(text).not.toContain("## 上一步输出");
+    expect(text).not.toContain("────────────────");
+    expect(text).not.toContain("**发现**");
+  });
+
+  it("状态未变化时不重复 setWidget", () => {
+    uiStore.startRun("复杂任务");
+    uiStore.setPlan({ mode: "chain", reason: "串行" });
+    const ctx = { hasUI: true, ui: { setWidget: vi.fn() } };
+
+    renderWidget(ctx);
+    renderWidgetIfChanged(ctx, 0);
+
+    expect(ctx.ui.setWidget).toHaveBeenCalledTimes(1);
   });
 
   it("展开态使用固定内容 tabs", () => {

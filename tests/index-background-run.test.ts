@@ -72,6 +72,9 @@ describe("index 后台 run", () => {
     );
 
     expect(result.content[0].text).toContain('"status":"running"');
+    const rendered = tool.renderResult(result, { expanded: false }, { fg: (_kind: string, text: string) => text });
+    expect(rendered.text).toContain("dteam 后台执行中");
+    expect(rendered.text).not.toContain("dteam 完成");
     expect(onUpdate).not.toHaveBeenCalled();
 
     resolveRun?.({
@@ -104,5 +107,21 @@ describe("index 后台 run", () => {
     expect(report.details.scheduling.batches[0].stepIndexes).toEqual([0]);
     expect(report.details.steps[0]).toMatchObject({ task: "改 a", strategy: "direct", files: ["src/a.ts"] });
     expect(ctx.ui.setWidget).toHaveBeenLastCalledWith("dteam-workers", undefined);
+  });
+
+  it("renderResult 解析失败时不显示假完成", async () => {
+    const { api, toolDef } = createPiMock();
+    const mod = await import("../index.ts");
+    mod.default(api as any);
+
+    const tool = toolDef();
+    const rendered = tool.renderResult(
+      { content: [{ type: "text", text: "not-json" }] },
+      { expanded: false },
+      { fg: (_kind: string, text: string) => text },
+    );
+
+    expect(rendered.text).toContain("⚙ dteam");
+    expect(rendered.text).not.toContain("✓ dteam 完成");
   });
 });

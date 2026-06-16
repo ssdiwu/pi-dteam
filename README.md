@@ -93,19 +93,30 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 
 ## 什么时候该用 dteam
 
+一句话规则：**简单任务主 LLM 直接做；版本级、多模块、多阶段、有验收门禁的任务默认走 dteam；用户明确说“用 dteam”时必须走 dteam。**
+
 | 场景 | 推荐 |
 |---|---|
 | 简单任务：改一个 typo、解释一段代码、跑一个命令 | 主 LLM 直接做，不调 dteam |
+| 只做方案评审、问题判断、代码解释 | 主 LLM 直接分析，不调 dteam |
 | 复杂任务：需要先探索、再实现、再验证 | 调 `dteam(action="run", goal="...")` |
+| 版本实施方案：多阶段 checklist、验收标准、风险约束 | 默认调 dteam |
 | 多模块任务：多个文件/模块可并行推进，但要避开冲突 | 调 dteam，让 runtime 用轻量依赖图拆 batch |
+| 用户说“用 dteam / 走 dteam / 交给 dteam” | 必须调 dteam |
+
+默认触发判断：如果是实施任务，并且命中“跨 3 个以上模块 / 同时代码测试文档 UI / 有 phase 或验收标准 / 涉及缓存 pipeline 状态流转 / 需要真实验证”中的 2 条以上，默认走 dteam。
 
 示例：
 
 ```text
 简单任务：把 README 里一个错别字改掉 → 主 LLM 直接改。
+评估任务：这份方案是否适合 dteam → 主 LLM 直接分析。
 复杂任务：重构 UI 面板并补测试 → 调 dteam。
+版本方案：按 V1.0.3 实施方案完整实现 → 调 dteam。
 并行避让：同时调整 auth/user 两组逻辑 → 调 dteam；如果 auth.ts imports user.ts，runtime 会让 user.ts 相关 step 先跑。
 ```
+
+完整协议见 `doc/10-架构与运行/14-dteam触发协议.md`。
 
 ## 文档
 
@@ -116,6 +127,7 @@ dteam(action="continue", runId="run-xxx", message="你的回复")
 - [角色系统（5 个角色职责）](./doc/10-架构与运行/11-角色系统.md)
 - [工具 API 参考](./doc/10-架构与运行/12-API参考.md)
 - [v2 设计与实施现状](./doc/10-架构与运行/13-设计-v2与实施现状.md)
+- [dteam 触发协议](./doc/10-架构与运行/14-dteam触发协议.md)
 - [项目路线图](./doc/30-路线图/30-项目路线图.md)
 - [v0.5.0 轻量依赖图调度与运行态 UI 实施方案](./doc/40-版本实施方案/41-v0.5.0-轻量依赖图调度与运行态UI实施方案.md)
 - [工具动态加载方案（已归档）](./doc/90-归档/版本实施方案/41-工具动态加载方案.md)

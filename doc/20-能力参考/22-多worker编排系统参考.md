@@ -6,7 +6,7 @@
 
 0.5.0 要借的不是“更多 agents”，而是：
 
-> **最小 SwarmFlow / MiMo 式编排确定性：可确定的协作关系由 dteam runtime 执行，智能推理留给 worker。**
+> **最小 SwarmFlow / MiMo / Routa 式协作确定性：可确定的协作关系由 dteam runtime 执行，智能推理留给 worker，完成证据进入 report。**
 
 这直接落到 0.5.0：
 
@@ -16,6 +16,7 @@
 - 显式冲突 / shared file / dependency edge 自动拆批
 - UI 和 report 必须解释为什么这样调度
 - 完成态保留，方便回溯上一轮 dteam 做了什么
+- 完成不是 worker 口头判断，而是要留下轻量 evidence（证据）
 
 ## 2. SwarmFlow：编排和智能分离
 
@@ -57,7 +58,25 @@ MiMo Code 重点不是“多代理数量”，而是长程编程任务的可靠�
 - runtime 应该接管确定性编排
 - 状态 checkpoint 应写入 Pi session，但不污染 LLM context
 
-## 4. pi-subagents：产品体验和安全边界
+## 4. Routa：任务协议、门禁和 DoD
+
+Routa 的价值不是把 Kanban 搬进 dteam，而是提醒：
+
+> `done` 应该是带证据和门禁的协议结果，不是“agent 说完成了”。
+
+对 dteam 的轻量启发：
+
+| Routa 做法 | dteam 取舍 |
+|---|---|
+| Kanban 列作为任务协议 | 借“阶段有交接产物”思想；不做持久 Kanban |
+| Lane specialist 只做本列职责 | 保留 5 个写死角色，不开放 agent 市场 |
+| DoD 包含验证、证据、交付状态 | `dteam-report.details` 继续保留 plan / files / scheduling / validation |
+| Gate 不通过则打回上游 | 0.5.x 先显式 `failed` / `delayed` / blocker，不做自动返工循环 |
+| Monitor / Dashboard 展示信号 | `/dteam` 面板展示运行态和信号，不做独立 dashboard |
+
+独立映射见：`23-Routa任务协议与DoD参考.md`。
+
+## 5. pi-subagents：产品体验和安全边界
 
 参考页：`https://pi.dev/packages/pi-subagents`。
 
@@ -71,7 +90,7 @@ MiMo Code 重点不是“多代理数量”，而是长程编程任务的可靠�
 | doctor | 远期可选，不进 0.5.0 |
 | agent / chain 文件体系 | 不借，dteam 当前角色写死 |
 
-## 5. rpiv-todo：运行态 UI
+## 6. rpiv-todo：运行态 UI
 
 rpiv-todo 的核心价值是 UI，而不是 todo 工具本身。
 
@@ -90,7 +109,7 @@ rpiv-todo 的核心价值是 UI，而不是 todo 工具本身。
 - 不引入 `blockedBy`
 - 不做 deleted tombstone
 
-## 6. oira666/pi-subagent：进程隔离参考
+## 7. oira666/pi-subagent：进程隔离参考
 
 归档长文：`../90-归档/能力参考/22-与pi-subagent对比.md`。
 
@@ -101,7 +120,7 @@ rpiv-todo 的核心价值是 UI，而不是 todo 工具本身。
 - API key 共享、启动速度、customTools 是 dteam 当前优势。
 - 远期如果 leaf 崩溃频繁，再评估 spawn `pi` 子进程。
 
-## 7. 其它参考的当前取舍
+## 8. 其它参考的当前取舍
 
 | 来源 | 当前取舍 |
 |---|---|
@@ -110,7 +129,7 @@ rpiv-todo 的核心价值是 UI，而不是 todo 工具本身。
 | rezero | 不借 Return by Death；多维 check 远期可选 |
 | Remnic | 不集成 daemon；可与 dteam 共存 |
 
-## 8. 对 0.5.0 的设计约束
+## 9. 对 0.5.0 的设计约束
 
 ### 要做
 
@@ -132,7 +151,7 @@ rpiv-todo 的核心价值是 UI，而不是 todo 工具本身。
 - 自定义角色系统
 - Max Mode / Dream / Distill
 
-## 9. 归档索引
+## 10. 归档索引
 
 单包调研长文移到：
 
