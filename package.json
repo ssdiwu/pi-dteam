@@ -1,7 +1,7 @@
 {
   "name": "pi-dteam",
   "version": "0.5.0",
-  "description": "dteam - 轻量级多代理编排系统",
+  "description": "dteam - goal-driven self-growing multi-worker collaboration extension for Pi (summon pool / collective intelligence); 0.6.0 redefinition documented, code migration pending",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -20,7 +20,9 @@
     "index.ts",
     "src/**/*.ts",
     "agents/**/*",
-    "README.md"
+    "README.md",
+    "README-zh.md",
+    "CHANGELOG.md"
   ],
   "pi": {
     "name": "dteam",

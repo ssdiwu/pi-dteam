@@ -3,6 +3,36 @@
 本文件记录 dteam 的用户可感知变更与关键实现收口。  
 格式参考 Keep a Changelog，但保持中文、简洁、面向项目实际。
 
+## [Unreleased] — 0.6.0 方向重定义（文档先行，代码待改）
+
+### 重定义
+- dteam 从「后台二维编排引擎」重定义为「基于 goal 自发生长的多 worker 群策群力扩展」。18 条根本决策钉死在 [ADR 0005](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md)。
+- 明确与姊妹项目 `pi-dgoal` 的边界：**dteam = 群策群力（召唤池），dgoal = 建检循环（单兵 + 独立审核）**，独立并列，不合并、不自动切换。
+
+### 推翻（保留追溯）
+- 推翻 [ADR 0003](./doc/adr/0003-后台运行依附Extension-Runtime而非单次tool-call.md)（后台运行依附 Extension Runtime）：dteam 改为同步前台 Orchestrator Loop，不再返回 `runId`、不再后台运行。
+- 推翻旧 0.6.0「Task Plan + Live Plan + `mode: solo/chain/team`」：无预先 Task Plan，召唤轨迹即计划。
+- 删除二维编排（`solo/chain/team` 组织模式 × `direct/build_check/adaptive` 执行策略）、planner 穷举 / quick rule-based plan / LLM JSON fallback、`SchedulingPlan`/`FileGraph` 主轴、进程级 OS 子进程隔离作为默认。
+
+### 新增（0.6.0 形态，文档已定义，代码待实现）
+- Orchestrator Loop（编排循环）：同步前台主循环，LLM 驱动每轮召唤决策。
+- 进程内 `AgentSession` worker + Logical Isolation（逻辑隔离）。
+- Signal Store（信号存储，TTL 衰减，单 goal 生命周期，不落项目目录）。
+- Adaptive Concurrency（自适应并发）+ Multi-Provider Routing（多供应商路由）。
+- Completion Gate（收口闸门）：强制 `check` 收口，Orchestrator 不能自停。
+- 启动方式 C 混合：`/dteam <goal>` 显式启动 + 主 LLM 自动拉起。
+
+### 文档
+- 新建 ADR 0005，重编号消除两份同名 0001 冲突（现为 0001~0005 唯一编号）。
+- 重写术语表、路线图、doc/README、5 份架构文档（10/11/12/13/14）。
+- 新建根 `README-zh.md`（中文版），重写根 `README.md`（英文版）对齐 0.6.0。
+- 同步 `AGENTS.md`：撤销「不要做自适应并发」禁令，加 0.6.0 并发口径更新说明。
+- 归档 `41-v0.5.0` 实施方案到 `doc/90-归档/版本实施方案/`。
+
+### 说明
+- **代码未动**：`src/` 仍是 0.5.0 运行形态（后台运行 + 二维编排）。本阶段是文档先行，代码改造见 [`doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md`](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) Phase 1–5。
+- **版本号保持 0.5.0**：代码行为仍是 0.5.0；待代码真正改成 Orchestrator Loop 再升 0.6.0，避免「版本号 0.6.0 但跑出来是后台 runId 行为」的错位。
+
 ## [0.5.0] - 2026-06-11
 
 ### 新增
