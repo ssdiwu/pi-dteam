@@ -4,7 +4,7 @@
 >
 > 简单任务由主 LLM 直接完成；需要**群策群力**（召唤多个专业角色协作）时，dteam 进入同步前台的 **Orchestrator Loop（编排循环）**。
 >
-> 当前方向（0.6.0 重定义）：dteam 不再是后台二维编排引擎。代码仍是 0.5.0 运行形态（后台运行 + `solo/chain/team`）；0.6.0 重定义先行落地在文档，代码改造待启动。18 条根本决策见 [`doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md)。
+> 0.6.0 重定义已落地：dteam 现在是基于 goal 自发生长的召唤池，同步前台 Orchestrator Loop（不再是后台二维编排引擎）。旧的 `solo/chain/team` 引擎、`planner`/`pool`/`scheduler` 及 0.5.0 编排类型已删除。18 条根本决策见 [`doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md)。
 
 **姊妹项目**：[`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) —— 独立并列。**dteam = 群策群力（召唤池），dgoal = 建检循环（单兵 + 独立审核）**。主 LLM 自己判断用哪个，不合并、不自动切换。英文版：[`README.md`](./README.md)。
 
@@ -20,12 +20,12 @@ dteam 从 goal 自发生长。主 LLM 遇到需要群策群力的任务时，按
 - **Completion Gate（收口闸门）** —— Orchestrator 不能自停；每个 goal 必须召唤 `check` 通过才算完成。
 - **固定五角色** —— 不做角色市场；`build` 是唯一能 `edit`（编辑）现有文件的角色。
 
-## 当前状态（0.5.0 运行形态，0.6.0 方向）
+## 当前状态（0.6.0）
 
-`src/` 代码仍是重定义前的形态：后台 `run` 返回 `runId`、二维编排（`solo / chain / team` × `direct / build_check / adaptive`）、轻量依赖图调度。0.6.0 重定义先行落在文档：
+`src/` 代码已重写为 0.6.0 召唤池形态：同步前台 `runLoop`、进程内 `AgentSession` worker + Logical Isolation、Signal Store TTL 衰减、Adaptive Concurrency + Multi-Provider Routing、强制 `check` 收口。0.5.0 的后台 `run`/`runId` 引擎、`planner`/`pool`/`scheduler`、二维编排类型均已删除。
 
-- [ADR 0005 —— 0.6.0 重定义为自发生长召唤池](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) —— 18 条决策，推翻 ADR 0003（后台运行）和旧 0.6.0 Task Plan。
-- [0.6.0 召唤池重定义实施方案](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) —— Phase 0（文档）已完成，Phase 1–5（代码）待启动。
+- [ADR 0005 —— 0.6.0 重定义为自发生长召唤池](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) —— 18 条决策。
+- [0.6.0 召唤池重定义实施方案](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) —— Phase 0–5 已完成。
 
 ## 快速开始
 
@@ -44,9 +44,10 @@ pi install "$(pwd)"
 
 # 5. 在 Pi 里 /reload
 
-# 6. 调用 dteam
-# 当前 0.5.0 运行形态：  dteam(action="run", goal="你的目标")
-# 0.6.0 目标（代码待改）：/dteam <goal>  或  dteam(goal="...")
+# 6. 调用 dteam（0.6.0 同步前台 Orchestrator Loop）
+# /dteam <goal>          （用户显式）
+# dteam(goal="...")      （主 LLM 自动）
+# action=run 阻塞主对话直到 check 收口。
 
 # 7. /dteam 命令
 # 在 Pi 里输入 /dteam 打开实时进度面板
@@ -103,12 +104,11 @@ worker 把四类信号写入 Signal Store：
 .
 ├── index.ts                 # Pi 扩展入口（注册 dteam 工具 + /dteam 命令）
 ├── src/
-│   ├── orchestrator.ts     # 0.6.0 目标：Orchestrator Loop 主循环（当前 Plan→Execute→Report）
-│   ├── planner.ts          # 旧穷举式 planner（0.6.0：被 LLM 驱动编排取代）
-│   ├── leaf.ts             # worker 执行层（0.6.0：进程内 AgentSession + 逻辑隔离）
-│   ├── pool.ts             # 任务池（0.6.0 代码改造后退场）
-│   ├── session.ts          # createWorkerSession 工厂
-│   ├── tools.ts            # 类型中心
+│   ├── orchestrator-loop.ts # 0.6.0 Orchestrator Loop 主循环（LLM 每轮决策）
+│   ├── orchestrator-loop/   # decision.ts / check-gate.ts / concurrency.ts / model-routing.ts
+│   ├── leaf.ts             # worker 执行层（进程内 AgentSession + Logical Isolation）
+│   ├── session.ts          # createWorkerSession 工厂（logicalIsolation + onSession）
+│   ├── tools.ts            # 类型中心（0.6.0 纯 re-export；编排类型在 types/loop.ts）
 │   ├── reference-data.ts   # reference_architecture 工具（12 架构模式 + ADR 模板）
 │   ├── reporter.ts         # Reporter 接口
 │   ├── config.ts           # DTEAM_CONFIG 集中常量
@@ -137,11 +137,10 @@ worker 把四类信号写入 Signal Store：
 
 ## 验证状态
 
-- ✅ 0.5.0 运行形态已落地（后台运行、二维编排、依赖图调度）
-- ✅ 0.6.0 文档重定义完成（ADR 0005 + 术语表 + 路线图 + 5 份架构文档）
-- ✅ `npm run build` 通过
-- ✅ `npm test` 基线绿
-- ⏳ 0.6.0 代码改造待启动（Phase 1–5）
+- ✅ 0.6.0 代码已落地（Orchestrator Loop + Signal Store + Logical Isolation + Adaptive Concurrency + Multi-Provider Routing + 强制 check 收口）
+- ✅ 0.5.0 编排代码已删（orchestrator.ts / planner.ts / pool.ts / scheduler/ / 二维编排类型）
+- ✅ `npm run build` 通过；`npm test` 绿（140 个单测；vi.mock 验证决策流转/并发/路由）
+- ⏳ 端到端真实 LLM 跑通 `/dteam <goal>` 需在有 API key 的 Pi 环境手动验证
 
 ## 相关链接
 

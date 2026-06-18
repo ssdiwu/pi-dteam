@@ -57,7 +57,7 @@ Orchestrator Loop 不自行判定完成；goal 完成前必须召唤 `check` 角
 
 ## 5. 最终结果结构（0.6.0 重定义后形态）
 
-> 注：当前 `src/` 代码仍是旧 v0.4.x / v0.5.0 形态（含 `RunResult.plan + steps` / `ExecutionPlan.mode`）。0.6.0 代码改造待启动，最终结构会演进为召唤轨迹 + Signal Store 快照 + check 收口结论。
+> 注：0.6.0 代码已落地——`src/` 已重写为 Orchestrator Loop（`orchestrator-loop.ts`）+ SignalStore + 强制 check 收口，返回 `DteamResult6`（召唤轨迹 + signalSnapshot + checkConclusion）。旧 `RunResult.plan+steps` / `ExecutionPlan.mode` 已删。
 
 ```ts
 // 0.6.0 目标形态（代码改造方向）

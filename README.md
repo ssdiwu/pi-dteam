@@ -5,7 +5,7 @@
 >
 > Simple tasks are handled directly by the main LLM. When a task needs **collective intelligence** (summoning multiple specialized roles to collaborate), dteam enters a synchronous foreground **Orchestrator Loop**.
 >
-> Current direction (0.6.0 redefinition): dteam is no longer a background two-dimensional orchestration engine. The codebase is still at the 0.5.0 runtime shape (background run + `solo/chain/team`); the 0.6.0 redefinition is documented first, code migration is pending. See [`doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) for the 18 fundamental decisions.
+> 0.6.0 redefinition landed: dteam is now a goal-driven self-growing summon pool with a synchronous foreground Orchestrator Loop (no longer a background two-dimensional orchestration engine). The old `solo/chain/team` engine, `planner`/`pool`/`scheduler` and 0.5.0 orchestration types have been removed. See [`doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) for the 18 fundamental decisions.
 
 **Sister project**: [`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) — independent and parallel. **dteam = collective intelligence (summon pool); dgoal = build-check loop (single-agent + independent audit).** The main LLM chooses which to use; they are not merged, not auto-switched. Chinese version: [`README-zh.md`](./README-zh.md).
 
@@ -21,12 +21,12 @@ dteam grows out of a goal. When the main LLM hits a task that needs collective i
 - **Completion Gate** — the Orchestrator cannot self-terminate; every goal must pass a `check` summon to count as done.
 - **Fixed five roles** — no role marketplace; `build` is the only role that can `edit` existing files.
 
-## Current state (0.5.0 runtime, 0.6.0 direction)
+## Current state (0.6.0)
 
-The `src/` code is still the pre-redefinition shape: background `run` returning `runId`, two-dimensional orchestration (`solo / chain / team` × `direct / build_check / adaptive`), lightweight dependency-graph scheduling. The 0.6.0 redefinition is captured in docs first:
+The `src/` codebase has been rewritten to the 0.6.0 summon-pool shape: synchronous foreground `runLoop`, in-process `AgentSession` workers with Logical Isolation, Signal Store with TTL decay, Adaptive Concurrency + Multi-Provider Routing, and a mandatory `check` completion gate. The 0.5.0 background `run`/`runId` engine, `planner`/`pool`/`scheduler`, and two-dimensional orchestration types have been removed.
 
-- [ADR 0005 — 0.6.0 redefine as self-growing summon pool](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) — the 18 decisions, supersedes ADR 0003 (background run) and the old 0.6.0 Task Plan.
-- [0.6.0 summon-pool redefinition implementation plan](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) — Phase 0 (docs) done, Phases 1–5 (code) pending.
+- [ADR 0005 — 0.6.0 redefine as self-growing summon pool](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) — the 18 decisions.
+- [0.6.0 summon-pool redefinition implementation plan](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) — Phase 0–5 done.
 
 ## Quick start
 
@@ -45,9 +45,10 @@ pi install "$(pwd)"
 
 # 5. Run /reload in Pi
 
-# 6. Invoke dteam
-# Current 0.5.0 runtime:   dteam(action="run", goal="your goal")
-# 0.6.0 target (code pending): /dteam <goal>  or  dteam(goal="...")
+# 6. Invoke dteam (0.6.0 synchronous foreground Orchestrator Loop)
+# /dteam <goal>          (user explicit)
+# dteam(goal="...")      (main LLM auto)
+# action=run blocks the main conversation until check gate closes.
 
 # 7. /dteam command
 # Type /dteam in Pi to open the live progress panel
@@ -104,12 +105,11 @@ Full protocol: see [`doc/10-架构与运行/14-dteam触发协议.md`](./doc/10-�
 .
 ├── index.ts                 # Pi extension entry (registers dteam tool + /dteam command)
 ├── src/
-│   ├── orchestrator.ts     # 0.6.0 target: Orchestrator Loop main (currently Plan→Execute→Report)
-│   ├── planner.ts          # Legacy exhaustive planner (0.6.0: superseded by LLM-Driven Orchestration)
-│   ├── leaf.ts             # Worker execution layer (0.6.0: in-process AgentSession + Logical Isolation)
-│   ├── pool.ts             # Task pool (0.6.0: retires after code migration)
-│   ├── session.ts          # createWorkerSession factory
-│   ├── tools.ts            # Type hub
+│   ├── orchestrator-loop.ts     # 0.6.0 Orchestrator Loop main (LLM-driven per-turn decision)
+│   ├── orchestrator-loop/       # decision.ts / check-gate.ts / concurrency.ts / model-routing.ts
+│   ├── leaf.ts             # Worker execution layer (in-process AgentSession + Logical Isolation)
+│   ├── session.ts          # createWorkerSession factory (logicalIsolation + onSession)
+│   ├── tools.ts            # Type hub (0.6.0 pure re-export; orchestration types in types/loop.ts)
 │   ├── reference-data.ts   # reference_architecture tool (12 patterns + ADR template)
 │   ├── reporter.ts         # Reporter interface
 │   ├── config.ts           # DTEAM_CONFIG centralized constants
@@ -138,11 +138,10 @@ Full protocol: see [`doc/10-架构与运行/14-dteam触发协议.md`](./doc/10-�
 
 ## Verification status
 
-- ✅ 0.5.0 runtime landed (background run, two-dimensional orchestration, dependency-graph scheduling)
-- ✅ 0.6.0 documentation redefinition complete (ADR 0005 + glossary + roadmap + 5 architecture docs)
-- ✅ `npm run build` passes
-- ✅ `npm test` baseline green
-- ⏳ 0.6.0 code migration pending (Phases 1–5)
+- ✅ 0.6.0 code landed (Orchestrator Loop + Signal Store + Logical Isolation + Adaptive Concurrency + Multi-Provider Routing + Completion Gate)
+- ✅ 0.5.0 orchestration code removed (orchestrator.ts / planner.ts / pool.ts / scheduler/ / two-dimensional types)
+- ✅ `npm run build` passes; `npm test` green (140 unit tests; vi.mock verifies decision flow / concurrency / routing)
+- ⏳ End-to-end real-LLM run (`/dteam <goal>`) needs manual verification in a Pi environment with API key
 
 ## Related links
 

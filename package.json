@@ -1,7 +1,7 @@
 {
   "name": "pi-dteam",
-  "version": "0.5.0",
-  "description": "dteam - goal-driven self-growing multi-worker collaboration extension for Pi (summon pool / collective intelligence); 0.6.0 redefinition documented, code migration pending",
+  "version": "0.6.0",
+  "description": "dteam - goal-driven self-growing multi-worker collaboration extension for Pi (summon pool / collective intelligence); synchronous foreground Orchestrator Loop with fixed five roles and mandatory check gate",
   "type": "module",
   "keywords": [
     "pi-package",

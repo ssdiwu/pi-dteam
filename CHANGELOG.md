@@ -3,7 +3,7 @@
 本文件记录 dteam 的用户可感知变更与关键实现收口。  
 格式参考 Keep a Changelog，但保持中文、简洁、面向项目实际。
 
-## [Unreleased] — 0.6.0 方向重定义（文档先行，代码待改）
+## [0.6.0] - 2026-06-18
 
 ### 重定义
 - dteam 从「后台二维编排引擎」重定义为「基于 goal 自发生长的多 worker 群策群力扩展」。18 条根本决策钉死在 [ADR 0005](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md)。
@@ -14,12 +14,14 @@
 - 推翻旧 0.6.0「Task Plan + Live Plan + `mode: solo/chain/team`」：无预先 Task Plan，召唤轨迹即计划。
 - 删除二维编排（`solo/chain/team` 组织模式 × `direct/build_check/adaptive` 执行策略）、planner 穷举 / quick rule-based plan / LLM JSON fallback、`SchedulingPlan`/`FileGraph` 主轴、进程级 OS 子进程隔离作为默认。
 
-### 新增（0.6.0 形态，文档已定义，代码待实现）
-- Orchestrator Loop（编排循环）：同步前台主循环，LLM 驱动每轮召唤决策。
-- 进程内 `AgentSession` worker + Logical Isolation（逻辑隔离）。
-- Signal Store（信号存储，TTL 衰减，单 goal 生命周期，不落项目目录）。
-- Adaptive Concurrency（自适应并发）+ Multi-Provider Routing（多供应商路由）。
-- Completion Gate（收口闸门）：强制 `check` 收口，Orchestrator 不能自停。
+### 新增（0.6.0 形态，代码已实施）
+- Orchestrator Loop（编排循环）：同步前台主循环，LLM 驱动每轮召唤决策（`orchestrator-loop.ts` + `decision.ts`）。
+- 进程内 `AgentSession` worker + Logical Isolation（逻辑隔离）：`session.ts` logicalIsolation 跳过 `discoverAndLoadExtensions`。
+- session.subscribe 双通道：worker 执行时被动采集 turn_end 作为 progress 信号，与 `worker_sendSignal` customTool 并存。
+- Signal Store（信号存储，TTL 衰减 `2^(-age/halfLife)`，单 goal 生命周期，不落项目目录）：`signal-store.ts`。
+- Adaptive Concurrency（自适应并发）：429 降并发、连续成功升并发、cooldown 冷却（`concurrency.ts`）。
+- Multi-Provider Routing（多供应商路由）：per-role 主模型 + fallback 链（`model-routing.ts`）。
+- Completion Gate（收口闸门）：强制 `check` 收口，Orchestrator 不能自停（`check-gate.ts` + loop done 分支）。
 - 启动方式 C 混合：`/dteam <goal>` 显式启动 + 主 LLM 自动拉起。
 
 ### 文档
@@ -29,9 +31,18 @@
 - 同步 `AGENTS.md`：撤销「不要做自适应并发」禁令，加 0.6.0 并发口径更新说明。
 - 归档 `41-v0.5.0` 实施方案到 `doc/90-归档/版本实施方案/`。
 
+### 代码实施（Phase 0–5）
+- 删除旧编排源码：`orchestrator.ts` / `planner.ts` / `pool.ts` / `orchestrator/*`（strategies/history-context/signal-handlers/help-self-heal/peer-forwarder）/ `scheduler/*` / `ui/helpers.ts`。
+- 删除旧二维编排类型：`tools.ts` 重写为纯 re-export；`ArchitecturePattern` 移到 `reference-data.ts` 本地。
+- UI 层降级：`reporter.ts` no-op；`ui/store.ts` 删 mode/scheduling/strategies 字段；`ui/panel.ts` 重写为最小 worker 展示。
+- `index.ts`：action=run 改走同步前台 `runLoop`（删后台 runId/activeRuns/sendMessage triggerTurn/旧渲染分支/dteam-report 渲染器）；工具 description/enum 对齐同步前台语义。
+- 删除 14 个依赖旧结构的测试，`tests/README.md` 重写。
+- `package.json` version 0.5.0 → 0.6.0；`src/README.md` 重写为 0.6.0 结构。
+
 ### 说明
-- **代码未动**：`src/` 仍是 0.5.0 运行形态（后台运行 + 二维编排）。本阶段是文档先行，代码改造见 [`doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md`](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) Phase 1–5。
-- **版本号保持 0.5.0**：代码行为仍是 0.5.0；待代码真正改成 Orchestrator Loop 再升 0.6.0，避免「版本号 0.6.0 但跑出来是后台 runId 行为」的错位。
+- **代码已实施**：`src/` 已从 0.5.0 后台二维编排重写为 0.6.0 同步前台 Orchestrator Loop，140 个单测全绿（vi.mock 验证决策流转/并发/路由）。
+- **版本号 0.6.0**：代码行为已是 0.6.0（同步前台 Orchestrator Loop + 强制 check 收口）。
+- **待手动验证**：端到端真实 LLM 跑通 `/dteam <goal>` 需在有 API key 的 Pi 环境手验。
 
 ## [0.5.0] - 2026-06-11
 
