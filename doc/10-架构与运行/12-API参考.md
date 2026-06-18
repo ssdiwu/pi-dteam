@@ -1,176 +1,81 @@
 # dteam API 参考
 
-> dteam 对外保持轻量：1 个工具 `dteam` + 1 个命令 `/dteam` + 1 类完成消息 `dteam-report`。
+> dteam 对外保持轻量：1 个工具 `dteam` + 1 个命令 `/dteam`。
+>
+> 0.6.0 重定义后，dteam 是**同步前台**执行（Orchestrator Loop），不再后台运行、不再返回 `runId`（推翻 [ADR 0003](../adr/0003-后台运行依附Extension-Runtime而非单次tool-call.md)）。
 
 ## 1. 工具：`dteam`
 
-`dteam` 让主 LLM 启动或继续一次后台多 worker 协作。
+`dteam` 让主 LLM 拉起一次 Orchestrator Loop（编排循环），进入群策群力协作。
 
-工具 description（描述）内置触发协议摘要：复杂 coding task（编程任务）、版本实施方案、多模块多阶段且有验收门禁的任务应调用 dteam；普通问答、方案评审但不实施、单文件小改、只跑一个命令不应调用。完整规则见 `14-dteam触发协议.md`。
+工具 description（描述）内置触发协议摘要：需要群策群力（召唤多个专业角色）的复杂任务应调 dteam；普通问答、单文件小改、只跑一个命令、单兵能干的任务不应调用。完整规则见 `14-dteam触发协议.md`。
 
 ### 1.1 参数
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|:---:|---|
-| `action` | `"run" | "continue"` | ✅ | `run` 启动后台任务；`continue` 给等待中的任务注入用户补充 |
-| `goal` | `string` | `run` 时必填 | 要完成的目标 |
-| `runId` | `string` | `continue` 时必填 | 后台任务 ID（编号） |
-| `message` | `string` | `continue` 时必填 | 用户补充信息 |
+| `goal` | `string` | ✅ | 要完成的目标 |
 | `availableTools` | `string[]` | 否 | 主 LLM 当前可见工具名列表；dteam 用它校验和透传 worker 工具 |
 
-### 1.2 启动后台任务
+> 0.6.0 后移除了 `action="run"` / `action="continue"` / `runId` 参数。启动 = 直接传 goal 进入同步前台 Orchestrator Loop。
+
+### 1.2 拉起 Orchestrator Loop
 
 ```ts
 dteam(
-  action="run",
-  goal="重构 src/ui/panel.ts，让完成项不堆积",
+  goal="为 src/orchestrator.ts 实现 0.6.0 Orchestrator Loop 主循环",
   availableTools=["read", "bash", "edit", "write", "grep", "find", "ls"]
 )
 ```
 
-立即返回：
+进入同步前台执行：阻塞主对话，Orchestrator 循环召唤 worker、收信号、直到 `check` 收口完成，返回最终报告。
 
-```json
-{ "status": "running", "runId": "run-xxx" }
-```
-
-注意：这只是启动确认，不是最终结果。
-
-### 1.3 继续等待中的任务
-
-```ts
-dteam(
-  action="continue",
-  runId="run-xxx",
-  message="保留现有中文 UI，不要引入英文状态名"
-)
-```
-
-返回：
-
-```json
-{ "content": "已注入到 run run-xxx，叶子继续执行" }
-```
+> 注意：不再立即返回 `{status:"running", runId}`。同步前台意味着 dteam 期间主对话阻塞。
 
 ## 2. 运行态观察
 
-`run` 返回后，进度不通过 `onUpdate`（流式更新回调）继续推送。观察方式：
+Orchestrator Loop 推进期间，通过以下渠道实时观察（同步前台，进度随循环可见）：
 
 | 渠道 | 作用 |
 |---|---|
-| `/dteam` | 展开 / 关闭实时面板 |
-| widget（小组件） | run 进行中自动显示紧凑摘要 |
+| `/dteam` | 展开 / 关闭实时面板，看 Orchestrator Loop 推进 + Signal Store 快照 |
+| widget（小组件） | loop 进行中显示紧凑摘要（当前召唤的 worker、关键信号） |
 | status（状态栏） | 显示 dteam 正在执行 |
-| notify（通知） | 开始、完成、失败提示 |
-| `dteam-report` | 完成后进入主对话的最终报告 |
+| notify（通知） | 开始、收口、失败提示 |
 
 ## 3. 命令：`/dteam`
 
 | 输入 | 行为 |
 |---|---|
+| `/dteam <goal>` | 显式启动 Orchestrator Loop（启动方式 C 混合之一） |
 | `/dteam` | toggle（切换）面板展开 / 折叠 |
-| `/dteam 0` | 概览：goal、mode、summary、当前批次、关键 warning |
-| `/dteam 1` | 批次：batches、delayedBecause、conflicts |
-| `/dteam 2` | Workers：worker 树、files、最多 2 行输出 |
-| `/dteam 3` | 信号：聚合 found / progress / help / blocked |
-| `/dteam 4` | 报告：运行中待完成，完成后 final summary |
 | `/dteam close` | 关闭面板 |
 
-空态示例：
+## 4. 完成判定：Completion Gate（收口闸门）
 
-```text
-📊 dteam worker 进度
-──────────────────────
-  （无 worker 正在工作）
+Orchestrator Loop 不自行判定完成；goal 完成前必须召唤 `check` 角色通过收口（ADR 0005 第 14 条）。`check` pass 后，Orchestrator Loop 结束，返回最终报告。
 
-  启动 worker：让主 LLM 调 dteam(action="run", goal="...")
-──────────────────────
-```
+## 5. 最终结果结构（0.6.0 重定义后形态）
 
-运行态示例：
-
-```text
-⚙ dteam · 修复 UI 状态 · 12s · 1/3 完成
-[0:概览]  1:批次   2:Workers   3:信号   4:报告
-──────────────────────
-  目标: 修复 UI 状态
-  mode: team · 1/3 完成 · 12s
-  reason: 多模块并行
-  当前批次: #1 [2]
-```
-
-折叠 widget 示例：
-
-```text
-● dteam [team] 1/3 done · 12s
-├ ◐ build: 调整 panel 清理逻辑
-│   ⎿ 已更新 store 状态
-└ ✓ 已完成任务（删除线 + dim）
-```
-
-## 4. 完成消息：`dteam-report`
-
-后台 run 完成后，扩展会发送一条 `dteam-report` 自定义消息：
-
-折叠态：
-
-```text
-✓ dteam · 3/3 完成 (Ctrl+O 展开)
-```
-
-展开态显示 plan、fileGraph、scheduling、step 的 task / strategy / files / output 摘要。
-
-## 5. 最终结果结构
-
-内部最终结果仍是 `RunResult`：
+> 注：当前 `src/` 代码仍是旧 v0.4.x / v0.5.0 形态（含 `RunResult.plan + steps` / `ExecutionPlan.mode`）。0.6.0 代码改造待启动，最终结构会演进为召唤轨迹 + Signal Store 快照 + check 收口结论。
 
 ```ts
-interface RunResult {
+// 0.6.0 目标形态（代码改造方向）
+interface DteamResult {
   status: "done" | "failed"
   goal: string
-  plan: ExecutionPlan
-  steps: StepResult[]
+  summonTrail: SummonStep[]      // 召唤轨迹（事中涌现记录）
+  signalSnapshot: Signal[]       // Signal Store 最终快照
+  checkConclusion: CheckResult   // check 收口结论
   summary: string
-  signals?: Signal[]
-  workers?: WorkerRun[]
-  taskSummary?: { total: number; done: number; failed: number }
-  fileGraph?: FileGraph
-  scheduling?: SchedulingPlan
-}
-```
-
-`ExecutionPlan`：
-
-```ts
-interface ExecutionPlan {
-  mode: "solo" | "chain" | "team"
-  reason: string
-  steps: PlanStep[]
 }
 
-interface PlanStep {
+interface SummonStep {
   role: "explore" | "design" | "build" | "check" | "close"
   task: string
-  strategy: "direct" | "build_check" | "adaptive"
-  files?: string[]
-  tools?: string[]
-}
-```
-
-`FileGraph` / `SchedulingPlan`：
-
-```ts
-interface FileGraph {
-  roots: string[]
-  nodes: Array<{ file: string; imports: string[]; importedBy: string[]; exists: boolean }>
-  unresolved: Array<{ from: string; specifier: string; reason: string }>
-  boundaryStatus: "known" | "unknown" | "unresolved" | "truncated"
-}
-
-interface SchedulingPlan {
-  batches: Array<{ index: number; stepIndexes: number[]; reason: string }>
-  conflicts: Array<{ type: "hard" | "shared" | "dependency" | "unknown"; stepIndexes: number[]; files?: string[]; reason: string }>
-  delayedSteps: Array<{ stepIndex: number; delayedBecause: string[] }>
+  result: string
+  signals: Signal[]
+  model: string                  // 实际使用的模型（含 fallback）
 }
 ```
 
@@ -178,30 +83,30 @@ interface SchedulingPlan {
 
 | 场景 | 行为 |
 |---|---|
-| 主 LLM 传非空数组 | planner LLM 路径只允许选择这些工具 |
+| 主 LLM 传非空数组 | Orchestrator 召唤 worker 时只允许选择这些工具 |
 | 不传 | 回落到 `ROLE_DEFAULTS` |
 | 传空数组 | 等同不传 |
-| LLM 返回不存在的工具名 | intersect（取交集）过滤；全空则回落默认工具 |
+| 工具名不存在 | intersect（取交集）过滤；全空则回落默认工具 |
 
-这来自 `41-工具动态加载方案.md` 的方案 D：dteam 不扫描 Pi 已加载工具，而是信任调用方显式传入。
+这来自工具动态加载方案 D：dteam 不扫描 Pi 已加载工具，而是信任调用方显式传入。
 
-## 7. 内部 API
+## 7. 内部 API（0.6.0 重写方向）
 
 | 函数 | 位置 | 说明 |
 |---|---|---|
-| `run(goal, ctx)` | `src/orchestrator.ts` | 执行一次 goal，返回 `RunResult` |
-| `plan(goal, ctx, availableTools?)` | `src/planner.ts` | 生成 `ExecutionPlan` |
-| `execute(role, task, ctx, goal, tools?)` | `src/leaf.ts` | 执行单个 worker step |
-| `buildFileGraphFromSteps(steps, options?)` | `src/scheduler/file-graph.ts` | 生成轻量文件依赖图 |
-| `preflightSchedule(steps, fileGraph)` | `src/scheduler/preflight.ts` | 生成 batch 调度计划 |
-| `createWorkerSession(options)` | `src/session.ts` | 创建 worker session |
+| Orchestrator Loop 主循环 | `src/orchestrator.ts` | 读 Signal Store → LLM 驱动决策 → 召唤 worker → 收信号 → 继续/收口 |
+| 召唤单个 worker | `src/leaf.ts` | 进程内 `createAgentSession` + Logical Isolation 执行 |
+| `createWorkerSession(options)` | `src/session.ts` | 创建进程内 worker session + Multi-Provider Routing |
 | `getRoleTools(role)` | `src/session/role-config.ts` | 获取角色默认工具 |
+
+> 当前 `src/planner.ts`（穷举式 planner）将在 0.6.0 被 Orchestrator Loop 内的每轮 LLM 调用取代；`src/scheduler/*`（FileGraph / preflight）将降级为 Orchestrator 决策辅助。
 
 ## 8. 当前不提供的 API
 
 | 不提供 | 原因 |
 |---|---|
-| `status` action | 当前状态通过 `/dteam` 面板和最终 report 呈现；未来如确有需要再加 |
+| `runId` / 后台返回 | 0.6.0 改为同步前台 Orchestrator Loop（ADR 0005 推翻 ADR 0003） |
+| `action="continue"` | 同步前台执行，不再有"等待补充"的后台注入；help 自愈走进程内 explore |
 | 多个工具名 | 保持 dteam 单工具哲学 |
-| 自定义角色注册 API | 角色写死是当前简化策略 |
+| 自定义角色注册 API | 角色写死（ADR 0002） |
 | workflow 脚本 API | dteam 不做固定编排平台 |
