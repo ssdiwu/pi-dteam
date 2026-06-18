@@ -1,11 +1,28 @@
 /**
- * dteam v1 — 架构模式参考库 + reference_architecture 工具
+ * dteam 0.6.0 — 架构模式参考库 + reference_architecture 工具
  *
  * 12 个经典架构模式 + ADR 草稿模板。
  * 仅供 design 角色使用（通过 customTools 注入）。
  */
 
-import type { ArchitecturePattern } from "./tools.js";
+// ═══ 架构模式类型（0.6.0 从 tools.ts 迁入本地）═══
+
+export type ArchitectureCategory =
+  | "monolith" | "microservices" | "layered" | "hexagonal"
+  | "event-driven" | "cqrs" | "serverless"
+  | "microkernel" | "pipe-filter" | "space-based"
+  | "client-server" | "peer-to-peer";
+
+export interface ArchitecturePattern {
+  name: string;
+  category: ArchitectureCategory;
+  description: string;
+  pros: string[];
+  cons: string[];
+  bestFor: string[];
+  worstFor: string[];
+  adrTemplate: string;
+}
 
 // ═══ 模式数据 ═══
 

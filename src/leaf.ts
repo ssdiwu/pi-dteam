@@ -11,7 +11,6 @@
  */
 
 import { createWorkerSession, pickAvailableModel } from "./session.js";
-import { uiStore } from "./ui/index.js";
 import { DTEAM_CONFIG } from "./config.js";
 import type { RoleName } from "./types/role.js";
 import type { DteamContext } from "./types/context.js";
@@ -58,6 +57,8 @@ export async function execute(
     ctx,
     dteamContext: workerDteamCtx,
     builtInTools: tools,
+    logicalIsolation: ctx.logicalIsolation,
+    onSession: ctx.onWorkerSession,
   });
 
   let currentTask = input;

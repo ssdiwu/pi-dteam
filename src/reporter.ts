@@ -1,22 +1,14 @@
 /**
- * dteam v1 — Reporter 抽象
+ * dteam 0.6.0 — Reporter 抽象（最小 no-op）
  *
- * 把业务代码对 uiStore 的直接调用抽到 Reporter 接口后面。
- * 默认实现 defaultReporter 委托给 uiStore（行为完全不变）。
+ * 0.6.0 Orchestrator Loop 自带 summonTrail/signalSnapshot，不再依赖 0.5.0 的
+ * uiStore + setPlan/setScheduling 那套展示层。Reporter 降级为 no-op 占位，
+ * 保留接口形状以兼容 index.ts 的 ctx.reporter 透传；后续 UI 重做时再实现。
  *
- * 【重构方案】Phase 1 - D：解决 O-3 业务/UI 强耦合
+ * 0.5.0 的 uiStore/PlanView/SchedulingPlan 引用已随二维编排类型一并清除。
  */
 
-import { uiStore } from "./ui/index.js";
-import type { ExecMode, SchedulingPlan } from "./tools.js";
-
-/** Plan 视图（业务用，不依赖 uiStore 内部类型） */
-export interface PlanView {
-  mode: ExecMode;
-  reason: string;
-}
-
-/** Worker 视图（业务用，不依赖 uiStore 内部类型） */
+/** Worker 视图（保留最小形状，供未来 UI 实现用） */
 export interface WorkerView {
   id: string;
   parentId: string | null;
@@ -26,7 +18,7 @@ export interface WorkerView {
   files?: string[];
 }
 
-/** 信号视图（业务用） */
+/** 信号视图 */
 export interface SignalView {
   type: string;
   workerId: string;
@@ -34,70 +26,25 @@ export interface SignalView {
   timestamp: number;
 }
 
-/** 根的策略动作视图 */
-export interface StrategyView {
-  action: string;
-  target: string;
-  detail: string;
-  timestamp: number;
-}
-
 /**
- * Reporter 接口 —— 业务代码应通过这个接口汇报状态，不直接调 uiStore。
- * 后续可替换为 CLI / JSON / Web UI 等不同实现。
+ * Reporter 接口 —— 0.6.0 暂为 no-op；Orchestrator Loop 不经此接口汇报。
+ * 保留形状以兼容 index.ts 透传 ctx.reporter。
  */
 export interface Reporter {
   startRun(goal: string): void;
-  setPlan(plan: PlanView): void;
-  setScheduling(scheduling: SchedulingPlan): void;
   addWorker(w: WorkerView): void;
   updateWorker(id: string, patch: { status?: string; recentOutput?: string }): void;
   addSignal(workerId: string, sig: SignalView): void;
-  addStrategy(s: StrategyView): void;
   finishRun(): void;
   reset(): void;
 }
 
-/**
- * 默认实现：完全委托给 uiStore。
- * 行为与重构前一致（每个方法映射到对应的 uiStore 调用）。
- */
+/** 默认 no-op 实现 */
 export const defaultReporter: Reporter = {
-  startRun(goal) {
-    uiStore.startRun(goal);
-  },
-  setPlan(plan) {
-    uiStore.setPlan(plan);
-  },
-  setScheduling(scheduling) {
-    uiStore.setScheduling(scheduling);
-  },
-  addWorker(w) {
-    uiStore.addWorker({ id: w.id, parentId: w.parentId, title: w.title, files: w.files });
-  },
-  updateWorker(id, patch) {
-    uiStore.updateWorker(id, patch);
-  },
-  addSignal(workerId, sig) {
-    uiStore.addSignal(workerId, {
-      type: sig.type,
-      workerId: sig.workerId,
-      summary: sig.summary,
-      timestamp: sig.timestamp,
-    });
-  },
-  addStrategy(s) {
-    uiStore.addStrategy({
-      action: s.action,
-      target: s.target,
-      detail: s.detail,
-      timestamp: s.timestamp,
-    });
-  },
-  finishRun() {
-    uiStore.finishRun();
-  },
-  reset() {
-    uiStore.reset();
-  },
+  startRun() {},
+  addWorker() {},
+  updateWorker() {},
+  addSignal() {},
+  finishRun() {},
+  reset() {},
 };

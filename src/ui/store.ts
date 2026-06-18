@@ -1,11 +1,10 @@
 /**
- * ui/store.ts — dteam UI 状态管理
+ * ui/store.ts — dteam UI 状态管理（0.6.0 最小版）
  *
- * 维护一次 run 的整体状态以及所有 worker 的生命周期。
+ * 0.6.0 Orchestrator Loop 自带 summonTrail/signalSnapshot，UIStore 降级为
+ * 最小 worker 状态快照（去掉 0.5.0 的 mode/scheduling/strategies）。
  * 对外暴露只读快照，确保 UI 层无法意外突变内部状态。
  */
-
-import type { ExecMode, SchedulingPlan } from "../tools.js";
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -16,14 +15,6 @@ export interface UISignal {
   type: string;
   workerId: string;
   summary: string;
-  timestamp: number;
-}
-
-/** 根的策略下发记录 */
-export interface UIStrategy {
-  action: string;
-  target: string;
-  detail: string;
   timestamp: number;
 }
 
@@ -45,15 +36,9 @@ export interface UIWorkerState {
 /** 整个 run 的 UI 状态快照 */
 export interface UIState {
   goal: string;
-  mode?: ExecMode;
-  planReason?: string;
   workers: UIWorkerState[];
   startedAt: number;
   finishedAt: number | null;
-  /** 0.5.0：preflight 后的 batch 调度计划 */
-  scheduling?: SchedulingPlan;
-  /** 根的策略下发记录 */
-  strategies: UIStrategy[];
 }
 
 // ---------------------------------------------------------------------------
@@ -70,7 +55,6 @@ export class UIStore {
     workers: [],
     startedAt: 0,
     finishedAt: null,
-    strategies: [],
   };
 
   startRun(goal: string): void {
@@ -79,17 +63,7 @@ export class UIStore {
       workers: [],
       startedAt: Date.now(),
       finishedAt: null,
-      strategies: [],
     };
-  }
-
-  setPlan(plan: { mode: ExecMode; reason: string }): void {
-    this.state.mode = plan.mode;
-    this.state.planReason = plan.reason;
-  }
-
-  setScheduling(scheduling: SchedulingPlan): void {
-    this.state.scheduling = scheduling;
   }
 
   addWorker(worker: { id: string; parentId: string | null; title: string; files?: string[] }): void {
@@ -146,14 +120,6 @@ export class UIStore {
     }
   }
 
-  /** 记录根的策略下发 */
-  addStrategy(strategy: UIStrategy): void {
-    this.state.strategies.push(strategy);
-    if (this.state.strategies.length > 50) {
-      this.state.strategies = this.state.strategies.slice(-50);
-    }
-  }
-
   finishRun(): void {
     this.state.finishedAt = Date.now();
   }
@@ -165,7 +131,6 @@ export class UIStore {
       workers: [],
       startedAt: 0,
       finishedAt: null,
-      strategies: [],
     };
   }
 

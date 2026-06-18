@@ -35,6 +35,10 @@ export interface CreateSessionOptions {
   customTools?: any[];            // 自定义工具（brancher decide 等）
   dteamContext?: DteamContext;    // dteam 信号通路上下文
   thinkingLevel?: "off" | "low" | "medium" | "high"; // 思考等级
+  /** 0.6.0 Logical Isolation：为 true 时跳过扩展发现，worker session 保持 fresh（不继承主会话扩展工具） */
+  logicalIsolation?: boolean;
+  /** 0.6.0：worker session 创建后回调，供调用方挂 session.subscribe 实时采集信号（双通道） */
+  onSession?: (session: any) => void;
 }
 
 // 保持外部 API 兼容：planner/brancher/leaf 都从 ./session.js 拿
@@ -54,11 +58,11 @@ export async function createWorkerSession(options: CreateSessionOptions) {
   const thinkingLevel = explicitThinking ?? (role ? (ROLE_DEFAULTS[role].thinking as any) : "off");
 
   const model = resolveModelStr(modelStr, modelRegistry);
-  // 0.4.1：发现扩展（含 settings.json.packages 中的本地路径），使 worker 能用扩展工具
-  // loadConfiguredPackages 读 settings.json，解析相对路径到绝对路径
-  const configuredPaths = loadConfiguredPackages(cwd);
-  const extensionsResult = await discoverAndLoadExtensions(configuredPaths, cwd);
-  const resourceLoader = makeResourceLoader(systemPrompt, extensionsResult);
+  // 0.6.0 Logical Isolation：可选跳过扩展发现，worker session 保持 fresh
+  // （不继承主会话扩展工具，只载角色 prompt + 工具白名单）
+  const resourceLoader = options.logicalIsolation
+    ? makeResourceLoader(systemPrompt)
+    : makeResourceLoader(systemPrompt, await discoverAndLoadExtensions(loadConfiguredPackages(cwd), cwd));
 
   const settingsManager = SettingsManager.inMemory({
     compaction: { enabled: false },
@@ -78,6 +82,11 @@ export async function createWorkerSession(options: CreateSessionOptions) {
     sessionManager: SessionManager.inMemory(),
     settingsManager,
   });
+
+  // 0.6.0：session 创建后回调，供调用方挂 session.subscribe（双通道信号采集）
+  if (options.onSession) {
+    try { options.onSession(session); } catch { /* 回调失败不影响 session */ }
+  }
 
   return session;
 }
