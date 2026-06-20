@@ -38,10 +38,6 @@ function dteamGlobal(): DteamGlobal {
 
 let refreshTimer: ReturnType<typeof setInterval> | null = dteamGlobal()[REFRESH_TIMER_KEY] ?? null;
 
-function isDteamEnabled(): boolean {
-  return process.env.DTEAM_ENABLE === "1" || process.env.DTEAM_ENABLED === "1";
-}
-
 function startRefresh(ctx: any) {
   stopRefresh();
   renderWidget(ctx);
@@ -121,21 +117,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", () => {
     stopRefresh();
   });
-
-  if (!isDteamEnabled()) {
-    pi.registerCommand("dteam", {
-      description: "dteam 已禁用（设置 DTEAM_ENABLE=1 后重载可启用）",
-      async handler(_args, ctx) {
-        stopRefresh();
-        if (ctx.hasUI) {
-          clearWidget(ctx);
-          ctx.ui.setStatus("dteam", undefined);
-          ctx.ui.notify("dteam 已禁用；设置 DTEAM_ENABLE=1 后重载可启用", "info");
-        }
-      },
-    });
-    return;
-  }
 
   // ═══ 注册 dteam 工具 ═══
   pi.registerTool({
