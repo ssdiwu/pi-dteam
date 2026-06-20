@@ -43,8 +43,16 @@ dteam 是 **基于 goal（目标）自发生长的多 worker 群策群力扩展*
 - ❌ 不要重新发明 parser（用 LLM tool calling 替代）
 - ❌ 不要预先穷举 Task Plan / DPlan（召唤轨迹即计划，见 ADR 0005）
 - ❌ 不要默认 spawn 独立 OS 子进程（用进程内 `AgentSession` + Logical Isolation，见 ADR 0005）
+- ❌ 不要为低价值想法新造术语、关系类型、状态层或配置层；没有第三次重复和明确痛点前，先用现有 `Signal Store` / 角色 / 文档表达。
 
 > **0.6.0 并发口径更新**：旧"不要做自适应并发"条款已撤销——[ADR 0005](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) 采纳 Adaptive Concurrency（自适应并发）+ Multi-Provider Routing（多供应商路由）应对并发墙。原先担忧的"动态调 batchSize 让结果不可预测"由 Signal Store（TTL 衰减）+ 429 自适应机制回应。
+
+## 设计收敛纪律
+
+- dteam 的默认方向是收敛到“召唤池 + 固定五角色 + Signal Store + check 收口”，不是继续扩展成通用多 agent 平台。
+- 新增概念前先写真实失败样例：哪个现有机制承载不了、会造成什么错误、如何验证新机制降低复杂度；没有证据就不新增。
+- 涉及 Reference Relation、可观察性、分支层、角色市场、持久化、resume 等扩展型设计时，默认先拒绝或降级为文档观察，除非 ADR 级别拷问通过。
+- 文档也要防术语膨胀：术语表只收稳定、反复使用、会影响实现命名的词；临时想法不要写进术语表。
 
 ## 验证流程
 
@@ -85,6 +93,17 @@ npm run build
 Orchestrator Loop 推进依赖 Signal Store 的四类信号：`progress` / `found` / `blocked` / `help`，靠 `session.subscribe` 事件流表达。Signal Store 采用 TTL 衰减：新信号优先，旧信号过期。
 
 
+## 发版流程
+
+发布 npm 版本前必须走同一条链路：
+
+1. 同步版本号：`package.json` + `package-lock.json`。
+2. 更新 `CHANGELOG.md`，把用户可见变更、关键推翻项和验证结果落到对应版本段。
+3. 确认 `package.json` 版本、`CHANGELOG.md` 版本段、`git tag v<x.y.z>` 三者一致。
+4. 运行验证：`npm run build` + `npm test`；真实 LLM 行为另做 Pi TUI smoke test 并记录结果。
+5. 提交单一主题 commit，再 `git tag v<x.y.z>`。
+6. 发布：`npm publish`；发布后 `git push && git push --tags`。
+
 ## 提交规范
 
 每次 `Git commit`（Git 提交）只做一件事。
@@ -106,3 +125,14 @@ Orchestrator Loop 推进依赖 Signal Store 的四类信号：`progress` / `foun
 
 - 术语表：见 `doc/术语表.md`
 - 决策记录：见 `doc/adr/` + git log
+
+## 代码工程纪律
+
+> 以下纪律适用于代码项目，由 `507-setup` 写入。源自全局 `~/.pi/agent/AGENTS.md` 的代码专属条款。
+
+- **删除测试判断模块价值**：判断一个模块/抽象是否值得存在，想象删掉它——复杂度消失说明它只是透传（删）；复杂度在多个调用处重新出现，说明它在真正减负（留）。
+- **接缝纪律**：只在真有变化的地方引入接口/抽象层。只有一个实现（adapter）的是"假设接缝"，两个以上不同实现才是真接缝；别为单一用法提前抽接口。
+- **函数粒度**：函数控制在 100 行以内；超出则考虑拆分。
+- **测试看行为**：测试优先通过公共接口验证行为，不测内部实现；mock 只放在系统边界。
+- **先建反馈环再调 bug**：调 bug 先造一个快速、确定性、agent 能跑的 pass/fail（成败）信号（失败测试/curl/CLI 重放/headless 等）；没有反馈环就别盯着代码空猜，列已试方法后求助用户。信号是 90% 的调试，其余是机械操作。
+- **插桩打 tag**：所有临时 debug 日志打唯一前缀 tag（如 `[DEBUG-a4f2]`），清理时一个 grep 全删；未打 tag 的临时日志会残留。
