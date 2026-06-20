@@ -99,7 +99,7 @@ export async function runLoop(
 
       if (decision.type === "check") {
         checkRound += 1;
-        const checkStep = await summon("check", decision.task, goal, ctx, store, decision.tools);
+        const checkStep = await summon("check", decision.task, goal, ctx, store);
         summonTrail.push(checkStep);
         const result = parseCheckResult(checkStep.result ?? "", checkRound);
         checkConclusion = result;
@@ -222,7 +222,7 @@ async function summon(
     result,
     status: result === "(no output)" || result.startsWith("dteam:") ? "failed" : "done",
     signals,
-    model: usedModel,
+    model: usedModel ?? undefined,
     ...(tools && tools.length > 0 ? { tools } : {}),
     startedAt,
     finishedAt: Date.now(),

@@ -69,7 +69,7 @@ function extractCheckJSON(text: string): { passed?: boolean; issues?: unknown[] 
 }
 
 /** 从输出提取问题列表（按行粗提取带 - 或数字开头的行） */
-function extractIssues(output: string): string[] {
+function extractIssues(output: string): string[] | undefined {
   const lines = output.split("\n");
   const issues: string[] = [];
   for (const line of lines) {

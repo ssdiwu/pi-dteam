@@ -12,7 +12,7 @@
  * 不用 tool calling（与 planner 一致：JSON 模式更可控）。
  */
 
-import type { Signal } from "../../tools.js";
+import type { Signal } from "../tools.js";
 import type {
   OrchestratorDecision,
   OrchestratorSummonDecision,
@@ -20,8 +20,8 @@ import type {
   OrchestratorDoneDecision,
   OrchestratorFailDecision,
   SummonStep,
-} from "../../types/loop.js";
-import type { RoleName } from "../../types/role.js";
+} from "../types/loop.js";
+import type { RoleName } from "../types/role.js";
 
 const VALID_ROLES: RoleName[] = ["explore", "design", "build", "check", "close"];
 
