@@ -1,15 +1,17 @@
 # dteam 内部架构
 
 > 先读 `../README.md` 看用户视角，再读这个看实现细节。
-> **0.6.0 已重定义为自发生长召唤池**，骨架权威见 [`../doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](../doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md)。
+> **0.6.0 已重定义为自发生长召唤池**，骨架权威见 [`../doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](../doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md)。
 
 ## 0.6.0 文件清单
 
 | 文件 | 职责 |
 |------|------|
-| `orchestrator-loop.ts` | **0.6.0 主循环**：Orchestrator Loop（LLM 驱动每轮决策 → 召唤 → check 收口） |
-| `orchestrator-loop/decision.ts` | Orchestrator LLM 的 prompt 构建 + JSON 决策解析 |
-| `orchestrator-loop/check-gate.ts` | check 收口闸门（Completion Gate）的结果判定 |
+| `orchestrator-loop.ts` | **0.6.0 主循环**：Orchestrator Loop（LLM 驱动每轮决策 → 召唤 → check 收口）。输出契约用 tool calling（orchestrator_decide / check_conclude） |
+| `orchestrator-loop/decision.ts` | Orchestrator LLM 的 prompt 构建；`parseOrchestratorDecision` 已废弃（tool calling 上线后无调用点，保留备查） |
+| `orchestrator-loop/decision-tool.ts` | **0.6.0 决策输出契约**：orchestrator_decide customTool（LLM 调用即结构化决策，替代 JSON 文本解析） |
+| `orchestrator-loop/check-tool.ts` | **0.6.0 收口输出契约**：check_conclude customTool（check worker 调用即结构化 passed/issues，替代关键词猜） |
+| `orchestrator-loop/check-gate.ts` | check 收口闸门：`parseCheckResult` 现为 check_conclude 未被调用时的兜底（关键词/JSON 回退） |
 | `orchestrator-loop/concurrency.ts` | Adaptive Concurrency（429 自适应升降并发） |
 | `orchestrator-loop/model-routing.ts` | Multi-Provider Routing（per-role 主模型 + fallback 链） |
 | `signals/signal-store.ts` | **0.6.0 Signal Store**（TTL 衰减、单 goal 生命周期） |
@@ -34,8 +36,9 @@ runLoop(goal, ctx)                          [orchestrator-loop.ts]
   │
   └─ 循环（每轮）：
        ├─ buildOrchestratorUserPrompt(goal, store.getActive(), summonTrail)
-       ├─ Orchestrator LLM 决策             [decision.ts: parseOrchestratorDecision]
-       │     → summon / check / done / fail
+       ├─ Orchestrator LLM 决策（orchestrator_decide tool）   [decision-tool.ts]
+       │     → summon / check / done / fail（从 receiver 取结构化决策）
+       │     未调 tool → fail 兜底（extractLastText 仅取 reason 上下文）
        │
        ├─ summon(role, task):
        │     ├─ resolveModelWithFallback    [model-routing.ts]
@@ -43,7 +46,9 @@ runLoop(goal, ctx)                          [orchestrator-loop.ts]
        │     ├─ session.subscribe → 写 SignalStore (双通道)
        │     └─ worker_sendSignal → 桥接 Bus → 写 SignalStore
        │
-       ├─ check: summon("check") → parseCheckResult   [check-gate.ts]
+       ├─ check: runCheck(task) → 注入 check_conclude tool   [check-tool.ts]
+       │     从 receiver 取 CheckResult（passed/issues/summary）
+       │     worker 未调 tool → 回退 parseCheckResult [check-gate.ts]
        │     passed → done / reject → 继续 (maxCheckRetries)
        │
        └─ parallel>1: summonParallel (AdaptiveConcurrency 调控)

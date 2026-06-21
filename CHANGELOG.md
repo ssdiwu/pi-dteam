@@ -3,14 +3,37 @@
 本文件记录 dteam 的用户可感知变更与关键实现收口。  
 格式参考 Keep a Changelog，但保持中文、简洁、面向项目实际。
 
+## [Unreleased]
+
+### 输出契约重构（tool calling）
+- Orchestrator 决策从「自由文本 JSON + 正则解析」改为 **Pi tool calling 契约**：新增 `orchestrator_decide` customTool（`decision-tool.ts`），LLM 调用即结构化决策，runLoop 从 receiver 取。消灭探测报告 P0-1（JSON 截断致 goal fail）。
+- check 收口从「关键词猜 passed」改为 **tool calling 契约**：新增 `check_conclude` customTool（`check-tool.ts`），passed/issues/summary 结构化。消灭 P0-4（check 判定脆弱）。
+- Orchestrator task 字段加 maxLength=200 约束（`decision-tool.ts`），缓解 P1-2（task 无长度约束）。
+- `parseOrchestratorDecision` 标记废弃（tool calling 上线后无调用点，保留备查）；`parseCheckResult` 降级为 check_conclude 未被调用时的兜底。
+
+### worker 执行防护
+- `leaf.execute` 加 maxToolRounds 上限（默认 8，`config.ts`），超限调 `session.abort()` 中断，防慢模型无限工具调用。配合探测报告的 worker 不收敛问题。
+- `leaf.execute` 支持 `extraCustomTools` 透传，供 runCheck 注入 `check_conclude`。
+
+### Orchestrator 约束（防失控）
+- **目标性质→角色能力**（P0-2）：system prompt 明确只读/信息类目标（读/查/说明/解释/定位）不得召唤 build/close，防 worker 越权改仓库。
+- **连续失败换策略**（P0-3）：SummonStep 加 `interrupted` 字段标注被工具上限中断的 worker；user prompt 在同类角色连续≥2次失败/中断时追加换策略警告；system prompt 强制换角色/缩小 task/收口。
+- **explore prompt 收敛**（P1-1）：`agents/explore.md` 从"全面普查"重写为"聚焦目标够用即停、从最相关文件开始、单次召唤有限、按需探索非穷尽"，防 worker 过度工具调用。
+- **task 长度上限**（P1-2）：orchestrator_decide tool 的 task 字段 maxLength=200（已在 tool calling 契约中落地）。
+
+### 修复
+- `role-config.ts`：explore 去掉硬编码的 `tinyfish_search/tinyfish_fetch`（违反 ADR 0005 第 11 条 Logical Isolation）；`reference_architecture` 从所有角色 tools 移除，仅保留 design（session.ts 只给 design 注入该 customTool）。
+- `index.ts`：删除 `DTEAM_ENABLE` 环境变量门禁（加载机制本身即开关，冗余设计）。
+- `orchestrator-loop/decision.ts`：修正相对路径（`../../` → `../`，让 build 真正通过）。
+
 ## [0.6.0] - 2026-06-18
 
 ### 重定义
-- dteam 从「后台二维编排引擎」重定义为「基于 goal 自发生长的多 worker 群策群力扩展」。18 条根本决策钉死在 [ADR 0005](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md)。
+- dteam 从「后台二维编排引擎」重定义为「基于 goal 自发生长的多 worker 群策群力扩展」。18 条根本决策钉死在 [ADR 0005](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md)。
 - 明确与姊妹项目 `pi-dgoal` 的边界：**dteam = 群策群力（召唤池），dgoal = 建检循环（单兵 + 独立审核）**，独立并列，不合并、不自动切换。
 
 ### 推翻（保留追溯）
-- 推翻 [ADR 0003](./doc/adr/0003-后台运行依附Extension-Runtime而非单次tool-call.md)（后台运行依附 Extension Runtime）：dteam 改为同步前台 Orchestrator Loop，不再返回 `runId`、不再后台运行。
+- 推翻 [ADR 0003](./doc/决策档案/0003-后台运行依附Extension-Runtime而非单次tool-call.md)（后台运行依附 Extension Runtime）：dteam 改为同步前台 Orchestrator Loop，不再返回 `runId`、不再后台运行。
 - 推翻旧 0.6.0「Task Plan + Live Plan + `mode: solo/chain/team`」：无预先 Task Plan，召唤轨迹即计划。
 - 删除二维编排（`solo/chain/team` 组织模式 × `direct/build_check/adaptive` 执行策略）、planner 穷举 / quick rule-based plan / LLM JSON fallback、`SchedulingPlan`/`FileGraph` 主轴、进程级 OS 子进程隔离作为默认。
 
