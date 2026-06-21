@@ -1,0 +1,11 @@
+dteam 完成（v0.6.0，3 次召唤，check 一次通过，84.6s）。
+
+**dteam 五个固定角色**：
+- `explore` — 调研/发现
+- `design` — 设计/规划
+- `build` — 实施/构建
+- `check` — 验收/核对
+- `close` — 收口/结案
+
+召唤轨迹：`explore`（查 README/角色定义）→ `explore`（再核对 agents/ 目录）→ `check`（验证答案）。完整 trail 见上方返回 JSON。
+EXIT=0
