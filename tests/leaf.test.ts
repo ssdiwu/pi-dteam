@@ -31,6 +31,33 @@ function fakeSession(messages: any[]): any {
   };
 }
 
+/** 构造一个带工具调用计数的 fake session，模拟 maxToolRounds 超限 */
+function fakeSessionWithToolCalls(messages: any[], toolCallCount: number, opts?: {
+  assistantFinalText?: string;
+}): any {
+  const finalText = opts?.assistantFinalText ?? "部分结果";
+  let listener: ((ev: any) => void) | null = null;
+  const session = {
+    prompt: vi.fn(async () => {
+      // prompt 执行期间，同步触发 toolCallCount 个 tool_execution_end 事件
+      if (listener) {
+        for (let i = 0; i < toolCallCount; i++) {
+          listener({ type: "tool_execution_end", toolCallId: `call-${i + 1}` });
+        }
+      }
+    }),
+    abort: vi.fn(async () => {
+      messages.push({ role: "assistant", content: [{ type: "text", text: finalText }] });
+    }),
+    subscribe: vi.fn((l: (ev: any) => void) => {
+      listener = l;
+      return () => { listener = null; };
+    }),
+    messages,
+  };
+  return session;
+}
+
 /** 在 mockImplementation 中捕获传入的 session */
 let capturedSession: any = null;
 function makeCapturingMock(messages: any[]): any {
@@ -384,5 +411,58 @@ describe("execute — tools 透传（0.4.1 候选）", () => {
     await execute("build", "干", { cwd: "/tmp" }, "goal", []);
     const callArgs = mockCreateWorkerSession.mock.calls[0][0];
     expect(callArgs.builtInTools).toEqual([]);
+  });
+});
+
+// ═══ maxToolRounds：防 worker 无限工具调用 ═══
+
+describe("execute — maxToolRounds 工具调用上限", () => {
+  it("默认上限为 8（7 次不触发，8 次触发）", async () => {
+    // 7 次工具调用 → 不超限 → 正常返回
+    const sess7 = fakeSessionWithToolCalls(
+      [{ role: "assistant", content: [{ type: "text", text: "ok" }] }],
+      7,
+      { assistantFinalText: "ok" },
+    );
+    mockCreateWorkerSession.mockResolvedValueOnce(sess7);
+    const result = await execute("build", "task", { cwd: "/tmp" }, "goal");
+    expect(result).toBe("ok");
+    expect(sess7.abort).not.toHaveBeenCalled();
+  });
+
+  it("工具调用超过上限 → 调用 session.abort()", async () => {
+    const sess = fakeSessionWithToolCalls(
+      [{ role: "assistant", content: [{ type: "text", text: "部分" }] }],
+      15, // 远超 8
+      { assistantFinalText: "被中断前的输出" },
+    );
+    mockCreateWorkerSession.mockResolvedValue(sess);
+
+    await execute("build", "task", { cwd: "/tmp" }, "goal");
+    expect(sess.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it("中断后输出含「工具调用上限」标记，供 Orchestrator 识别", async () => {
+    mockCreateWorkerSession.mockResolvedValue(
+      fakeSessionWithToolCalls(
+        [{ role: "assistant", content: [{ type: "text", text: "部分" }] }],
+        15,
+        { assistantFinalText: "" },
+      ),
+    );
+    const result = await execute("build", "task", { cwd: "/tmp" }, "goal");
+    expect(result).toContain("工具调用上限");
+  });
+
+  it("未超限 → abort 不被调用", async () => {
+    const sess = fakeSessionWithToolCalls(
+      [{ role: "assistant", content: [{ type: "text", text: "ok" }] }],
+      3, // 3 次远低于上限
+      { assistantFinalText: "ok" },
+    );
+    mockCreateWorkerSession.mockResolvedValue(sess);
+
+    await execute("build", "task", { cwd: "/tmp" }, "goal");
+    expect(sess.abort).not.toHaveBeenCalled();
   });
 });

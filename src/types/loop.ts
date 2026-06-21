@@ -56,6 +56,8 @@ export interface SummonStep {
   result?: string;
   /** worker 执行状态 */
   status: "running" | "done" | "failed" | "skipped";
+  /** 0.6.0：worker 因 maxToolRounds 被中断（未完成全部工作）。供 Orchestrator 识别连续失败。 */
+  interrupted?: boolean;
   /** 该 worker 期间产生的信号 */
   signals: Signal[];
   /** 实际使用的模型（含 fallback，用于 Multi-Provider Routing 追溯） */

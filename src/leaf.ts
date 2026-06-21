@@ -32,6 +32,7 @@ export async function execute(
   ctx: LeafContext,
   goal: string,
   tools?: string[],
+  extraCustomTools?: any[],
 ): Promise<string> {
   const dteam = ctx.dteam;
   const workerId = dteam?.currentStepId ?? nextWorkerId(role);
@@ -57,9 +58,26 @@ export async function execute(
     ctx,
     dteamContext: workerDteamCtx,
     builtInTools: tools,
+    customTools: extraCustomTools,
     logicalIsolation: ctx.logicalIsolation,
     onSession: ctx.onWorkerSession,
   });
+
+  // maxToolRounds 防护：单次 prompt 内工具调用超限则 abort 中断 worker
+  // 慢模型（或角色 prompt 不清晰）可能让 worker 陷入无限工具调用循环
+  let toolCallCount = 0;
+  let abortedByToolLimit = false;
+  const unsubscribe = typeof session.subscribe === "function"
+    ? session.subscribe((ev: any) => {
+        if (ev?.type === "tool_execution_end") {
+          toolCallCount += 1;
+          if (toolCallCount >= DTEAM_CONFIG.leaf.maxToolRounds && !abortedByToolLimit) {
+            abortedByToolLimit = true;
+            session.abort()?.catch?.(() => {});
+          }
+        }
+      })
+    : null;
 
   let currentTask = input;
   let output = "(no output)";
@@ -67,6 +85,9 @@ export async function execute(
   for (let round = 0; round < DTEAM_CONFIG.leaf.maxHelpRounds; round++) {
     const roundStart = Date.now();
     await session.prompt(currentTask);
+
+    // 工具调用上限中断：不进入 help 自愈，直接跳出返回中断输出
+    if (abortedByToolLimit) break;
 
     output = extractLastText(session.messages as any[]);
 
@@ -86,6 +107,15 @@ export async function execute(
 
     const source = hasInjection ? "根转发（来自其他叶子的发现/进度）" : "help 信号响应";
     currentTask = `## 补充信息（${source}）\n${supplement}\n\n请继续完成原任务。不要重复已完成的工作，直接从补充信息出发继续。`;
+  }
+
+  // 取最终输出（被中断时也取已有的 assistant 文本）
+  output = extractLastText(session.messages as any[]);
+  if (abortedByToolLimit) {
+    output = `${output}\n\n[worker 因工具调用上限（${DTEAM_CONFIG.leaf.maxToolRounds} 次）被中断；可能未完成全部工作]`;
+  }
+  if (typeof unsubscribe === "function") {
+    try { unsubscribe(); } catch {}
   }
 
   // 标记 worker 完成

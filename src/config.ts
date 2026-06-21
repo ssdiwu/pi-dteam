@@ -26,6 +26,8 @@ export const DTEAM_CONFIG = {
     maxHelpRounds: 3,
     /** help 自愈/根注入的超时（毫秒），超过则 resolve(null) 让叶子退出循环 */
     supplementTimeoutMs: 60_000,
+    /** 单次 prompt 内最多工具调用次数；超过则 abort 中断 worker，防慢模型死循环 */
+    maxToolRounds: 8,
   },
   /** 0.5.0 scheduler：轻量依赖图与 preflight 调度 */
   scheduler: {

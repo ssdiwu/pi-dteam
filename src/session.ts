@@ -69,16 +69,22 @@ export async function createWorkerSession(options: CreateSessionOptions) {
     retry: { enabled: true, maxRetries: 1 },
   });
 
+  // 0.6.0：收集所有 customTools（包括注入的 sendSignal/reference_architecture/决策工具）
+  const resolvedCustomTools = [
+    ...(customToolsArg ?? []),
+    ...(dteamContext ? [makeWorkerSendSignalTool(dteamContext)] : []),
+    ...(role === "design" ? [referenceArchitectureTool] : []),
+  ];
+  // customTools 的 name 必须并入 tools 白名单，否则 Pi SDK 不会激活它们（LLM 看不到）
+  const customToolNames = resolvedCustomTools.map((t: any) => t.name);
+  const activeToolNames = [...builtInTools, ...customToolNames.filter(n => !builtInTools.includes(n))];
+
   const { session } = await createAgentSession({
     cwd, model, thinkingLevel,
     authStorage: modelRegistry.authStorage,
     modelRegistry, resourceLoader,
-    tools: builtInTools,
-    customTools: [
-      ...(customToolsArg ?? []),
-      ...(dteamContext ? [makeWorkerSendSignalTool(dteamContext)] : []),
-      ...(role === "design" ? [referenceArchitectureTool] : []),
-    ],
+    tools: activeToolNames,
+    customTools: resolvedCustomTools,
     sessionManager: SessionManager.inMemory(),
     settingsManager,
   });

@@ -7,20 +7,23 @@
  *  - 第 8 条：无预先 Task Plan，召唤轨迹（summonTrail）即计划
  *  - 第 14 条：强制 check 收口（Completion Gate）
  *
- * 当前 Phase 1：先串行召唤（Phase 3 加并发）。
+ * 输出契约（tool calling）：Orchestrator 调 orchestrator_decide tool 输出决策，
+ * check worker 调 check_conclude tool 输出收口结论——不再从自由文本解析 JSON。
  *
  * 结构：
- *   读 SignalStore 快照 → Orchestrator LLM 决策 →
+ *   读 SignalStore 快照 → Orchestrator LLM 决策（orchestrator_decide tool）→
  *     summon → leaf.execute() → 结果+信号入 summonTrail → 继续
- *     check  → leaf.execute("check") → parseCheckResult →
+ *     check  → runCheck（注入 check_conclude tool）→ receiver 取 CheckResult →
  *                passed → done / reject → 继续（maxCheckRetries 上限）
- *     done   → 收口返回
+ *     done   → 收口返回（仅 check 通过后合法）
  *     fail   → 标记失败返回
  */
 
 import { createWorkerSession, pickAvailableModel } from "./session.js";
 import { SignalStore } from "./signals/signal-store.js";
-import { buildOrchestratorSystemPrompt, buildOrchestratorUserPrompt, parseOrchestratorDecision } from "./orchestrator-loop/decision.js";
+import { buildOrchestratorSystemPrompt, buildOrchestratorUserPrompt } from "./orchestrator-loop/decision.js";
+import { makeOrchestratorDecideTool, createDecisionReceiver } from "./orchestrator-loop/decision-tool.js";
+import { makeCheckConcludeTool, createCheckConclusionReceiver } from "./orchestrator-loop/check-tool.js";
 import { parseCheckResult } from "./orchestrator-loop/check-gate.js";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG, type ConcurrencyConfig } from "./orchestrator-loop/concurrency.js";
 import { resolveModelWithFallback, type ModelOverrides, type FallbackModels } from "./orchestrator-loop/model-routing.js";
@@ -99,19 +102,18 @@ export async function runLoop(
 
       if (decision.type === "check") {
         checkRound += 1;
-        const checkStep = await summon("check", decision.task, goal, ctx, store);
-        summonTrail.push(checkStep);
-        const result = parseCheckResult(checkStep.result ?? "", checkRound);
-        checkConclusion = result;
+        const { step, conclusion } = await runCheck(decision.task, goal, ctx, store, checkRound);
+        summonTrail.push(step);
+        checkConclusion = conclusion;
 
-        if (result.passed) {
+        if (conclusion.passed) {
           // check 通过 → 收口完成
-          return finalize("done", goal, summonTrail, store, result, startedAt);
+          return finalize("done", goal, summonTrail, store, conclusion, startedAt);
         }
 
         // check 未通过：检查是否超过最大重试
         if (checkRound >= config.maxCheckRetries) {
-          return finalize("failed", goal, summonTrail, store, result, startedAt,
+          return finalize("failed", goal, summonTrail, store, conclusion, startedAt,
             `check 收口失败：已达最大重试次数 ${config.maxCheckRetries}`);
         }
 
@@ -156,17 +158,25 @@ async function decide(
   const systemPrompt = buildOrchestratorSystemPrompt();
   const userPrompt = buildOrchestratorUserPrompt(goal, store.getActive(), summonTrail, checkRound);
 
+  // 0.6.0：Orchestrator 用 tool calling 输出决策（替代 JSON 文本解析）
+  const receiver = createDecisionReceiver();
   const session = await createWorkerSession({
     systemPrompt,
     cwd: ctx.cwd || process.cwd(),
     modelStr: ctx.orchestratorModel ?? pickAvailableModel(ctx),
     ctx,
     logicalIsolation: true, // Orchestrator LLM 也是 fresh 隔离
+    customTools: [makeOrchestratorDecideTool(receiver)],
   });
 
   await session.prompt(userPrompt);
+
+  // 从 receiver 取结构化决策；若 LLM 未调 tool（直接返回文本），回退解析为 fail
+  if (receiver.decision) {
+    return receiver.decision;
+  }
   const text = extractLastText(session.messages as any[]);
-  return parseOrchestratorDecision(text);
+  return { type: "fail", reason: `Orchestrator 未调用 orchestrator_decide 工具。原始输出: ${text.slice(0, 200)}` };
 }
 
 // ═══ 召唤 worker（复用 leaf.execute 的角色能力，但写入 SignalStore）═══
@@ -178,6 +188,7 @@ async function summon(
   ctx: LoopContext,
   store: ISignalStore,
   tools?: string[],
+  extraCustomTools?: any[],
 ): Promise<SummonStep> {
   const workerId = nextWorkerId(role);
   const startedAt = Date.now();
@@ -213,7 +224,7 @@ async function summon(
   );
   if (resolvedModel) leafCtx.model = resolvedModel;
 
-  const result = await executeLeafSafe(role, task, leafCtx, goal, tools);
+  const result = await executeLeafSafe(role, task, leafCtx, goal, tools, extraCustomTools);
 
   return {
     id: `summon-${workerId}`,
@@ -221,6 +232,7 @@ async function summon(
     task,
     result,
     status: result === "(no output)" || result.startsWith("dteam:") ? "failed" : "done",
+    interrupted: result.includes("工具调用上限") ? true : undefined,
     signals,
     model: usedModel ?? undefined,
     ...(tools && tools.length > 0 ? { tools } : {}),
@@ -263,6 +275,27 @@ async function summonParallel(
   return Promise.all(tasks);
 }
 
+// ═══ check 收口召唤（注入 check_conclude tool，从 receiver 取结构化结论）═══
+
+async function runCheck(
+  task: string,
+  goal: string,
+  ctx: LoopContext,
+  store: ISignalStore,
+  round: number,
+): Promise<{ step: SummonStep; conclusion: CheckResult }> {
+  const receiver = createCheckConclusionReceiver();
+  const step = await summon("check", task, goal, ctx, store, undefined, [makeCheckConcludeTool(receiver)]);
+
+  // 从 receiver 取结构化结论；回填 round
+  if (receiver.conclusion) {
+    return { step, conclusion: { ...receiver.conclusion, round } };
+  }
+  // 回退：worker 未调 check_conclude，用关键词解析保底（不信任但仍能推进）
+  const fallback = parseCheckResult(step.result ?? "", round);
+  return { step, conclusion: fallback };
+}
+
 // ═══ session.subscribe 双通道：被动采集 worker turn_end 作为 progress 信号 ═══
 
 /**
@@ -297,11 +330,11 @@ function attachSubscribeToStore(session: any, store: ISignalStore, workerId: str
 
 /** 安全调用 leaf.execute，失败返回错误字符串（不让 loop 崩） */
 async function executeLeafSafe(
-  role: RoleName, task: string, ctx: any, goal: string, tools?: string[],
+  role: RoleName, task: string, ctx: any, goal: string, tools?: string[], extraCustomTools?: any[],
 ): Promise<string> {
   try {
     const { execute } = await import("./leaf.js");
-    return await execute(role, task, ctx, goal, tools);
+    return await execute(role, task, ctx, goal, tools, extraCustomTools);
   } catch (e) {
     return `dteam: worker 执行失败 — ${(e as Error).message}`;
   }
