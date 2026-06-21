@@ -36,24 +36,21 @@ export function buildOrchestratorSystemPrompt(): string {
 - check：跑测试、审查结果、指出问题（收口闸门）
 - close：总结、归档、沉淀经验
 
-## 决策类型（你必须返回且只返回一个 JSON 对象）
-1. 召唤角色干活（可并发）：
-   {"type":"summon","role":"explore","task":"具体任务说明","reason":"为什么召唤这个角色","parallel":1}
-   - parallel 可选，缺省 1。任务可拆分时可填更大值（如 2-3），loop 会并行召唤多个同类 worker
-2. 召唤 check 收口（当任务主体已完成）：
-   {"type":"check","task":"验证什么","reason":"为什么现在收口"}
-3. 完成（仅在 check 通过后）：
-   {"type":"done","reason":"目标达成"}
-4. 失败（无法继续）：
-   {"type":"fail","reason":"失败原因"}
+## 如何上报决策（最重要）
+你每一轮**必须调用 orchestrator_decide 工具**来上报决策。不要返回纯文本，不要返回 JSON 代码块，不要写任何解释——直接调用工具。工具的参数就是你的决策。决策有四种：
+- type=summon：召唤一个角色干活。填 role（哪个角色）、task（给它什么任务，简短具体≤200字）、reason（为什么）、可选 parallel（并发数）。
+- type=check：召唤 check 角色收口。填 task（验证什么）、reason。
+- type=done：目标达成。仅当 check 通过后才用。填 reason。
+- type=fail：无法继续。填 reason。
 
 ## 规则
 - 任务从执行中涌现，不要预先穷举所有步骤
 - 根据 SignalStore 的信号判断当前最缺什么角色
+- **目标性质→角色能力**：目标只要读/查/说明/解释/定位（不要求改文件），绝不能召唤 build 或 close——build 只在目标明确要求改文件时才用。不要为了“固化结果”擅自把探索产物落盘。
 - 目标主体完成后，必须走 check 收口（Completion Gate），不能自己判定 done
-- 只有 check 通过后，才能返回 {"type":"done"}
+- 只有 check 通过后，才能上报 type=done
 - role 只能是 explore/design/build/check/close 之一
-- 你只能返回 JSON，不要任何其他文字`;
+- **连续失败换策略**：同一角色连续 2 次失败或被中断后，必须换策略（换角色、缩小 task 范围、或直接 check/fail），不要盲目重试同类`;
 }
 
 /** 构建 Orchestrator LLM 的 user prompt（含 goal + 信号 + 已完成轨迹） */
@@ -74,9 +71,26 @@ export function buildOrchestratorUserPrompt(
   } else {
     lines.push("# 已完成工作（召唤轨迹）");
     for (const s of summonTrail) {
-      const status = s.status === "done" ? "✓" : s.status === "failed" ? "✗" : "◐";
-      const result = s.result ? ` → ${truncate(s.result, 300)}` : "";
-      lines.push(`- ${status} [${s.role}] ${truncate(s.task, 120)}${result}`);
+      let flag = s.status === "done" ? "✓" : s.status === "failed" ? "✗" : "◐";
+      if (s.interrupted) flag = "⏹"; // 被工具上限中断
+      const tag = s.interrupted ? " [被中断]" : "";
+      const result = s.result ? ` → ${truncate(s.result, 200)}` : "";
+      lines.push(`- ${flag} [${s.role}]${tag} ${truncate(s.task, 100)}${result}`);
+    }
+    // 连续失败/中断统计（供 Orchestrator 感知，防盲目重试）
+    const lastRole = summonTrail[summonTrail.length - 1]?.role;
+    if (lastRole) {
+      let consec = 0;
+      for (let i = summonTrail.length - 1; i >= 0; i--) {
+        const s = summonTrail[i];
+        if (s.role !== lastRole) break;
+        if (s.status === "failed" || s.interrupted) consec++;
+        else break;
+      }
+      if (consec >= 2) {
+        lines.push("");
+        lines.push(`⚠️ ${lastRole} 已连续 ${consec} 次失败/被中断。按规则你必须换策略：换角色、缩小 task 范围、或直接 check/fail，不要盲目重试同类。`);
+      }
     }
   }
   lines.push("");
@@ -104,8 +118,12 @@ export function buildOrchestratorUserPrompt(
 }
 
 /**
- * 解析 Orchestrator LLM 输出为 OrchestratorDecision。
+ * 解析 Orchestrator LLM 的自由文本 JSON 输出为 OrchestratorDecision。
  * 解析失败返回 fail 决策（不让 loop 卡死）。
+ *
+ * 【已废弃，保留备查】0.6.0 tool calling 契约上线后，runLoop/decide 主路径改用
+ * orchestrator_decide customTool（见 decision-tool.ts），不再调用本函数。
+ * 保留用于历史调试参考与潜在的“tool calling 不可用时的回退”场景，当前无调用点。
  */
 export function parseOrchestratorDecision(text: string): OrchestratorDecision {
   const parsed = extractJSON(text);
