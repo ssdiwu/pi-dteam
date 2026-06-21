@@ -3,9 +3,23 @@
 > 落盘的真实运行证据，供第三方独立核验。  
 > 对应整体方案见 `../42-v0.6.0-召唤池重定义实施方案.md` 与 `../43-v0.6.0-真实运行探测报告.md`。
 
-## 三份证据
+## 四份证据
 
-### 1. `minimax-m3-end-to-end-done.log`（420 bytes）
+### 1. `glm-5.2-end-to-end-done.log`（771 bytes）
+
+**最重要证据：glm-5.2（goal 点名模型）端到端 status=done 铁证。**
+
+- 命令：`pi -ne -e ./index.ts --provider opencode-go --model glm-5.2 -p '调用 dteam action=run goal="列出 dteam 的全部固定角色名（验收标准：答出 explore/design/build/check/close 五个角色名即通过）"'`
+- 结果：主 LLM 报告 `dteam 收口结论：通过 ✅`、`status=done`、`checkPassed=true`、**check 只跑 1 轮即收口**
+- 召唤轨迹：`explore → check`（2 次召唤，explore done + check done）
+- 耗时约 56.9 秒，EXIT=0
+- 时间：2026-06-22 04:18～04:19
+
+**为什么用 `opencode-go` 而不是 `zai-coding-cn`**：goal 点名的是模型 `glm-5.2`，不是 provider。`zai-coding-cn` 在验证当夜撞上了 5 小时使用上限（见 `glm-5.2-429-blocked.log`）；`opencode-go` 代理同一个 `glm-5.2` 模型权重（见 `pi --list-models glm-5.2`，三个 provider 同 context=1M、max-out=131.1K、thinking=yes的同模型）。换 provider 不换模型，验证目标成立。
+
+**证明**：glm-5.2 在 Pi 0.79.9（含 #5770/#5923 修复后）+ dteam tool calling 契约下完整跑通 end-to-end goal→check→done。
+
+### 2. `minimax-m3-end-to-end-done.log`（420 bytes）
 
 **最重要证据：端到端 status=done 铁证。**
 
@@ -49,12 +63,17 @@ zai-coding-cn 5 小时使用配额已满，约 4 小时后重置。task #14 已�
 ```bash
 cd /path/to/pi-dteam
 npm run build
-# minimax-m3 端到端（需 minimax-cn API key）
-pi -ne -e ./index.ts --provider minimax-cn --model MiniMax-M3 -p \
+# glm-5.2 端到端（需 opencode-go API key）— 推荐路径
+# opencode-go 是 goal 点名的 glm-5.2 模型的一个可用 provider
+pi -ne -e ./index.ts --provider opencode-go --model glm-5.2 -p \
   '调用 dteam action=run goal="列出 dteam 的全部固定角色名（验收标准：答出 explore/design/build/check/close 五个角色名即通过）"'
 
-# glm-5.2 端到端（需 zai-coding-cn API key + 等 429 重置）
+# zai-coding-cn/glm-5.2（需等 429 重置）
 pi -ne -e ./index.ts --provider zai-coding-cn --model glm-5.2 -p \
+  '调用 dteam action=run goal="列出 dteam 的全部固定角色名（验收标准：答出 explore/design/build/check/close 五个角色名即通过）"'
+
+# minimax-m3（需 minimax-cn API key）
+pi -ne -e ./index.ts --provider minimax-cn --model MiniMax-M3 -p \
   '调用 dteam action=run goal="列出 dteam 的全部固定角色名（验收标准：答出 explore/design/build/check/close 五个角色名即通过）"'
 ```
 
@@ -64,8 +83,8 @@ pi -ne -e ./index.ts --provider zai-coding-cn --model glm-5.2 -p \
 
 | 问题 | 证据来源 |
 |---|---|
-| P0-1 JSON 截断 | minimax + glm-5.2 双证（receiver 取决策，无文本解析失败） |
-| P0-2 越权写仓库 | minimax done log 全程无 build；smoke 前后 `git status` 无非预期改动 |
+| P0-1 JSON 截断 | glm-5.2 + minimax 双证 end-to-end done（receiver 取决策无 JSON 解析失败） |
+| P0-2 越权写仓库 | glm-5.2 done log（2/2 召唤都是 explore/check）+ minimax done log 全程无 build + smoke 前后 `git status` 无非预期改动 |
 | P0-3 盲目重试 | glm-5.2 log round 5+ 的 reason 显式提到"前几轮中断"，连续失败感知工作 |
 | P0-4 check 关键词猜 | minimax done log check 一次通过用的是 check_conclude tool calling，receiver 取结构化结论 |
 | P1-1 explore 发散 | maxToolRounds=8 触发后 worker 被中断（glm-5.2 log 显示），加上 explore.md 收敛 prompt |
