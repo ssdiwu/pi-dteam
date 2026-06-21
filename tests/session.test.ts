@@ -213,38 +213,38 @@ describe("pickAvailableModel", () => {
 // ═══ getRoleTools ═══
 
 describe("getRoleTools", () => {
-  it("explore 角色 → 含 read/bash/grep/find/ls + tinyfish + dteam", () => {
+  it("explore 角色 → 含 read/bash/grep/find/ls + dteam（无外部扩展工具）", () => {
     expect(getRoleTools("explore")).toEqual([
-      "read", "bash", "grep", "find", "ls", "tinyfish_search", "tinyfish_fetch",
-      "worker_sendSignal", "reference_architecture",
+      "read", "bash", "grep", "find", "ls",
+      "worker_sendSignal",
     ]);
   });
 
-  it("design 角色 → 含 read/bash/write/grep/find/ls + dteam", () => {
+  it("design 角色 → 含 read/bash/write/grep/find/ls + dteam + reference_architecture", () => {
     expect(getRoleTools("design")).toEqual([
       "read", "bash", "write", "grep", "find", "ls",
       "worker_sendSignal", "reference_architecture",
     ]);
   });
 
-  it("build 角色 → 多 edit + dteam", () => {
+  it("build 角色 → 多 edit + dteam（无 reference_architecture）", () => {
     expect(getRoleTools("build")).toEqual([
       "read", "bash", "edit", "write", "grep", "find", "ls",
-      "worker_sendSignal", "reference_architecture",
+      "worker_sendSignal",
     ]);
   });
 
-  it("check 角色 → 含 dteam", () => {
+  it("check 角色 → 含 dteam（无 reference_architecture）", () => {
     expect(getRoleTools("check")).toEqual([
       "read", "bash", "write", "grep", "find", "ls",
-      "worker_sendSignal", "reference_architecture",
+      "worker_sendSignal",
     ]);
   });
 
-  it("close 角色 → write + dteam", () => {
+  it("close 角色 → write + dteam（无 reference_architecture）", () => {
     expect(getRoleTools("close")).toEqual([
       "read", "bash", "grep", "find", "ls", "write",
-      "worker_sendSignal", "reference_architecture",
+      "worker_sendSignal",
     ]);
   });
 
@@ -280,7 +280,7 @@ describe("getRoleTools", () => {
     const explore = getRoleTools("explore");
     const close = getRoleTools("close");
     expect(explore.includes("write")).toBe(false);
-    expect(close.indexOf("write")).toBe(close.length - 1 - 2); // 倒数第 3（倒数 2 是 dteam tools）
+    expect(close.indexOf("write")).toBe(close.length - 1 - 1); // 倒数第 2（倒数 1 是 worker_sendSignal）
   });
 });
 
@@ -465,7 +465,7 @@ describe("createWorkerSession 集成", () => {
     const callArgs = mockCreateAgentSession.mock.calls[0][0];
     expect(callArgs.tools).toEqual([
       "read", "bash", "edit", "write", "grep", "find", "ls",
-      "worker_sendSignal", "reference_architecture",
+      "worker_sendSignal",
     ]);
   });
 

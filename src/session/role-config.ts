@@ -19,18 +19,19 @@ export interface RoleConfig {
 /** 5 角色共有的 5 个基础工具（read/bash/grep/find/ls） */
 export const BASIC_TOOLS = ["read", "bash", "grep", "find", "ls"];
 
-/** dteam 通用工具：worker_sendSignal（所有角色）+ reference_architecture */
-export const DTEAM_TOOLS = ["worker_sendSignal", "reference_architecture"];
+/** dteam 通用工具：worker_sendSignal（所有角色）+ reference_architecture（仅 design） */
+export const DTEAM_TOOLS = ["worker_sendSignal"];
+export const DESIGN_TOOLS = ["reference_architecture"];
 
 /** 角色默认配置 */
 export const ROLE_DEFAULTS: Record<RoleName, RoleConfig> = {
   explore: {
-    tools: [...BASIC_TOOLS, "tinyfish_search", "tinyfish_fetch", ...DTEAM_TOOLS],
+    tools: [...BASIC_TOOLS, ...DTEAM_TOOLS],
     thinking: "high",
     description: "探索者，搜集内部和外部信息",
   },
   design: {
-    tools: [...BASIC_TOOLS.slice(0, 2), "write", ...BASIC_TOOLS.slice(2), ...DTEAM_TOOLS],
+    tools: [...BASIC_TOOLS.slice(0, 2), "write", ...BASIC_TOOLS.slice(2), ...DTEAM_TOOLS, ...DESIGN_TOOLS],
     thinking: "high",
     description: "方案制定者，评估需求、制定方案",
   },
