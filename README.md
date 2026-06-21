@@ -5,7 +5,7 @@
 >
 > Simple tasks are handled directly by the main LLM. When a task needs **collective intelligence** (summoning multiple specialized roles to collaborate), dteam enters a synchronous foreground **Orchestrator Loop**.
 >
-> 0.6.0 redefinition landed: dteam is now a goal-driven self-growing summon pool with a synchronous foreground Orchestrator Loop (no longer a background two-dimensional orchestration engine). The old `solo/chain/team` engine, `planner`/`pool`/`scheduler` and 0.5.0 orchestration types have been removed. See [`doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) for the 18 fundamental decisions.
+> 0.6.0 redefinition landed: dteam is now a goal-driven self-growing summon pool with a synchronous foreground Orchestrator Loop (no longer a background two-dimensional orchestration engine). The old `solo/chain/team` engine, `planner`/`pool`/`scheduler` and 0.5.0 orchestration types have been removed. See [`doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md) for the 18 fundamental decisions.
 
 **Sister project**: [`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) — independent and parallel. **dteam = collective intelligence (summon pool); dgoal = build-check loop (single-agent + independent audit).** The main LLM chooses which to use; they are not merged, not auto-switched. Chinese version: [`README-zh.md`](./README-zh.md).
 
@@ -25,7 +25,7 @@ dteam grows out of a goal. When the main LLM hits a task that needs collective i
 
 The `src/` codebase has been rewritten to the 0.6.0 summon-pool shape: synchronous foreground `runLoop`, in-process `AgentSession` workers with Logical Isolation, Signal Store with TTL decay, Adaptive Concurrency + Multi-Provider Routing, and a mandatory `check` completion gate. The 0.5.0 background `run`/`runId` engine, `planner`/`pool`/`scheduler`, and two-dimensional orchestration types have been removed.
 
-- [ADR 0005 — 0.6.0 redefine as self-growing summon pool](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) — the 18 decisions.
+- [ADR 0005 — 0.6.0 redefine as self-growing summon pool](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md) — the 18 decisions.
 - [0.6.0 summon-pool redefinition implementation plan](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) — Phase 0–5 done.
 
 ## Quick start
@@ -84,7 +84,7 @@ Full protocol: see [`doc/10-架构与运行/14-dteam触发协议.md`](./doc/10-�
 > The repo has 3 layers: `index.ts` + `src/` + `agents/` is the runtime core, `tests/` is verification, `doc/` is current docs. When refactoring, modify runtime core and current docs first.
 
 - [Documentation overview](./doc/README.md)
-- [ADR 0005 — 0.6.0 summon-pool redefinition (current skeleton authority)](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md)
+- [ADR 0005 — 0.6.0 summon-pool redefinition (current skeleton authority)](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md)
 - [Glossary](./doc/术语表.md)
 - [System architecture (Orchestrator Loop + Signal Store)](./doc/10-架构与运行/10-系统架构.md)
 - [Role system (fixed 5 roles, check = Completion Gate)](./doc/10-架构与运行/11-角色系统.md)

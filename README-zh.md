@@ -4,7 +4,7 @@
 >
 > 简单任务由主 LLM 直接完成；需要**群策群力**（召唤多个专业角色协作）时，dteam 进入同步前台的 **Orchestrator Loop（编排循环）**。
 >
-> 0.6.0 重定义已落地：dteam 现在是基于 goal 自发生长的召唤池，同步前台 Orchestrator Loop（不再是后台二维编排引擎）。旧的 `solo/chain/team` 引擎、`planner`/`pool`/`scheduler` 及 0.5.0 编排类型已删除。18 条根本决策见 [`doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md)。
+> 0.6.0 重定义已落地：dteam 现在是基于 goal 自发生长的召唤池，同步前台 Orchestrator Loop（不再是后台二维编排引擎）。旧的 `solo/chain/team` 引擎、`planner`/`pool`/`scheduler` 及 0.5.0 编排类型已删除。18 条根本决策见 [`doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md)。
 
 **姊妹项目**：[`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) —— 独立并列。**dteam = 群策群力（召唤池），dgoal = 建检循环（单兵 + 独立审核）**。主 LLM 自己判断用哪个，不合并、不自动切换。英文版：[`README.md`](./README.md)。
 
@@ -24,7 +24,7 @@ dteam 从 goal 自发生长。主 LLM 遇到需要群策群力的任务时，按
 
 `src/` 代码已重写为 0.6.0 召唤池形态：同步前台 `runLoop`、进程内 `AgentSession` worker + Logical Isolation、Signal Store TTL 衰减、Adaptive Concurrency + Multi-Provider Routing、强制 `check` 收口。0.5.0 的后台 `run`/`runId` 引擎、`planner`/`pool`/`scheduler`、二维编排类型均已删除。
 
-- [ADR 0005 —— 0.6.0 重定义为自发生长召唤池](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) —— 18 条决策。
+- [ADR 0005 —— 0.6.0 重定义为自发生长召唤池](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md) —— 18 条决策。
 - [0.6.0 召唤池重定义实施方案](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) —— Phase 0–5 已完成。
 
 ## 快速开始
@@ -83,7 +83,7 @@ worker 把四类信号写入 Signal Store：
 > 仓库分 3 层：`index.ts` + `src/` + `agents/` 是运行时核心，`tests/` 是验证层，`doc/` 是当前文档层。重构时先改运行时核心和当前文档。
 
 - [文档导航](./doc/README.md)
-- [ADR 0005 —— 0.6.0 召唤池重定义（当前骨架权威）](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md)
+- [ADR 0005 —— 0.6.0 召唤池重定义（当前骨架权威）](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md)
 - [术语表](./doc/术语表.md)
 - [系统架构（Orchestrator Loop + Signal Store）](./doc/10-架构与运行/10-系统架构.md)
 - [角色系统（固定五角色，check = 收口闸门）](./doc/10-架构与运行/11-角色系统.md)

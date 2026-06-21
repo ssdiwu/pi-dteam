@@ -8,7 +8,7 @@ dteam 是 **基于 goal（目标）自发生长的多 worker 群策群力扩展*
 
 **先读 [`doc/README.md`](./doc/README.md)、[`doc/术语表.md`](./doc/术语表.md)，再读 [`src/README.md`](./src/README.md) 后动手。**
 
-涉及架构、角色、编排循环、持久化、并发、边界收敛时，先读 [`doc/adr/`](./doc/adr/) 里的 ADR（架构决策记录）——**当前骨架权威是 [`doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md)**。
+涉及架构、角色、编排循环、持久化、并发、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**当前骨架权威是 [`doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md)**。
 
 ## 项目结构速查
 
@@ -16,7 +16,7 @@ dteam 是 **基于 goal（目标）自发生长的多 worker 群策群力扩展*
 |------|------|--------|
 | `doc/README.md` | 文档导航与阅读顺序 | **必读** |
 | `doc/术语表.md` | 项目术语定义 | **必读** |
-| `doc/adr/` | 架构决策记录；改边界前必读 | **必读** |
+| `doc/决策档案/` | 架构决策记录；改边界前必读 | **必读** |
 | `src/README.md` | 当前实现定义文档 | **必读** |
 | `src/tools.ts` | 工具表（Pi 提供的 / dteam 暴露的 / 内部 helper） | **必读** |
 | `src/orchestrator.ts` | 主循环（0.6.0 重写为 Orchestrator Loop） | 必读 |
@@ -30,7 +30,7 @@ dteam 是 **基于 goal（目标）自发生长的多 worker 群策群力扩展*
 
 ### 做
 - ✅ 先读 `doc/README.md`、`doc/术语表.md`、`src/README.md` 和 `src/tools.ts`
-- ✅ 涉及架构、角色、编排循环、持久化、并发、边界收敛时，先读 `doc/adr/`
+- ✅ 涉及架构、角色、编排循环、持久化、并发、边界收敛时，先读 `doc/决策档案/`
 - ✅ 改完后跑 `npm run build` 验证
 - ✅ 改完后跑 `pi -e ./extensions/index.ts` 试加载
 - ✅ 保持文件数合理（按职责拆，不强求数量）
@@ -45,7 +45,7 @@ dteam 是 **基于 goal（目标）自发生长的多 worker 群策群力扩展*
 - ❌ 不要默认 spawn 独立 OS 子进程（用进程内 `AgentSession` + Logical Isolation，见 ADR 0005）
 - ❌ 不要为低价值想法新造术语、关系类型、状态层或配置层；没有第三次重复和明确痛点前，先用现有 `Signal Store` / 角色 / 文档表达。
 
-> **0.6.0 并发口径更新**：旧"不要做自适应并发"条款已撤销——[ADR 0005](./doc/adr/0005-dteam-0.6.0-重定义为自发生长召唤池.md) 采纳 Adaptive Concurrency（自适应并发）+ Multi-Provider Routing（多供应商路由）应对并发墙。原先担忧的"动态调 batchSize 让结果不可预测"由 Signal Store（TTL 衰减）+ 429 自适应机制回应。
+> **0.6.0 并发口径更新**：旧"不要做自适应并发"条款已撤销——[ADR 0005](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md) 采纳 Adaptive Concurrency（自适应并发）+ Multi-Provider Routing（多供应商路由）应对并发墙。原先担忧的"动态调 batchSize 让结果不可预测"由 Signal Store（TTL 衰减）+ 429 自适应机制回应。
 
 ## 设计收敛纪律
 
@@ -124,7 +124,15 @@ Orchestrator Loop 推进依赖 Signal Store 的四类信号：`progress` / `foun
 - 设计参考：ant-colony（`/Users/diwu/.pi/agent/extensions-backup/ant-colony.disabled/`）
 
 - 术语表：见 `doc/术语表.md`
-- 决策记录：见 `doc/adr/` + git log
+- 决策记录：见 `doc/决策档案/` + git log
+
+## 文档沉淀出口
+
+三个沉淀出口按边界分工，不混用：
+
+- **`doc/术语表.md`** — 回答"这个词指什么"，收项目特有概念；定义"是什么"，不沾实现细节。惰性创建，术语敲定时当场写。
+- **`doc/决策档案/`** — 回答"为什么这么定"，只收"难逆转 + 无上下文会困惑 + 有真实权衡"的决策（刻碑，记了就不删）。一条一文件，顺序编号 `0001-xxx.md`。
+- **`doc/经验笔记.md`** — 回答"这事儿怎么做"，收可改的做法与避坑经验（活页）。门槛：解决一个坑时，如果换一个无上下文的 agent 来会重走一遍，就值得记。格式：现象 + 做法 + 证据。重复发生时在原条目追加证据，不新建条目。
 
 ## 代码工程纪律
 
