@@ -24,8 +24,12 @@ dteam 从 goal 自发生长。主 LLM 遇到需要群策群力的任务时，按
 
 `src/` 代码已重写为 0.6.0 召唤池形态：同步前台 `runLoop`、进程内 `AgentSession` worker + Logical Isolation、Signal Store TTL 衰减、Adaptive Concurrency + Multi-Provider Routing、强制 `check` 收口。0.5.0 的后台 `run`/`runId` 引擎、`planner`/`pool`/`scheduler`、二维编排类型均已删除。
 
+**输出契约（tool calling）**：Orchestrator 决策与 `check` 收口结论用 Pi tool calling（`orchestrator_decide` / `check_conclude` customTool）——LLM 调用 tool 即结构化输出，runLoop 从 receiver 取。取代了脆弱的自由文本 JSON 解析和关键词猜测（见 `doc/40-版本实施方案/43-v0.6.0-真实运行探测报告.md`）。
+
+**已端到端验证**：`glm-5.2` 下跑通完整 goal → `check` 收口闸门 → `status=done`（见 `doc/40-版本实施方案/smoke-logs/glm-5.2-end-to-end-done.log`）。
+
 - [ADR 0005 —— 0.6.0 重定义为自发生长召唤池](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md) —— 18 条决策。
-- [0.6.0 召唤池重定义实施方案](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) —— Phase 0–5 已完成。
+- [0.6.0 召唤池重定义实施方案](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) —— 已端到端验证通过（2026-06-22）。
 
 ## 快速开始
 

@@ -25,8 +25,12 @@ dteam grows out of a goal. When the main LLM hits a task that needs collective i
 
 The `src/` codebase has been rewritten to the 0.6.0 summon-pool shape: synchronous foreground `runLoop`, in-process `AgentSession` workers with Logical Isolation, Signal Store with TTL decay, Adaptive Concurrency + Multi-Provider Routing, and a mandatory `check` completion gate. The 0.5.0 background `run`/`runId` engine, `planner`/`pool`/`scheduler`, and two-dimensional orchestration types have been removed.
 
+**Output contract (tool calling)**: Orchestrator decisions and `check` completion conclusions use Pi tool calling (`orchestrator_decide` / `check_conclude` customTools) — LLM calls the tool for structured output, runLoop reads from a receiver. This replaces the fragile free-text JSON parsing and keyword-guessing (see `doc/40-版本实施方案/43-v0.6.0-真实运行探测报告.md`).
+
+**Verified end-to-end**: `glm-5.2` runs a full goal → `check` completion gate → `status=done` (see `doc/40-版本实施方案/smoke-logs/glm-5.2-end-to-end-done.log`).
+
 - [ADR 0005 — 0.6.0 redefine as self-growing summon pool](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md) — the 18 decisions.
-- [0.6.0 summon-pool redefinition implementation plan](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) — Phase 0–5 done.
+- [0.6.0 summon-pool redefinition implementation plan](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md) — end-to-end verified (2026-06-22).
 
 ## Quick start
 

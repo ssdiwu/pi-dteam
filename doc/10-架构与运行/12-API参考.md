@@ -2,7 +2,7 @@
 
 > dteam 对外保持轻量：1 个工具 `dteam` + 1 个命令 `/dteam`。
 >
-> 0.6.0 重定义后，dteam 是**同步前台**执行（Orchestrator Loop），不再后台运行、不再返回 `runId`（推翻 [ADR 0003](../adr/0003-后台运行依附Extension-Runtime而非单次tool-call.md)）。
+> 0.6.0 重定义后，dteam 是**同步前台**执行（Orchestrator Loop），不再后台运行、不再返回 `runId`（推翻 [ADR 0003](../决策档案/0003-后台运行依附Extension-Runtime而非单次tool-call.md)）。
 
 ## 1. 工具：`dteam`
 
