@@ -30,6 +30,7 @@
 15. `20-能力参考/21-扩展API参考.md` — Pi 扩展 API（接口）表面速查
 16. `20-能力参考/24-harness-团队架构工厂参考.md` — L3 Meta-Factory 模式参考
 17. `20-能力参考/25-swarm-ide蜂群IM编排参考.md` — 蜂群 IM 编排、双层事件总线、spells 模式库
+18. `20-能力参考/26-gemma-concurrent本地多agent并行参考.md` — Gemma concurrent 本地多 agent 并行（共享权重 slot / 本地 provider 降级候选，远期备查）
 18. `90-归档/能力参考/` — 单包调研长文，仅在需要追溯原始材料时阅读
 
 历史内容：
