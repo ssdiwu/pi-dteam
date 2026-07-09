@@ -4,11 +4,13 @@
 
 ## 一句话
 
-dteam 是 **基于 goal（目标）自发生长的多 worker 群策群力扩展**——简单任务主 LLM 直接干，需要群策群力（召唤多个专业角色）时进入同步前台 Orchestrator Loop（编排循环）。与 [`pi-dgoal`](../pi-dgoal) 独立并列：dteam = 群策群力，dgoal = 建检循环。代码组织见 `src/README.md`。
+dteam 是 **模型分级路由执行层**——主模型（T1 思考档）负责思考/路由/验收，小任务 fan-out 给小模型（T3 快速档）批量并行做，思考跟随档位，搞不定走 fresh 验收 → 回退强模型。与 [`pi-dgoal`](../pi-dgoal) 独立并列：dteam = 多模型分级路由，dgoal = 单模型建检循环。代码组织见 `src/README.md`。
 
 **先读 [`doc/README.md`](./doc/README.md)、[`doc/术语表.md`](./doc/术语表.md)，再读 [`src/README.md`](./src/README.md) 后动手。**
 
-涉及架构、角色、编排循环、持久化、并发、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**当前骨架权威是 [`doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md`](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md)**。
+涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**当前定位权威是 [`doc/决策档案/0008-dteam重定位为模型分级路由执行层.md`](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md)**（推翻 0006 对抗式合议 + 0007 对抗回合积分制）。
+
+> ⚠️ **定位与代码的 gap**：0008 是定位决策（模型分级路由），但 `src/` 代码现状仍是 0.6.0 的 Orchestrator Loop + SignalStore 形态，**待按 0008 改造**（砍 Orchestrator Loop/Signal Store/对抗回合，建 dteam_dispatch，五角色→T1/T2/T3）。改造前不要假设代码已是新形态。
 
 ## 项目结构速查
 
@@ -16,13 +18,12 @@ dteam 是 **基于 goal（目标）自发生长的多 worker 群策群力扩展*
 |------|------|--------|
 | `doc/README.md` | 文档导航与阅读顺序 | **必读** |
 | `doc/术语表.md` | 项目术语定义 | **必读** |
-| `doc/决策档案/` | 架构决策记录；改边界前必读 | **必读** |
-| `src/README.md` | 当前实现定义文档 | **必读** |
-| `src/tools.ts` | 工具表（Pi 提供的 / dteam 暴露的 / 内部 helper） | **必读** |
-| `src/orchestrator.ts` | 主循环（0.6.0 重写为 Orchestrator Loop） | 必读 |
-| `src/planner.ts` | 规划器（旧穷举式；0.6.0 后被 Orchestrator Loop 取代） | 必读 |
-| `src/leaf.ts` | 调 LLM 干活（进程内 worker 执行层） | 必读 |
-| `src/pool.ts` | 任务池（内存；0.6.0 代码改造后退场） | 必读 |
+| `doc/决策档案/` | 架构决策记录；改边界前必读（**当前权威 0008**） | **必读** |
+| `src/README.md` | 当前实现定义文档（标注 0.6.0→0008 gap） | **必读** |
+| `src/tools.ts` | 工具表（待重写为 dteam_dispatch） | **必读** |
+| `src/orchestrator-loop.ts` | 0.6.0 主循环（**待按 0008 退场/改造**） | 必读 |
+| `src/leaf.ts` | worker 执行层（进程内 AgentSession，dispatch 的实现基底） | 必读 |
+| `src/session.ts` | worker session 工厂（Multi-Provider Routing，待加 tier/thinking） | 必读 |
 | `./index.ts` | Pi 扩展入口（根目录） | **必读** |
 
 
@@ -30,28 +31,25 @@ dteam 是 **基于 goal（目标）自发生长的多 worker 群策群力扩展*
 
 ### 做
 - ✅ 先读 `doc/README.md`、`doc/术语表.md`、`src/README.md` 和 `src/tools.ts`
-- ✅ 涉及架构、角色、编排循环、持久化、并发、边界收敛时，先读 `doc/决策档案/`
+- ✅ 涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 `doc/决策档案/`
 - ✅ 改完后跑 `npm run build` 验证
-- ✅ 改完后跑 `pi -e ./extensions/index.ts` 试加载
+- ✅ 改完后跑 `pi -e ./index.ts` 试加载
 - ✅ 保持文件数合理（按职责拆，不强求数量）
 - ✅ 用 LLM 的 tool calling 做结构化输出，**不要解析自由文本**
 
 ### 不做
-- ❌ 不要加文件锁、原子操作
-- ❌ 不要做双层验收（一次 `check` 收口够）
 - ❌ 不要做 resume（见 ADR 0004；要做先单独写方案）
 - ❌ 不要重新发明 parser（用 LLM tool calling 替代）
-- ❌ 不要预先穷举 Task Plan / DPlan（召唤轨迹即计划，见 ADR 0005）
-- ❌ 不要默认 spawn 独立 OS 子进程（用进程内 `AgentSession` + Logical Isolation，见 ADR 0005）
-- ❌ 不要为低价值想法新造术语、关系类型、状态层或配置层；没有第三次重复和明确痛点前，先用现有 `Signal Store` / 角色 / 文档表达。
-
-> **0.6.0 并发口径更新**：旧"不要做自适应并发"条款已撤销——[ADR 0005](./doc/决策档案/0005-dteam-0.6.0-重定义为自发生长召唤池.md) 采纳 Adaptive Concurrency（自适应并发）+ Multi-Provider Routing（多供应商路由）应对并发墙。原先担忧的"动态调 batchSize 让结果不可预测"由 Signal Store（TTL 衰减）+ 429 自适应机制回应。
+- ❌ 不要默认 spawn 独立 OS 子进程（用进程内 `AgentSession` + Logical Isolation）
+- ❌ 不要重新引入 Orchestrator Loop / Signal Store / 对抗回合 / 积分制（已被 0008 推翻）
+- ❌ 不要把五角色（explore/design/build/check/close）当现役结构——已被 T1/T2/T3 取代（0008）
+- ❌ 不要为低价值想法新造术语、关系类型、状态层或配置层；没有第三次重复和明确痛点前，先用现有档位 / dispatch / 文档表达。
 
 ## 设计收敛纪律
 
-- dteam 的默认方向是收敛到“召唤池 + 固定五角色 + Signal Store + check 收口”，不是继续扩展成通用多 agent 平台。
+- dteam 的默认方向是收敛到「模型分级路由（T1/T2/T3）+ 单工具 dteam_dispatch + 回退 + fresh 验收」，不是继续扩展成通用多 agent 平台，也不是回到对抗式合议/自发生长。
 - 新增概念前先写真实失败样例：哪个现有机制承载不了、会造成什么错误、如何验证新机制降低复杂度；没有证据就不新增。
-- 涉及 Reference Relation、可观察性、分支层、角色市场、持久化、resume 等扩展型设计时，默认先拒绝或降级为文档观察，除非 ADR 级别拷问通过。
+- 涉及角色市场、持久化、resume、编排循环、信号系统等扩展型设计时，默认先拒绝或降级为文档观察，除非 ADR 级别拷问通过。
 - 文档也要防术语膨胀：术语表只收稳定、反复使用、会影响实现命名的词；临时想法不要写进术语表。
 
 ## 验证流程
@@ -65,33 +63,30 @@ npm run build
 # 2. 在 Pi 里重载
 # 按 /reload
 
-# 3. 实际调 dteam 工具（0.6.0：同步前台 Orchestrator Loop）
-# 让主 LLM 调 dteam(goal="简单任务")，或用户 /dteam <goal>
+# 3. 实际调 dteam
+# 0008 实施前：用 /dteam <goal> 冒烟当前 0.6.0 运行时
+# 0008 实施后：调 dteam_dispatch(task="...", tier="T3") 验证分级路由
 ```
 
-**如果 build 失败，必须先修。**  
+**如果 build 失败，必须先修。**
 **如果 build 过但 dteam 调不通，贴错误信息。**
 
 ## 改动的边界
 
-> 0.6.0 代码已落地（Orchestrator Loop + SignalStore + 强制 check 收口）。实施记录见 [`doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md`](./doc/40-版本实施方案/42-v0.6.0-召唤池重定义实施方案.md)。下表是继续迭代时该改哪里。
+> 0008 定位已落（模型分级路由），代码改造待进行。下表是按 0008 迭代时该改哪里。
 
 | 想加什么 | 怎么办 |
 |----------|--------|
-| 改 Orchestrator Loop 主循环 | 改 `orchestrator.ts`（旧 Plan→Execute→Report 改为 LLM 驱动循环） |
-| 改 worker 执行层 | 改 `leaf.ts` / `session.ts`（进程内 `AgentSession` + Logical Isolation + Multi-Provider Routing） |
-| 改 Signal Store | 改 `signals/`（TTL 衰减，单 goal 生命周期） |
-| 改对外暴露的 dteam 工具 | 改 `./index.ts`（`/dteam <goal>` + 主 LLM 自动拉起） |
-| 加新工具 | **不推荐**——dteam 故意只暴露 1 个工具 |
-| 旧 planner / scheduler | 0.6.0 后降级（planner 被 Orchestrator Loop 取代；scheduler 降为辅助信号） |
+| 改 dispatch 实现 | 改 `leaf.ts` / `session.ts`（进程内 `AgentSession` + Logical Isolation + Multi-Provider Routing 加 tier/thinking） |
+| 改模型档位配置 | 改 `session/*` 的 model-resolver / role-config（T1/T2/T3 档位 + 默认思考 + 默认工具白名单） |
+| 改对外工具 | 改 `./index.ts` + `tools.ts`（单工具 `dteam_dispatch`，取代旧 dteam tool） |
+| 退场旧结构 | 砍 `orchestrator-loop.ts` / `signals/`（Orchestrator Loop + Signal Store 被 0008 推翻） |
+| 加新工具 | **不推荐**——dteam 故意只暴露 1 个工具（dteam_dispatch） |
 
 
 ## 状态机提醒
 
-> 0.6.0 重定义后，状态以 Orchestrator Loop + Signal Store 为核心（旧 WorkItem/TaskPool 在代码改造后退场）。
-
-Orchestrator Loop 推进依赖 Signal Store 的四类信号：`progress` / `found` / `blocked` / `help`，靠 `session.subscribe` 事件流表达。Signal Store 采用 TTL 衰减：新信号优先，旧信号过期。
-
+> 0008 重定位后，没有独立的 Orchestrator Loop 状态机。主模型（T1）在对话里直接路由 + 调 dteam_dispatch fan-out + 收结果 + 按需 fresh 验收 + 回退。dispatch 创建的 worker 是一次性 fresh session（做完返回），无信号回流、无独立循环。
 
 ## 发版流程
 
@@ -109,8 +104,8 @@ Orchestrator Loop 推进依赖 Signal Store 的四类信号：`progress` / `foun
 每次 `Git commit`（Git 提交）只做一件事。
 
 示例：
-- `feat: 让 leaf 实际能改文件`
-- `fix: 修正 planner 结构化输出解析逻辑`
+- `feat: 实现 dteam_dispatch 分级路由`
+- `refactor: 五角色配置改为 T1/T2/T3 档位`
 - `docs: 更新 doc/30-路线图/30-项目路线图.md`
 
 **提交前**：
@@ -121,7 +116,7 @@ Orchestrator Loop 推进依赖 Signal Store 的四类信号：`progress` / `foun
 
 - 这个项目是 507（diwu）的
 - 当前版本：见 `package.json` 的 `version` 字段
-- 设计参考：ant-colony（`/Users/diwu/.pi/agent/extensions-backup/ant-colony.disabled/`）
+- 设计参考：ant-colony（多态分工 + Multi-Provider Routing + Adaptive Concurrency 的源头）
 
 - 术语表：见 `doc/术语表.md`
 - 决策记录：见 `doc/决策档案/` + git log

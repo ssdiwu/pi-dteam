@@ -3,6 +3,22 @@
 本文件记录 dteam 的用户可感知变更与关键实现收口。  
 格式参考 Keep a Changelog，但保持中文、简洁、面向项目实际。
 
+## [Unreleased]
+
+### 重定位
+- 新增 [ADR 0008](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md)：dteam 从已放弃的对抗式合议重定位为**模型分级路由执行层**，明确主模型（T1）负责思考/路由/验收，小任务交给 T3 并行执行，失败或质量不过时回退 T1。
+- 明确与 `pi-dgoal` 的边界：dteam = 多模型分级路由；dgoal = 单模型建检循环。两者独立并列，不合并、不自动切换。
+- 目标外部契约收敛为单工具 `dteam_dispatch(task, tier, thinking?, tools?)`；T1/T2/T3 模型档位取代旧五角色，思考强度默认跟随档位。
+
+### 文档
+- 同步根 README、AGENTS、术语表、架构/API/触发协议、路线图和决策索引到 0008 口径。
+- 新增 Skill-MAS 与 ZCode Swarm 一手调研，并按 0008 坐标系重评借鉴边界。
+- ADR 0006/0007 标记为已被 0008 推翻；保留 fresh check 零件并迁移为 dispatch 的 fresh 验收用法。
+
+### 实施状态
+- 本段仅记录定位与文档决策；运行时 API 尚未改变。`src/` 仍是 0.6.0 的 Orchestrator Loop + SignalStore，包版本仍为 `0.6.0`。
+- 0.7.0 代码改造（砍 Orchestrator Loop/Signal Store、实现 `dteam_dispatch`、五角色改 T1/T2/T3）留给后续 dgoal 执行；本次不打 tag、不发布。
+
 ## [0.6.0] - 2026-06-22
 
 > 初始重定义落地 2026-06-18；输出契约重构与端到端验证收尾 2026-06-22。
