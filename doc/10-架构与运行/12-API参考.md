@@ -1,112 +1,102 @@
 # dteam API 参考
 
-> dteam 对外保持轻量：1 个工具 `dteam` + 1 个命令 `/dteam`。
+> dteam 对外保持轻量：1 个工具 `dteam_dispatch` + 1 个命令 `/dteam`。
 >
-> 0.6.0 重定义后，dteam 是**同步前台**执行（Orchestrator Loop），不再后台运行、不再返回 `runId`（推翻 [ADR 0003](../决策档案/0003-后台运行依附Extension-Runtime而非单次tool-call.md)）。
+> 0008 重定位后：dteam 是模型分级路由执行层，单工具统一执行/验收/回退。
+>
+> ⚠️ **实施状态**：本文定义的是 0.7.0 目标 API 契约。当前 0.6.0 运行时仍暴露旧 `dteam` 工具并执行 Orchestrator Loop，`dteam_dispatch` 尚不可调用。
 
-## 1. 工具：`dteam`
+## 1. 工具：`dteam_dispatch`
 
-`dteam` 让主 LLM 拉起一次 Orchestrator Loop（编排循环），进入群策群力协作。
-
-工具 description（描述）内置触发协议摘要：需要群策群力（召唤多个专业角色）的复杂任务应调 dteam；普通问答、单文件小改、只跑一个命令、单兵能干的任务不应调用。完整规则见 `14-dteam触发协议.md`。
+`dteam_dispatch` 创建 fresh 进程内 worker session，按指定档位模型 + 思考 + 工具白名单执行任务，返回结果。
 
 ### 1.1 参数
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|:---:|---|
-| `goal` | `string` | ✅ | 要完成的目标 |
-| `availableTools` | `string[]` | 否 | 主 LLM 当前可见工具名列表；dteam 用它校验和透传 worker 工具 |
+| `task` | `string` | ✅ | 任务描述（prompt，自包含——worker 看不到主对话） |
+| `tier` | `"T1" \| "T2" \| "T3"` | ✅ | 模型档位（T1 思考 / T2 标准 / T3 快速） |
+| `thinking?` | `"low" \| "medium" \| "high"` | 否 | 思考强度；默认跟随档位（T1高/T2中/T3低） |
+| `tools?` | `string[]` | 否 | 工具白名单；默认回落档位配置 |
 
-> 0.6.0 后移除了 `action="run"` / `action="continue"` / `runId` 参数。启动 = 直接传 goal 进入同步前台 Orchestrator Loop。
-
-### 1.2 拉起 Orchestrator Loop
+### 1.2 三种用法（执行/验收/回退都是它）
 
 ```ts
-dteam(
-  goal="为 src/orchestrator.ts 实现 0.6.0 Orchestrator Loop 主循环",
-  availableTools=["read", "bash", "edit", "write", "grep", "find", "ls"]
-)
+// 执行小任务（并行 = 主模型并发调用多个）
+dteam_dispatch(task="并行修这 3 个独立 bug", tier="T3")
+dteam_dispatch(task="...", tier="T3")
+dteam_dispatch(task="...", tier="T3")
+
+// fresh 验收（对抗主模型倾向）
+dteam_dispatch(task="验收这个产出是否达标：...", tier="T1", tools=["read","grep","bash"])
+// ↑ fresh session，不看主会话/方案出处
+
+// 回退（小模型搞不定）
+dteam_dispatch(task="重做这个任务：...", tier="T1")
 ```
 
-进入同步前台执行：阻塞主对话，Orchestrator 循环召唤 worker、收信号、直到 `check` 收口完成，返回最终报告。
+**关键**：dispatch 创建的 worker 都是 fresh session（Logical Isolation），所以验收天然 fresh——不需要第二个工具。
 
-> 注意：不再立即返回 `{status:"running", runId}`。同步前台意味着 dteam 期间主对话阻塞。
-
-## 2. 运行态观察
-
-Orchestrator Loop 推进期间，通过以下渠道实时观察（同步前台，进度随循环可见）：
-
-| 渠道 | 作用 |
-|---|---|
-| `/dteam` | 展开 / 关闭实时面板，看 Orchestrator Loop 推进 + Signal Store 快照 |
-| widget（小组件） | loop 进行中显示紧凑摘要（当前召唤的 worker、关键信号） |
-| status（状态栏） | 显示 dteam 正在执行 |
-| notify（通知） | 开始、收口、失败提示 |
-
-## 3. 命令：`/dteam`
+## 2. 命令：`/dteam`
 
 | 输入 | 行为 |
 |---|---|
-| `/dteam <goal>` | 显式启动 Orchestrator Loop（启动方式 C 混合之一） |
+| `/dteam <task>` | 显式启动（提示主模型进入分级路由模式） |
 | `/dteam` | toggle（切换）面板展开 / 折叠 |
 | `/dteam close` | 关闭面板 |
 
-## 4. 完成判定：Completion Gate（收口闸门）
+## 3. 运行态观察
 
-Orchestrator Loop 不自行判定完成；goal 完成前必须召唤 `check` 角色通过收口（ADR 0005 第 14 条）。`check` pass 后，Orchestrator Loop 结束，返回最终报告。
+| 渠道 | 作用 |
+|---|---|
+| `/dteam` | 展开 / 关闭实时面板，看 dispatch 执行 + 各档位 worker |
+| widget（小组件） | 执行中显示紧凑摘要（当前 dispatch、各档位 worker） |
+| status（状态栏） | 显示 dteam 正在执行 |
+| notify（通知） | 完成、失败、回退提示 |
 
-## 5. 最终结果结构（0.6.0 重定义后形态）
+## 4. 完成判定
 
-> 注：0.6.0 代码已落地——`src/` 已重写为 Orchestrator Loop（`orchestrator-loop.ts`）+ SignalStore + 强制 check 收口，返回 `DteamResult6`（召唤轨迹 + signalSnapshot + checkConclusion）。旧 `RunResult.plan+steps` / `ExecutionPlan.mode` 已删。
+dteam 没有独立的"完成判定"——主模型自己决定何时收口（它推进对话）。关键 task 主模型调 fresh 验收确认；不强制（A 形态要轻）。
+
+## 5. 结果结构（0008 目标形态）
 
 ```ts
-// 0.6.0 目标形态（代码改造方向）
-interface DteamResult {
+interface DispatchResult {
   status: "done" | "failed"
-  goal: string
-  summonTrail: SummonStep[]      // 召唤轨迹（事中涌现记录）
-  signalSnapshot: Signal[]       // Signal Store 最终快照
-  checkConclusion: CheckResult   // check 收口结论
-  summary: string
-}
-
-interface SummonStep {
-  role: "explore" | "design" | "build" | "check" | "close"
+  tier: "T1" | "T2" | "T3"
   task: string
-  result: string
-  signals: Signal[]
-  model: string                  // 实际使用的模型（含 fallback）
+  result: string          // worker 产出
+  model: string           // 实际使用的模型（含 fallback）
+  fellBack?: boolean      // 是否触发回退
 }
 ```
+
+> 旧 `DteamResult6`（summonTrail + signalSnapshot + checkConclusion）随 Orchestrator Loop 一起退场。
 
 ## 6. `availableTools` 契约
 
 | 场景 | 行为 |
 |---|---|
-| 主 LLM 传非空数组 | Orchestrator 召唤 worker 时只允许选择这些工具 |
-| 不传 | 回落到 `ROLE_DEFAULTS` |
-| 传空数组 | 等同不传 |
-| 工具名不存在 | intersect（取交集）过滤；全空则回落默认工具 |
+| 主 LLM 传非空 `tools` | dispatch 只允许 worker 用这些工具 |
+| 不传 | 回落到档位默认白名单 |
+| 工具名不存在 | intersect（取交集）过滤 |
 
-这来自工具动态加载方案 D：dteam 不扫描 Pi 已加载工具，而是信任调用方显式传入。
-
-## 7. 内部 API（0.6.0 重写方向）
+## 7. 内部 API（0008 改造方向）
 
 | 函数 | 位置 | 说明 |
 |---|---|---|
-| Orchestrator Loop 主循环 | `src/orchestrator.ts` | 读 Signal Store → LLM 驱动决策 → 召唤 worker → 收信号 → 继续/收口 |
-| 召唤单个 worker | `src/leaf.ts` | 进程内 `createAgentSession` + Logical Isolation 执行 |
-| `createWorkerSession(options)` | `src/session.ts` | 创建进程内 worker session + Multi-Provider Routing |
-| `getRoleTools(role)` | `src/session/role-config.ts` | 获取角色默认工具 |
+| dispatch 实现 | `src/leaf.ts` | 进程内 `createAgentSession` + Logical Isolation 执行 |
+| `createWorkerSession(options)` | `src/session.ts` | 创建进程内 worker session + Multi-Provider Routing（按 tier） |
+| 档位配置 | `src/session/role-config.ts` | T1/T2/T3 默认模型 + thinking + 工具白名单 |
 
-> 当前 `src/planner.ts`（穷举式 planner）将在 0.6.0 被 Orchestrator Loop 内的每轮 LLM 调用取代；`src/scheduler/*`（FileGraph / preflight）将降级为 Orchestrator 决策辅助。
+> 0.6.0 的 `orchestrator-loop.ts` / `signals/*` 待退场（0008 推翻）。
 
 ## 8. 当前不提供的 API
 
 | 不提供 | 原因 |
 |---|---|
-| `runId` / 后台返回 | 0.6.0 改为同步前台 Orchestrator Loop（ADR 0005 推翻 ADR 0003） |
-| `action="continue"` | 同步前台执行，不再有"等待补充"的后台注入；help 自愈走进程内 explore |
-| 多个工具名 | 保持 dteam 单工具哲学 |
-| 自定义角色注册 API | 角色写死（ADR 0002） |
+| 多个工具名 | 保持单工具哲学（dispatch 统一执行/验收/回退） |
+| `runId` / 后台返回 | dteam 是主模型在对话里直接 dispatch，不后台运行 |
+| 自定义角色/档位注册 | 三档写死（延续 ADR 0002 精神） |
 | workflow 脚本 API | dteam 不做固定编排平台 |
+| Orchestrator Loop / Signal Store | 已被 0008 推翻 |
