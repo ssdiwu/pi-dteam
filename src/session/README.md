@@ -6,15 +6,16 @@ worker session（工作者会话）的创建和角色配置。核心是 `createW
 
 | 文件 | 职责 |
 |---|---|
-| `role-config.ts` | `ROLE_DEFAULTS`：5 个角色的工具 / thinking / description（写死，见 ADR 0002） |
-| `role-prompt.ts` | 角色对应 `agents/*.md` 的 prompt 加载 |
+| `tier-config.ts` | 0.7 档位默认：T1/T2/T3 的 thinking、工具白名单和独立 prompt；T3 默认只读 |
+| `role-config.ts` | 0.6 五角色工具 / thinking / description；旧 loop 退场前的兼容遗留 |
+| `role-prompt.ts` | 0.6 角色对应 `agents/*.md` 的 prompt 加载；待五角色退场 |
 | `model-resolver.ts` | worker 模型解析（`pickAvailableModel` 默认复用主模型；`resolveModelStr` 解析 "provider/id"） |
 | `resource-loader.ts` | 资源 / 工具加载；Logical Isolation 时跳过 `discoverAndLoadExtensions` |
 | `signal-tool.ts` | `worker_sendSignal` customTool 定义，让 worker 能上报信号 |
 
 ## 关系
 
-被 `leaf/` 调用创建 worker session；`role-config.ts` 是工具权限矩阵的运行时权威（见 `doc/10-架构与运行/11-角色系统.md` 第 3 节）。
+被 `leaf/` 调用创建 worker session；0.7 dispatch 的工具权限运行时权威是 `tier-config.ts`，旧 `role-config.ts` 仅供 0.6 loop 过渡使用。
 
 ## 0.6.0 关键点
 

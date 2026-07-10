@@ -1,6 +1,6 @@
 # tests/
 
-dteam 0.6.0 的行为测试。用 vitest，通过公共接缝验证 Orchestrator Loop、Signal Store、并发/路由、角色边界和 worker 执行。
+dteam 0.6.0→0.7.0 过渡期的行为测试。用 vitest 验证旧 loop 兼容基线，以及 T1/T2/T3 fresh dispatch、路由、回退和工具边界。
 
 ## 运行
 
@@ -16,7 +16,9 @@ npm run test:watch
 | Orchestrator Loop 主循环 | `orchestrator-loop.test.ts`（summon/check/done 流转、Completion Gate、maxRounds/maxCheckRetries、fail 兜底） |
 | Signal Store（TTL 衰减） | `signal-store.test.ts`（emit/getActive/TTL/dispose/maxSignals） |
 | Adaptive Concurrency + Multi-Provider Routing | `phase3-concurrency-routing.test.ts`（升降并发、429 冷却、fallback 链） |
-| 角色会话 | `session.test.ts`、`leaf.test.ts` |
+| 0.7 档位派发契约 | `dispatch-contract.test.ts`（T3 只读、显式 tools 上限、thinking、档位模型链） |
+| 0.7 fresh dispatch 执行 | `dispatch-execute.test.ts`（隔离 session、T1 只读验收、provider fallback、超时/T3→T1 硬回退、共享并发与 429 降并发） |
+| 角色会话（0.6 兼容） | `session.test.ts`、`leaf.test.ts` |
 | 信号通路（leaf 桥接用） | `signal-bus.test.ts`、`runs-store.test.ts` |
 | 架构参考 | `reference-data.test.ts` |
 
