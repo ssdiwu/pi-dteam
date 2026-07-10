@@ -15,7 +15,7 @@ dteam exists because **using a strong model for small tasks is a double waste** 
 - **Single tool `dteam_dispatch(task, tier, thinking?, tools?)`** — execution / fresh review / fallback are all different uses of the same tool.
 - **T1 / T2 / T3 model tiers** (replace the old five roles) — anchored to vendor product lines (flagship / standard / fast).
 - **Thinking follows tier** — T1 high / T2 medium / T3 low; hard tasks fall back to the strong model (which has high thinking built in), rather than making a small model think longer.
-- **Fresh review** — dispatch creates isolated in-process `AgentSession` workers; review workers are naturally fresh (can't see the main session), countering the main model's "grade your own homework" bias.
+- **Fresh review (optional)** — dispatch creates isolated in-process `AgentSession` workers; the main model explicitly requests a T1 read-only review only for critical work, countering its "grade your own homework" bias.
 - **Fallback** — hard failure auto-falls back; quality failure triggers fallback via fresh review.
 - **Adaptive Concurrency + Multi-Provider Routing** — multiple workers in flight, per-tier model + fallback chains.
 
@@ -25,7 +25,7 @@ dteam exists because **using a strong model for small tasks is a double waste** 
 |---|---|---|---|---|
 | **T1 frontier** | flagship | high | full (rw + review) | thinking / decisions / review / fallback redo |
 | **T2 standard** | standard | medium | writable (rw) | regular implementation |
-| **T3 fast** | fast / local | low | on-demand (read or limited write) | mechanical small tasks |
+| **T3 fast** | fast / local | low | read-only by default; explicitly limited write | mechanical small tasks |
 
 Standard anchored to **vendor product-line tiers** (every vendor already ships flagship/standard/fast). dispatch can override defaults (e.g. temporarily grant write to T3 for an isolated module change).
 

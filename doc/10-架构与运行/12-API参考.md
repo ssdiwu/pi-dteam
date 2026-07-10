@@ -28,7 +28,7 @@ dteam_dispatch(task="...", tier="T3")
 dteam_dispatch(task="...", tier="T3")
 
 // fresh 验收（对抗主模型倾向）
-dteam_dispatch(task="验收这个产出是否达标：...", tier="T1", tools=["read","grep","bash"])
+dteam_dispatch(task="验收这个产出是否达标：...", tier="T1", tools=["read","grep","find","ls"])
 // ↑ fresh session，不看主会话/方案出处
 
 // 回退（小模型搞不定）
