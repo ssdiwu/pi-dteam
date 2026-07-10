@@ -1,12 +1,11 @@
 /**
  * dteam v1 — Agent Session 工厂（thin coordinator）
  *
- * 6 个职责拆到 src/session/ 子模块，本文件只做 import + 装配：
+ * 0.7/0.6 过渡期职责拆到 src/session/ 子模块，本文件只做 import + 装配：
+ *  - tier-config     : T1/T2/T3 默认 thinking / tools / prompt（0.7 主路径）
  *  - resource-loader : makeResourceLoader
- *  - role-config     : ROLE_DEFAULTS / getRoleTools
- *  - role-prompt     : loadRolePrompt
+ *  - role-config / role-prompt / signal-tool：0.6 loop 过渡兼容，待删除
  *  - model-resolver  : resolveModelStr / pickAvailableModel
- *  - signal-tool     : makeWorkerSendSignalTool
  */
 
 import {
@@ -16,18 +15,21 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { DteamContext } from "./types/context.js";
+import type { Tier } from "./types/dispatch.js";
 import type { RoleName } from "./types/role.js";
 import { referenceArchitectureTool } from "./reference-data.js";
 import { makeResourceLoader, loadConfiguredPackages } from "./session/resource-loader.js";
 import { ROLE_DEFAULTS, getRoleTools } from "./session/role-config.js";
+import { getTierPrompt, getTierThinking, getTierTools } from "./session/tier-config.js";
 import { loadRolePrompt } from "./session/role-prompt.js";
 import { resolveModelStr, pickAvailableModel } from "./session/model-resolver.js";
 import { makeWorkerSendSignalTool } from "./session/signal-tool.js";
 
 /** Session 工厂选项 */
 export interface CreateSessionOptions {
-  systemPrompt?: string;          // 显式 systemPrompt（优先于 role）
-  role?: RoleName;                // 角色名（和 systemPrompt 二选一）
+  systemPrompt?: string;          // 显式 systemPrompt（优先于 tier / role）
+  tier?: Tier;                    // 0.7 模型档位（与旧 role 二选一）
+  role?: RoleName;                // 0.6 角色名（旧 loop 退场前兼容）
   cwd: string;                    // 工作目录
   modelStr: string;               // 模型字符串 "provider/id"
   ctx: any;                       // Pi 扩展上下文（modelRegistry / authStorage）
@@ -46,16 +48,19 @@ export { getRoleTools, pickAvailableModel };
 
 /** 主工厂：装配 resourceLoader + tools + customTools，调 createAgentSession */
 export async function createWorkerSession(options: CreateSessionOptions) {
-  const { systemPrompt: explicitPrompt, role, cwd, modelStr, ctx,
+  const { systemPrompt: explicitPrompt, tier, role, cwd, modelStr, ctx,
     builtInTools: explicitTools, customTools: customToolsArg,
     dteamContext, thinkingLevel: explicitThinking } = options;
 
   const modelRegistry = ctx.modelRegistry;
   if (!modelRegistry) throw new Error("dteam: ctx.modelRegistry not available");
 
-  const systemPrompt = explicitPrompt ?? (role ? loadRolePrompt(role, cwd) : "你是一个助手。请完成任务。");
-  const builtInTools = explicitTools ?? (role ? getRoleTools(role) : []);
-  const thinkingLevel = explicitThinking ?? (role ? (ROLE_DEFAULTS[role].thinking as any) : "off");
+  const systemPrompt = explicitPrompt
+    ?? (tier ? getTierPrompt(tier) : role ? loadRolePrompt(role, cwd) : "你是一个助手。请完成任务。");
+  const builtInTools = explicitTools
+    ?? (tier ? getTierTools(tier) : role ? getRoleTools(role) : []);
+  const thinkingLevel = explicitThinking
+    ?? (tier ? getTierThinking(tier) : role ? (ROLE_DEFAULTS[role].thinking as any) : "off");
 
   const model = resolveModelStr(modelStr, modelRegistry);
   // 0.6.0 Logical Isolation：可选跳过扩展发现，worker session 保持 fresh

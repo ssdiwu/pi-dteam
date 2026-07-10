@@ -20,7 +20,8 @@ export function resolveModelStr(
     const found = modelRegistry.find(provider, id);
     if (found) return found;
     try {
-      return getModel(provider as any, id as any);
+      const resolved = getModel(provider as any, id as any);
+      if (resolved) return resolved;
     } catch {
       // fall through
     }

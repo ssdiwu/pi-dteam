@@ -524,4 +524,19 @@ describe("createWorkerSession 集成", () => {
       }),
     ).rejects.toThrow(/Cannot resolve model/);
   });
+
+  it("tier=T3 创建低思考、只读、逻辑隔离的 fresh session", async () => {
+    await createWorkerSession({
+      tier: "T3",
+      cwd: "/tmp",
+      modelStr: "minimax-cn/MiniMax-M3",
+      ctx: makeCtx(),
+      logicalIsolation: true,
+    });
+
+    const callArgs = mockCreateAgentSession.mock.calls[0][0];
+    expect(callArgs.thinkingLevel).toBe("low");
+    expect(callArgs.tools).toEqual(["read", "grep", "find", "ls"]);
+    expect(callArgs.resourceLoader.getExtensions().extensions).toEqual([]);
+  });
 });
