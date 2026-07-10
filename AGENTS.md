@@ -10,7 +10,7 @@ dteam 是 **模型分级路由执行层**——主模型（T1 思考档）负责
 
 涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**当前定位权威是 [`doc/决策档案/0008-dteam重定位为模型分级路由执行层.md`](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md)**（推翻 0006 对抗式合议 + 0007 对抗回合积分制）。
 
-> ⚠️ **定位与代码的 gap**：0008 是定位决策（模型分级路由），但 `src/` 代码现状仍是 0.6.0 的 Orchestrator Loop + SignalStore 形态，**待按 0008 改造**（砍 Orchestrator Loop/Signal Store/对抗回合，建 dteam_dispatch，五角色→T1/T2/T3）。改造前不要假设代码已是新形态。
+> ⚠️ **过渡状态**：0008 的 T1/T2/T3、fresh `dispatch()` 内核、档位模型路由与并发已实现并有测试；但 `index.ts` 仍暴露 0.6.0 `dteam` Orchestrator Loop，旧 signals/五角色和旧入口尚待后续阶段退场。不要把内部内核误当成已对外可调用的 `dteam_dispatch`。
 
 ## 项目结构速查
 
@@ -22,8 +22,8 @@ dteam 是 **模型分级路由执行层**——主模型（T1 思考档）负责
 | `src/README.md` | 当前实现定义文档（标注 0.6.0→0008 gap） | **必读** |
 | `src/tools.ts` | 工具表（待重写为 dteam_dispatch） | **必读** |
 | `src/orchestrator-loop.ts` | 0.6.0 主循环（**待按 0008 退场/改造**） | 必读 |
-| `src/leaf.ts` | worker 执行层（进程内 AgentSession，dispatch 的实现基底） | 必读 |
-| `src/session.ts` | worker session 工厂（Multi-Provider Routing，待加 tier/thinking） | 必读 |
+| `src/leaf.ts` | worker 执行层（进程内 AgentSession；`dispatch()` 内核已实现） | 必读 |
+| `src/session.ts` | worker session 工厂（已支持 tier/thinking；旧 role 兼容待退场） | 必读 |
 | `./index.ts` | Pi 扩展入口（根目录） | **必读** |
 
 
@@ -73,7 +73,7 @@ npm run build
 
 ## 改动的边界
 
-> 0008 定位已落（模型分级路由），代码改造待进行。下表是按 0008 迭代时该改哪里。
+> 0008 定位已落；fresh dispatch 内核已完成，对外工具替换和旧运行时删除仍在进行。下表是按 0008 迭代时该改哪里。
 
 | 想加什么 | 怎么办 |
 |----------|--------|
@@ -86,7 +86,7 @@ npm run build
 
 ## 状态机提醒
 
-> 0008 重定位后，没有独立的 Orchestrator Loop 状态机。主模型（T1）在对话里直接路由 + 调 dteam_dispatch fan-out + 收结果 + 按需 fresh 验收 + 回退。dispatch 创建的 worker 是一次性 fresh session（做完返回），无信号回流、无独立循环。
+> **最终 0008 形态**没有独立 Orchestrator Loop 状态机：主模型（T1）在对话里直接路由 + 调 dteam_dispatch fan-out + 收结果 + 按需 fresh 验收 + 回退。该内核已实现；当前旧 `index.ts` 尚未替换入口，因此仍会运行 0.6 loop。
 
 ## 发版流程
 

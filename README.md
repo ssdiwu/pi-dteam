@@ -6,7 +6,7 @@ The main model (T1 frontier tier) acts as owner: it thinks / decides / routes / 
 
 **Sister project**: [`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) — independent and parallel. **dteam = multi-model tier routing; dgoal = single-model build-check loop.** The main LLM chooses which to use; they are not merged, not auto-switched. Chinese version: [`README-zh.md`](./README-zh.md).
 
-> ⚠️ **Positioning vs code gap**: The positioning authority is [ADR 0008 (model-tier routing)](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md). The `src/` codebase is **still the 0.6.0 Orchestrator Loop + SignalStore shape**; the 0008 refactor (cut the loop/signals, build `dteam_dispatch`, replace five roles with T1/T2/T3) is **pending**. Don't assume the code is already in the new shape.
+> ⚠️ **Transition state**: [ADR 0008](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md) is authoritative. The T1/T2/T3 fresh `dispatch()` core, tier routing, and concurrency are implemented and tested; `index.ts` still exposes the 0.6.0 Orchestrator Loop while the old signals, five roles, and public tool replacement are pending. The internal core is not yet a callable Pi `dteam_dispatch` tool.
 
 ## TL;DR
 
@@ -46,8 +46,8 @@ Full protocol: see [`doc/10-架构与运行/14-dteam触发协议.md`](./doc/10-�
 
 - ✅ 0.6.0 code landed (Orchestrator Loop + SignalStore + Logical Isolation + Adaptive Concurrency + Multi-Provider Routing) — **but this shape is superseded by ADR 0008**.
 - ❌ 0.6.1/0.6.2 adversarial deliberation (ADR 0006/0007) prototyped and abandoned ("tedious and useless").
-- ⏭ **0.7.0 (ADR 0008) refactor pending**: cut Orchestrator Loop / SignalStore / adversarial rounds, build `dteam_dispatch`, replace five roles with T1/T2/T3 tiers.
-- ✅ `npm run build` passes; `npm test` green (covers 0.6.0 decision flow / concurrency / routing).
+- 🚧 **0.7.0 transition in progress**: T1/T2/T3 fresh dispatch, provider/T1 fallback, timeout and adaptive concurrency are implemented; public tool registration plus Orchestrator Loop / SignalStore / five-role deletion remain.
+- ✅ `npm run build` passes; `npm test` green (covers the 0.6.0 baseline and 0.7 dispatch core).
 
 ## Quick start
 
@@ -68,7 +68,7 @@ pi install "$(pwd)"
 
 # 6. Smoke-test the current 0.6.0 runtime
 # /dteam <goal>
-# dteam_dispatch is the 0.7.0 target API and is not runnable yet.
+# The 0.7.0 dispatch core exists, but the public dteam_dispatch tool is not registered yet.
 ```
 
 ## Documentation
@@ -80,7 +80,7 @@ pi install "$(pwd)"
 - [Tier system (T1/T2/T3)](./doc/10-架构与运行/11-角色系统.md)
 - [Tool API reference (dteam_dispatch)](./doc/10-架构与运行/12-API参考.md)
 - [dteam trigger protocol (dteam vs dgoal)](./doc/10-架构与运行/14-dteam触发协议.md)
-- [Project roadmap (0.7.0 refactor pending)](./doc/30-路线图/30-项目路线图.md)
+- [Project roadmap (0.7.0 transition in progress)](./doc/30-路线图/30-项目路线图.md)
 - [zcode-swarm reference (blockedBy isomorphic, coordinator印证)](./doc/20-能力参考/29-zcode-swarm蜂群插件参考.md)
 - [src/ internal architecture (0.6.0→0008 gap)](./src/README.md)
 - [CHANGELOG.md](./CHANGELOG.md)
@@ -97,7 +97,7 @@ pi install "$(pwd)"
 ## Superseded history (traceability)
 
 - **ADR 0006/0007 adversarial deliberation** (2026-07): prototyped, found "tedious and useless" (score system cost vs benefit), superseded by 0008. The fresh-check component was resurrected into 0008's review usage.
-- **ADR 0005 self-growing summon pool** (0.6.0): Orchestrator Loop + SignalStore; positioning superseded by 0008 (code remains as the 0.7.0 refactor starting point).
+- **ADR 0005 self-growing summon pool** (0.6.0): Orchestrator Loop + SignalStore; positioning superseded by 0008 (legacy runtime remains only until the ongoing 0.7 cleanup).
 - **0.5.0 two-dimensional orchestration** (`solo/chain/team` × `direct/build_check/adaptive`): removed in 0.6.0.
 
 ## Related links

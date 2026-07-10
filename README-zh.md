@@ -6,7 +6,7 @@
 
 **姊妹项目**：[`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) —— 独立并列。**dteam = 多模型分级路由，dgoal = 单模型建检循环**。主 LLM 自己判断用哪个，不合并、不自动切换。英文版：[`README.md`](./README.md)。
 
-> ⚠️ **定位与代码的 gap**：定位权威是 [ADR 0008（模型分级路由）](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md)。`src/` 代码**仍是 0.6.0 的 Orchestrator Loop + SignalStore 形态**；0008 改造（砍 loop/signals、建 `dteam_dispatch`、五角色→T1/T2/T3）**待进行**。不要假设代码已是新形态。
+> ⚠️ **过渡状态**：定位权威是 [ADR 0008（模型分级路由）](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md)。T1/T2/T3 fresh `dispatch()` 内核、档位路由和并发已实现并有测试；但 `index.ts` 仍暴露 0.6.0 Orchestrator Loop，旧 signals/五角色和对外工具替换尚待后续阶段。内部内核尚不是可调用的 Pi `dteam_dispatch` 工具。
 
 ## TL;DR
 
@@ -46,8 +46,8 @@ dteam 的存在理由是**强模型做小任务是双重浪费**（贵 + 慢）�
 
 - ✅ 0.6.0 代码已落地（Orchestrator Loop + SignalStore + Logical Isolation + Adaptive Concurrency + Multi-Provider Routing）——**但该形态已被 ADR 0008 推翻**。
 - ❌ 0.6.1/0.6.2 对抗式合议（ADR 0006/0007）原型验证后放弃（"繁琐且无用"）。
-- ⏭ **0.7.0（ADR 0008）改造待进行**：砍 Orchestrator Loop/Signal Store/对抗回合，建 `dteam_dispatch`，五角色→T1/T2/T3。
-- ✅ `npm run build` 通过；`npm test` 绿（覆盖 0.6.0 决策流转/并发/路由）。
+- 🚧 **0.7.0（ADR 0008）过渡进行中**：T1/T2/T3 fresh dispatch、provider/T1 回退、超时与自适应并发已实现；对外工具注册以及 Orchestrator Loop/Signal Store/五角色删除待完成。
+- ✅ `npm run build` 通过；`npm test` 绿（覆盖 0.6.0 基线与 0.7 dispatch 内核）。
 
 ## 快速开始
 
@@ -68,7 +68,7 @@ pi install "$(pwd)"
 
 # 6. 冒烟验证当前 0.6.0 运行时
 # /dteam <goal>
-# dteam_dispatch 是 0.7.0 目标 API，当前尚不可调用。
+# 0.7.0 dispatch 内核已存在，但对外 dteam_dispatch 工具尚未注册。
 ```
 
 ## 文档
@@ -80,7 +80,7 @@ pi install "$(pwd)"
 - [档位系统（T1/T2/T3）](./doc/10-架构与运行/11-角色系统.md)
 - [工具 API 参考（dteam_dispatch）](./doc/10-架构与运行/12-API参考.md)
 - [dteam 触发协议（dteam vs dgoal）](./doc/10-架构与运行/14-dteam触发协议.md)
-- [项目路线图（0.7.0 改造待进行）](./doc/30-路线图/30-项目路线图.md)
+- [项目路线图（0.7.0 过渡进行中）](./doc/30-路线图/30-项目路线图.md)
 - [zcode-swarm 蜂群插件参考（blockedBy 同构、coordinator 印证）](./doc/20-能力参考/29-zcode-swarm蜂群插件参考.md)
 - [src/ 内部架构（0.6.0→0008 gap）](./src/README.md)
 - [CHANGELOG.md](./CHANGELOG.md)
@@ -97,7 +97,7 @@ pi install "$(pwd)"
 ## 已推翻的历史（保留追溯）
 
 - **ADR 0006/0007 对抗式合议**（2026-07）：原型验证"繁琐且无用"（积分制成本收益不成正比），被 0008 推翻。fresh check 零件被 0008 复活到验收用法。
-- **ADR 0005 自发生长召唤池**（0.6.0）：Orchestrator Loop + SignalStore；定位被 0008 推翻（代码作为 0.7.0 改造起点）。
+- **ADR 0005 自发生长召唤池**（0.6.0）：Orchestrator Loop + SignalStore；定位被 0008 推翻（旧运行时仅保留到正在进行的 0.7 清理完成）。
 - **0.5.0 二维编排**（`solo/chain/team` × `direct/build_check/adaptive`）：0.6.0 已删。
 
 ## 相关链接
