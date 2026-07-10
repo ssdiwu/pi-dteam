@@ -4,7 +4,7 @@
 >
 > 0008 重定位后：dteam 是模型分级路由执行层，单工具统一执行/验收/回退。
 >
-> ⚠️ **实施状态**：本文定义的是 0.7.0 目标 API 契约。当前 0.6.0 运行时仍暴露旧 `dteam` 工具并执行 Orchestrator Loop，`dteam_dispatch` 尚不可调用。
+> ⚠️ **实施状态**：`leaf.ts` / `session.ts` 的 0.7 fresh dispatch 内核已完成并有自动化测试；当前 `index.ts` 仍暴露旧 `dteam` 工具并执行 Orchestrator Loop，因此 `dteam_dispatch` 尚不可从 Pi 对外调用。
 
 ## 1. 工具：`dteam_dispatch`
 
@@ -58,16 +58,22 @@ dteam_dispatch(task="重做这个任务：...", tier="T1")
 
 dteam 没有独立的"完成判定"——主模型自己决定何时收口（它推进对话）。关键 task 主模型调 fresh 验收确认；不强制（A 形态要轻）。
 
-## 5. 结果结构（0008 目标形态）
+## 5. 结果结构（dispatch 内核当前契约）
 
 ```ts
 interface DispatchResult {
   status: "done" | "failed"
-  tier: "T1" | "T2" | "T3"
   task: string
-  result: string          // worker 产出
-  model: string           // 实际使用的模型（含 fallback）
-  fellBack?: boolean      // 是否触发回退
+  requestedTier: "T1" | "T2" | "T3" // 调用方请求的档位
+  tier: "T1" | "T2" | "T3"          // 实际完成/最终尝试的档位
+  thinking: "low" | "medium" | "high"
+  tools: string[]                      // 实际权限白名单
+  result: string                       // worker 产出；失败时为空
+  model?: string                       // 实际使用的 provider/id
+  fellBack: boolean                    // 是否已尝试更强档位
+  attempts: Array<{ tier: "T1" | "T2" | "T3"; model?: string; error?: string }>
+  error?: string
+  elapsedMs: number
 }
 ```
 
@@ -81,13 +87,14 @@ interface DispatchResult {
 | 不传 | 回落到档位默认白名单 |
 | 工具名不存在 | intersect（取交集）过滤 |
 
-## 7. 内部 API（0008 改造方向）
+## 7. 内部 API（已完成的 dispatch 内核）
 
 | 函数 | 位置 | 说明 |
 |---|---|---|
-| dispatch 实现 | `src/leaf.ts` | 进程内 `createAgentSession` + Logical Isolation 执行 |
-| `createWorkerSession(options)` | `src/session.ts` | 创建进程内 worker session + Multi-Provider Routing（按 tier） |
-| 档位配置 | `src/session/role-config.ts` | T1/T2/T3 默认模型 + thinking + 工具白名单 |
+| `dispatch(request, ctx)` | `src/leaf.ts` | 已实现：进程内 fresh session、Logical Isolation、同档 provider fallback 与非 T1→T1 硬回退 |
+| `createWorkerSession(options)` | `src/session.ts` | 已支持 `tier` + thinking，继续创建进程内 worker session |
+| 档位配置 | `src/session/tier-config.ts` | 已实现：T1/T2/T3 默认模型路由、thinking、工具白名单 |
+| 路由 / 并发 | `src/dispatch/*` | 已迁移：显式模型链与 Adaptive Concurrency；不创建执行 loop |
 
 > 0.6.0 的 `orchestrator-loop.ts` / `signals/*` 待退场（0008 推翻）。
 
