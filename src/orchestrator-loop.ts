@@ -25,8 +25,8 @@ import { buildOrchestratorSystemPrompt, buildOrchestratorUserPrompt } from "./or
 import { makeOrchestratorDecideTool, createDecisionReceiver } from "./orchestrator-loop/decision-tool.js";
 import { makeCheckConcludeTool, createCheckConclusionReceiver } from "./orchestrator-loop/check-tool.js";
 import { parseCheckResult } from "./orchestrator-loop/check-gate.js";
-import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG, type ConcurrencyConfig } from "./orchestrator-loop/concurrency.js";
-import { resolveModelWithFallback, type ModelOverrides, type FallbackModels } from "./orchestrator-loop/model-routing.js";
+import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG, type ConcurrencyConfig } from "./dispatch/concurrency.js";
+import { resolveModelWithFallback, type ModelOverrides, type FallbackModels } from "./dispatch/model-routing.js";
 import { extractLastText } from "./leaf/extract.js";
 import { nextWorkerId } from "./leaf/worker-id.js";
 import { DTEAM_CONFIG } from "./config.js";

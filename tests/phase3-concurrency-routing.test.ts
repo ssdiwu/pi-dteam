@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "../src/orchestrator-loop/concurrency.js";
-import { resolveModelWithFallback, isRateLimitError } from "../src/orchestrator-loop/model-routing.js";
+import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "../src/dispatch/concurrency.js";
+import { resolveModelWithFallback, isRateLimitError } from "../src/dispatch/model-routing.js";
 import type { RoleName } from "../src/types/role.js";
 
 describe("AdaptiveConcurrency (Phase 3)", () => {
