@@ -3,7 +3,7 @@
 > **状态：✅ 有效（当前定位权威）**
 > **推翻**：[ADR 0006](./0006-dteam重定位为对抗式合议.md)（对抗式合议）+ [ADR 0007](./0007-对抗回合结构与积分制.md)（对抗回合结构与积分制）——经原型验证"繁琐且无用"（积分制成本与收益不成正比，git `78e03a7`）。
 > **保留有效**：0001（有立场替代层）、0002 精神（角色收敛）、0004（不做 resume）。0005 的执行基底（进程内 `AgentSession` + Logical Isolation、Multi-Provider Routing、Adaptive Concurrency）保留并承载新定位；0005 的 Signal Store 与 Orchestrator Loop 在本 ADR 砍掉。
-> **实施状态**：定位与文档已生效；`src/` 仍是 0.6.0 Orchestrator Loop + SignalStore，待 0.7.0 按本 ADR 改造。
+> **实施状态**：定位与文档已生效；0.7 的 T1/T2/T3 fresh dispatch 内核、档位路由、超时回退和并发已实现并有测试。`index.ts` 仍公开 0.6.0 Orchestrator Loop；旧 SignalStore/五角色/入口替换待后续阶段完成。
 
 ## 1. 一句话决定
 
