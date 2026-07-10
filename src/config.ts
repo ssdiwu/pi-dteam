@@ -20,7 +20,12 @@ export const DTEAM_CONFIG = {
   adaptive: {
     maxRounds: 5,
   },
-  /** 叶子（leaf）行为 */
+  /** 0.7 单次 dispatch 行为 */
+  dispatch: {
+    /** 单个 worker prompt 的总超时；超时后 abort 并走模型/T1 回退。 */
+    workerTimeoutMs: 60_000,
+  },
+  /** 叶子（leaf）行为（0.6 loop 兼容，后续与旧 runtime 一起退场） */
   leaf: {
     /** 同一叶子最多能发几次 help（自愈/升级） */
     maxHelpRounds: 3,

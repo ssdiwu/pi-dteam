@@ -1,14 +1,14 @@
 /**
- * Adaptive Concurrency（自适应并发）— 0.6.0 Phase 3
+ * Adaptive Concurrency（自适应并发）— 0.7 dispatch 基底
  *
- * 决策依据：ADR 0005 第 17 条（Adaptive Concurrency）。
+ * 决策依据：ADR 0005 的可复用执行基底；ADR 0008 保留它但不保留 Orchestrator Loop。
  * 参考 ant-colony ConcurrencyConfig：min/max/optimal/lastRateLimitAt。
  *
  * 429 自适应：
  *  - worker 执行遇到 429（rate limit）→ 记录 lastRateLimitAt，降并发（current = max(min, current-1)）
  *  - 一段时间无 429 → 缓慢升并发（current = min(max, current+1)）
  *
- * 用法：Orchestrator Loop 每轮决策后，用 acquire() 拿一个并发槽；worker 完成/429 时 release/recordRateLimit。
+ * 用法：多个并发 dteam_dispatch 共用同一 limiter；worker 执行前 acquire，完成或 429 后 release/recordRateLimit。
  */
 
 export interface ConcurrencyConfig {
@@ -31,7 +31,7 @@ export const DEFAULT_CONCURRENCY_CONFIG: ConcurrencyConfig = {
 
 /**
  * 自适应并发控制器。
- * 单 goal 生命周期（随 Orchestrator Loop 创建/销毁）。
+ * 由入口按 extension 运行时共享；只维护并发槽，不维护 goal、任务计划或执行循环。
  */
 export class AdaptiveConcurrency {
   private current: number;
