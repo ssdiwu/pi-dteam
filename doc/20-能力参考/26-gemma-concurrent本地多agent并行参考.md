@@ -1,5 +1,7 @@
 # 26-Gemma concurrent 本地多 agent 并行参考
 
+> **0.7 状态注记（2026-07-10）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter、UI 或 `/dteam` 面板，均是调研时用于对照的 0.6 历史形态；当前 dteam 只保留 T1/T2/T3 fresh `dteam_dispatch`，相关源码、命令和 UI 已删除。以下内容只作机制比较，不描述当前实现。
+
 > 调研对象：[`google-gemma/cookbook/apps/concurrent`](https://github.com/google-gema/cookbook/tree/main/apps/concurrent)（Google Gemma 官方 2026-06-17 发布）
 > 来源：[微信文章](https://mp.weixin.qq.com/s/6-QZZ4nv0gfM1jLccHewTg) + GitHub README
 > 调研日期：2026-06-22
@@ -31,19 +33,19 @@ cookbook 的编排形态（"orchestrator 一次性拆成 JSON 任务列表 → f
 
 - **LLM 做结构化任务拆解/分发**：cookbook orchestrator 输出 JSON plan；dteam Orchestrator LLM 调 `orchestrator_decide` customTool 输出结构化决策（summon/check/done/fail + role + task）。印证 dteam「LLM-Driven Orchestration + tool calling 替代自由文本解析」方向对（见 `orchestrator-loop/decision-tool.ts`）。
 - **并发 worker + 实时可视化**：cookbook 终端网格 + dashboard 实时显示 token 速率；dteam 有 Live Loop View + widget + `/dteam` panel 展示 Orchestrator Loop 推进和 Signal Store 快照。方向印证（见术语表 §5 Live Loop View）。
-- **scenario 注册式扩展**：cookbook `scenarios.py` 模板化扩展；dteam 固定五角色 + `ROLE_DEFAULTS` + `agents/*.md` 角色配置，思路相近但 dteam 收敛到五角色、明确不做角色市场（ADR 0002）。dteam 已有更收敛的形态，无需再动。
+- **scenario 注册式扩展**：cookbook `scenarios.py` 模板化扩展；dteam 当前以 `tier-config.ts` 固定 T1/T2/T3，不做角色市场或场景注册。三档已足够，无需吸收。
 
 ### 3.3 候选（值得吸收）
 
 - **本地推理 provider 作为可选降级路径**（远期/可选，不进路线图优先级）：
   - 机制：cookbook 证明本地 `llama-server -np N` 共享权重 slot 能支撑并发且边际成本零（无 API key / rate limit / 数据出门）。
-  - 改造点：`src/orchestrator-loop/model-routing.ts` 的 `FallbackModels` 链允许声明一个本地 endpoint（如 `provider: "llama-server-local"`），当云端 429 / 成本敏感 / 隐私 / 无网络场景时 fallback 到本地。
+  - 改造点：`src/dispatch/model-routing.ts` 的 `FallbackModels` 链可声明本地 endpoint（如 `provider: "llama-server-local"`），当云端 429 / 成本敏感 / 隐私 / 无网络场景时 fallback 到本地。
   - 边界：这是「加一个 provider 候选」，不破坏编排架构。本地推理能力本身（GGUF 加载、slot 调度）是 Pi model registry 层职责，dteam 只在 routing 层声明可用、选模型时优先级降级。dteam 的主线价值是群策群力编排，不是本地推理省钱，所以这是降级项不是主线。
   - 触发条件：只有当 507 出现明确的「离线 / 隐私 / 成本敏感」真实场景时才推进；当前个人编程场景云端 API 是主流，不急。
 
 - **并发上限受 provider slot 数硬约束**（低价值备查项，随上一条配套）：
   - 机制：cookbook `-np` 显式声明 slot 上限，并发度被物理硬约束。
-  - 改造点：`src/orchestrator-loop/concurrency.ts` 的 `ConcurrencyConfig` 可选增加 `backendSlotLimit` 字段，Adaptive Concurrency 的 `max` 不超过 backend 实际 slot 数。
+  - 改造点：`src/dispatch/concurrency.ts` 的 `ConcurrencyConfig` 可选增加 `backendSlotLimit` 字段，Adaptive Concurrency 的 `max` 不超过 backend 实际 slot 数。
   - 价值低：云端 provider 本来就是 429 反应式探测、无固定 slot 概念（见 `concurrency.ts` 现有 429 自适应逻辑）；只有启用上一条「本地 provider」时此约束才有意义。作为配套备查，不单独推进。
 
 ## 4. 可借鉴的具体文件 / 代码 / 资源

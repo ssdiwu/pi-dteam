@@ -1,5 +1,7 @@
 # 25-swarm-ide 蜂群 IM 编排参考
 
+> **0.7 状态注记（2026-07-10）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter、UI 或 `/dteam` 面板，均是调研时用于对照的 0.6 历史形态；当前 dteam 只保留 T1/T2/T3 fresh `dteam_dispatch`，相关源码、命令和 UI 已删除。以下内容只作机制比较，不描述当前实现。
+
 > `chmod777john/swarm-ide`：把多 agent 协作建模成"微信式 IM"的开源蜂群平台。极简原语 `create`（创建子 agent）+ `send`（向任意 agent 发消息）+ `wakeup`（消息唤醒），拓扑在运行中自演化，人类是特殊 agent 可介入任意层级。独立 Web 平台（Bun + Next.js + Drizzle/PostgreSQL + Redis Streams + SSE），不是 Pi 扩展。
 > 仓库：https://github.com/chmod777john/swarm-ide
 > 调研版本：`chore/specs-mvp` 分支（2026-01 发布，自称早于 Kimi-Swarm / Claude Team 提出蜂群模式）
@@ -84,7 +86,7 @@ swarm-ide 整体路线（动态 create 任意 role agent + 液态拓扑 + IM 即
 
 #### A. 可观察性——大部分已构成
 
-核对 `src/ui/store.ts` + `panel.ts`：dteam 的 `UIWorkerState` 已覆盖 swarm-ide 事件表里的大部分能力（`currentTool`/`recentOutput`(ring50)/`signals[]`(ring100)/`status`+`startedAt`）。swarm-ide 事件里的 `agent.created`/`group.created`/`interrupt_all`/`db.write` 在 dteam 同步前台单 goal 模型里无对应物，不借。
+0.6 时曾以 `UIWorkerState` 对照 swarm-ide 事件表；0.7 已删除独立 UI/Signal 状态，不再维护这些事件。当前只返回 `DispatchResult` 并用 `ctx.ui` status/notify 做单次反馈，因此 `agent.created`/`group.created`/`interrupt_all`/`db.write` 仍无对应物，也不借。
 
 唯一缺的**轮次维度**明确不做：用户对一次 dteam 的感知粒度是三段（开启 dteam → 完成工作 → 验收 check 收口），worker 内部工具调用轮次属于黑箱（见术语表 `Live Loop View`）。同理，debug 模式下钻 worker 完整 `llm_history` 也不做。
 

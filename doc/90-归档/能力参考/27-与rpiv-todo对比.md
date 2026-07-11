@@ -96,7 +96,7 @@ deleted (tombstone)
 
 ## 6. 进入路线图的项
 
-见 `../30-路线图/30-项目路线图.md`：
+见 `../../30-路线图/30-项目路线图.md`：
 
 - 0.5 P0：`/dteam` 面板借鉴 rpiv-todo 完成项清理体验
 - 远期：branch replay 作为 persistence + resume 的轻量参考

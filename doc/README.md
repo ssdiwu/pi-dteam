@@ -6,7 +6,7 @@
 >
 > 与 [`pi-dgoal`](../../pi-dgoal) 独立并列：**dteam = 多模型分级路由，dgoal = 单模型建检循环**。主 LLM 自己判断用哪个，不合并，不自动切换。
 >
-> ⚠️ **实施状态**：T1/T2/T3 fresh dispatch 内核、档位路由和并发已完成并有自动化测试；`index.ts` 仍是 0.6.0 旧工具与 Orchestrator Loop，旧运行时删除和公开 `dteam_dispatch` 注册尚待后续阶段。
+> **实施状态**：0.7 T1/T2/T3 fresh dispatch、档位路由、provider/T1 回退、并发与唯一公开 `dteam_dispatch` 已完成并有自动化测试；0.6 runtime 与 UI 已删除。
 
 ## 阅读顺序
 
@@ -16,11 +16,11 @@
 2. `决策档案/0008-dteam重定位为模型分级路由执行层.md` — **当前定位权威**：dteam = 模型分级路由执行层（推翻 0006 对抗式合议 + 0007 对抗回合积分制）；T1/T2/T3 取代五角色；单工具 dteam_dispatch；fresh 验收复活 0007 的零件
 3. `10-架构与运行/10-系统架构.md` — 产品定位、模型分级路由、dispatch、回退、fresh 验收
 4. `10-架构与运行/11-角色系统.md` — T1/T2/T3 档位、默认思考/工具白名单、fresh 验收
-5. `10-架构与运行/12-API参考.md` — `dteam_dispatch` 工具、`/dteam` 命令
+5. `10-架构与运行/12-API参考.md` — 唯一公开 `dteam_dispatch` 工具
 6. `10-架构与运行/14-dteam触发协议.md` — 主 LLM 什么时候该用 dteam vs dgoal
 7. `10-架构与运行/13-设计-v2与实施现状.md` — 旧二维编排 + 0.6.0 召唤池如何被 0008 推翻
-8. `30-路线图/30-项目路线图.md` — 唯一权威路线图（0008 过渡进度与剩余退场项）
-9. `../src/README.md` — 代码组织（标注已完成 dispatch 内核与仍存的 0.6 入口 gap；必读）
+8. `30-路线图/30-项目路线图.md` — 唯一权威路线图（0.7 dispatch runtime 状态）
+9. `../src/README.md` — 当前 dispatch 代码组织（必读）
 
 历史定位（仅追溯，已被 0008 推翻）：
 

@@ -1,5 +1,7 @@
 # 27-OpenTeams 可视化多 agent 工作区参考
 
+> **0.7 状态注记（2026-07-10）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter、UI 或 `/dteam` 面板，均是调研时用于对照的 0.6 历史形态；当前 dteam 只保留 T1/T2/T3 fresh `dteam_dispatch`，相关源码、命令和 UI 已删除。以下内容只作机制比较，不描述当前实现。
+
 > 调研对象：[`openteams-lab/openteams`](https://github.com/openteams-lab/openteams)（本地优先的多智能体协作工作区）  
 > 主要来源：`readmes/README_zh-Hans.md`、仓库 `AGENTS.md`、`docs/OpenTeams-Technical-Documentation.md`、`docs/session-worktree-isolation-design.md`、`docs/agent-run-file-diff-display-report.md`  
 > 调研日期：2026-06-26
@@ -42,10 +44,10 @@ OpenTeams 把多个 coding agent（编程代理）放进一个本地工作区，
 
 ### 3.3 候选（值得吸收）
 
-- **工作进度卡式摘要（UI 轻增强）**：
+- **工作进度卡式摘要（不吸收）**：
   - 机制：OpenTeams 把每个 step 的状态、diff、日志、review 显示在 workflow graph/card 上。
-  - dteam 改造点：`src/ui/panel.ts` 和 `src/ui/store.ts` 可把当前 `/dteam` panel 从 worker 列表进一步整理成三段摘要：当前 Orchestrator 判断、最近关键 signal、check 收口状态。
-  - 边界：不展示 worker 内部 tool rounds，不做节点审批，不引入 workflow graph。只是让现有 Live Loop View 更像“进度卡”，符合术语表里用户感知粒度。
+  - 0.6 曾可映射到 `/dteam` panel；0.7 故意只返回 `DispatchResult`，不维护独立 UI、Signal 或步骤状态，因此当前没有对应改造点。
+  - 边界：不引入 workflow graph、节点审批或 Live Loop View；需要审查时由主模型消费 worker 结果并按需做 T1 fresh 验收。
 
 - **Evidence Bundle（证据包）索引**：
   - 机制：OpenTeams 把 logs、diff、transcripts、generated artifacts 附到 work 上，便于最终 review。

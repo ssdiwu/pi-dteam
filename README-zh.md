@@ -6,7 +6,7 @@
 
 **姊妹项目**：[`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) —— 独立并列。**dteam = 多模型分级路由，dgoal = 单模型建检循环**。主 LLM 自己判断用哪个，不合并、不自动切换。英文版：[`README.md`](./README.md)。
 
-> ⚠️ **过渡状态**：定位权威是 [ADR 0008（模型分级路由）](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md)。T1/T2/T3 fresh `dispatch()` 内核、档位路由和并发已实现并有测试；但 `index.ts` 仍暴露 0.6.0 Orchestrator Loop，旧 signals/五角色和对外工具替换尚待后续阶段。内部内核尚不是可调用的 Pi `dteam_dispatch` 工具。
+> **0.7.0 实现状态**：定位权威 [ADR 0008（模型分级路由）](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md) 已落地：T1/T2/T3 fresh dispatch、档位路由、provider/T1 回退、受限并发和唯一公开 `dteam_dispatch` 工具均有测试。
 
 ## TL;DR
 
@@ -29,6 +29,19 @@ dteam 的存在理由是**强模型做小任务是双重浪费**（贵 + 慢）�
 
 标准锚定**供应商产品线层级**（每家供应商都已分好旗舰/标准/快速三线）。dispatch 可覆盖默认配置（如 T3 临时给可写权限做独立模块小改）。
 
+## 档位模型配置
+
+模型必须显式声明，dteam 不按模型名称或价格猜档：
+
+```bash
+export DTEAM_T1_MODEL="provider/frontier-model"
+export DTEAM_T1_FALLBACK_MODELS="provider/frontier-backup,other-provider/frontier"
+export DTEAM_T2_MODEL="provider/standard-model"
+export DTEAM_T3_MODEL="provider/fast-model"
+```
+
+某档未配置主模型时才回落当前 `ctx.model`。`tools` 始终是所有回退尝试的最高权限上限。
+
 ## 什么时候用 dteam vs dgoal
 
 一句话规则：**简单任务主 LLM 直接干；单兵能持续推进 + 需独立审核走 dgoal；有一批小任务可分级并行加速（甩给小模型批量做）走 dteam；用户明确指定时尊重用户。**
@@ -44,10 +57,9 @@ dteam 的存在理由是**强模型做小任务是双重浪费**（贵 + 慢）�
 
 ## 当前状态
 
-- ✅ 0.6.0 代码已落地（Orchestrator Loop + SignalStore + Logical Isolation + Adaptive Concurrency + Multi-Provider Routing）——**但该形态已被 ADR 0008 推翻**。
-- ❌ 0.6.1/0.6.2 对抗式合议（ADR 0006/0007）原型验证后放弃（"繁琐且无用"）。
-- 🚧 **0.7.0（ADR 0008）过渡进行中**：T1/T2/T3 fresh dispatch、provider/T1 回退、超时与自适应并发已实现；对外工具注册以及 Orchestrator Loop/Signal Store/五角色删除待完成。
-- ✅ `npm run build` 通过；`npm test` 绿（覆盖 0.6.0 基线与 0.7 dispatch 内核）。
+- ✅ **0.7.0**：T1/T2/T3 fresh dispatch、provider/T1 回退、超时、取消、自适应并发、显式档位模型链和唯一公开工具均已实现。
+- ✅ 0.6 Orchestrator Loop / Signal Store / 五角色源码及 UI 已删除；ADR 0005–0007 只保留为历史决策。
+- ✅ `npm run build` 与 `npm test` 覆盖 0.7 dispatch 契约、factory、执行、路由、并发和入口。
 
 ## 快速开始
 
@@ -66,9 +78,8 @@ pi install "$(pwd)"
 
 # 5. 在 Pi 里 /reload
 
-# 6. 冒烟验证当前 0.6.0 运行时
-# /dteam <goal>
-# 0.7.0 dispatch 内核已存在，但对外 dteam_dispatch 工具尚未注册。
+# 6. 冒烟验证 0.7.0 公开 dispatch
+# 让主 LLM 调用 dteam_dispatch(task="...", tier="T3")。
 ```
 
 ## 文档
@@ -80,9 +91,9 @@ pi install "$(pwd)"
 - [档位系统（T1/T2/T3）](./doc/10-架构与运行/11-角色系统.md)
 - [工具 API 参考（dteam_dispatch）](./doc/10-架构与运行/12-API参考.md)
 - [dteam 触发协议（dteam vs dgoal）](./doc/10-架构与运行/14-dteam触发协议.md)
-- [项目路线图（0.7.0 过渡进行中）](./doc/30-路线图/30-项目路线图.md)
+- [项目路线图（0.7.0 dispatch runtime）](./doc/30-路线图/30-项目路线图.md)
 - [zcode-swarm 蜂群插件参考（blockedBy 同构、coordinator 印证）](./doc/20-能力参考/29-zcode-swarm蜂群插件参考.md)
-- [src/ 内部架构（0.6.0→0008 gap）](./src/README.md)
+- [src/ 内部架构](./src/README.md)
 - [CHANGELOG.md](./CHANGELOG.md)
 - [English README](./README.md)
 
@@ -97,7 +108,7 @@ pi install "$(pwd)"
 ## 已推翻的历史（保留追溯）
 
 - **ADR 0006/0007 对抗式合议**（2026-07）：原型验证"繁琐且无用"（积分制成本收益不成正比），被 0008 推翻。fresh check 零件被 0008 复活到验收用法。
-- **ADR 0005 自发生长召唤池**（0.6.0）：Orchestrator Loop + SignalStore；定位被 0008 推翻（旧运行时仅保留到正在进行的 0.7 清理完成）。
+- **ADR 0005 自发生长召唤池**（0.6.0）：Orchestrator Loop + SignalStore；定位被 0008 推翻，相关运行时已在 0.7 删除。
 - **0.5.0 二维编排**（`solo/chain/team` × `direct/build_check/adaptive`）：0.6.0 已删。
 
 ## 相关链接

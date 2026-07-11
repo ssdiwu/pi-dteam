@@ -3,6 +3,8 @@
 > 来源：研究 `@majorgilles/pi-grill-me` 时整理的 Pi 扩展 API 表面清单。
 > 用途：dteam v2 任何"拦截 / UI 增强 / 持久化"改动的参考索引。
 > 与 `../90-归档/版本实施方案/41-工具动态加载方案.md` 配套：那份是设计稿，这份是参考表。
+>
+> **0.7 状态注记（2026-07-10）**：当前 `index.ts` 使用 `pi.registerTool` 注册唯一 `dteam_dispatch`，并在一次调用期间用 `ctx.ui.setStatus` / `notify` 反馈；没有 slash command、Widget、持久化或拦截器。
 
 ## 全量 API 表面
 
@@ -26,10 +28,12 @@
 
 | 能力 | dteam 是否在用 | 备注 |
 |------|:---:|------|
-| tool_call 拦截 | ❌ | v2 想要"挡住 explore 误改文件"时用（参考 grill-me `isProbablyReadOnlyBash`） |
-| setEditorComponent | ❌ | v2 想要自定义输入体验时用 |
-| appendEntry | ❌ | v2 想要跨 session 持久化时用 |
-| 其它 10 个 | ❌ | 当前 v1 都不需要 |
+| `registerTool` | ✅ | `index.ts` 注册唯一 `dteam_dispatch` |
+| `ctx.ui.setStatus` / `notify` | ✅ | 显示单次 dispatch 的执行中、完成或失败反馈 |
+| tool_call 拦截 | ❌ | 工具白名单已在 fresh worker 边界收敛；不为旧 explore 角色加拦截 |
+| setEditorComponent / Widget | ❌ | 不维护独立 UI |
+| appendEntry | ❌ | 不做跨 session 持久化或 resume |
+| 其余 API | ❌ | 当前不需要 |
 
 ## grill-me 包的处置
 

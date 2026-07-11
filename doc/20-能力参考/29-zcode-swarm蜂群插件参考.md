@@ -1,5 +1,7 @@
 # 29-ZCode Swarm 蜂群插件参考
 
+> **0.7 状态注记（2026-07-10）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter、UI 或 `/dteam` 面板，均是调研时用于对照的 0.6 历史形态；当前 dteam 只保留 T1/T2/T3 fresh `dteam_dispatch`，相关源码、命令和 UI 已删除。以下内容只作机制比较，不描述当前实现。
+
 > 调研对象：`ashelylinluo/zcode-plugin-swarm`（ZCode 桌面版多 Agent 编排插件，MIT，v0.1.0）
 > 一手源：插件发布包 `zcode-agent-teams-plugin.zip` 解压源码（skills/agents/src/lib/commands）+ `security-architecture-review-skill.md`
 > 二手源：ZCode 用户交流群6 聊天记录（2026-07-06~07-09，仅作用户反馈/作者意图佐证）

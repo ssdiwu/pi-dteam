@@ -10,7 +10,7 @@ dteam 是 **模型分级路由执行层**——主模型（T1 思考档）负责
 
 涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**当前定位权威是 [`doc/决策档案/0008-dteam重定位为模型分级路由执行层.md`](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md)**（推翻 0006 对抗式合议 + 0007 对抗回合积分制）。
 
-> ⚠️ **过渡状态**：0008 的 T1/T2/T3、fresh `dispatch()` 内核、档位模型路由与并发已实现并有测试；但 `index.ts` 仍暴露 0.6.0 `dteam` Orchestrator Loop，旧 signals/五角色和旧入口尚待后续阶段退场。不要把内部内核误当成已对外可调用的 `dteam_dispatch`。
+> **当前实现**：0008 的 T1/T2/T3、fresh `dispatch()`、档位模型路由、并发、回退与唯一 `dteam_dispatch` 工具均已实现并有测试；0.6 loop/signals/五角色/UI 已删除。
 
 ## 项目结构速查
 
@@ -19,11 +19,10 @@ dteam 是 **模型分级路由执行层**——主模型（T1 思考档）负责
 | `doc/README.md` | 文档导航与阅读顺序 | **必读** |
 | `doc/术语表.md` | 项目术语定义 | **必读** |
 | `doc/决策档案/` | 架构决策记录；改边界前必读（**当前权威 0008**） | **必读** |
-| `src/README.md` | 当前实现定义文档（标注 0.6.0→0008 gap） | **必读** |
-| `src/tools.ts` | 工具表（待重写为 dteam_dispatch） | **必读** |
-| `src/orchestrator-loop.ts` | 0.6.0 主循环（**待按 0008 退场/改造**） | 必读 |
-| `src/leaf.ts` | worker 执行层（进程内 AgentSession；`dispatch()` 内核已实现） | 必读 |
-| `src/session.ts` | worker session 工厂（已支持 tier/thinking；旧 role 兼容待退场） | 必读 |
+| `src/README.md` | 当前 dispatch 实现地图 | **必读** |
+| `src/tools.ts` | dispatch 类型中心 | **必读** |
+| `src/leaf.ts` | worker 执行层（进程内 AgentSession；`dispatch()` 内核） | 必读 |
+| `src/session.ts` | fresh worker session 工厂（tier/thinking/Logical Isolation） | 必读 |
 | `./index.ts` | Pi 扩展入口（根目录） | **必读** |
 
 
@@ -64,8 +63,7 @@ npm run build
 # 按 /reload
 
 # 3. 实际调 dteam
-# 0008 实施前：用 /dteam <goal> 冒烟当前 0.6.0 运行时
-# 0008 实施后：调 dteam_dispatch(task="...", tier="T3") 验证分级路由
+# 调 dteam_dispatch(task="...", tier="T3") 验证分级路由。
 ```
 
 **如果 build 失败，必须先修。**
@@ -73,20 +71,19 @@ npm run build
 
 ## 改动的边界
 
-> 0008 定位已落；fresh dispatch 内核已完成，对外工具替换和旧运行时删除仍在进行。下表是按 0008 迭代时该改哪里。
+> 0008 定位与 dispatch runtime 已落。下表是按当前边界迭代时该改哪里。
 
 | 想加什么 | 怎么办 |
 |----------|--------|
 | 改 dispatch 实现 | 改 `leaf.ts` / `session.ts`（进程内 `AgentSession` + Logical Isolation + Multi-Provider Routing 加 tier/thinking） |
-| 改模型档位配置 | 改 `session/*` 的 model-resolver / role-config（T1/T2/T3 档位 + 默认思考 + 默认工具白名单） |
+| 改模型档位配置 | 改 `session/tier-config.ts`（T1/T2/T3 默认思考/工具）；用 `DTEAM_T*_MODEL` / `_FALLBACK_MODELS` 显式配置模型链 |
 | 改对外工具 | 改 `./index.ts` + `tools.ts`（单工具 `dteam_dispatch`，取代旧 dteam tool） |
-| 退场旧结构 | 砍 `orchestrator-loop.ts` / `signals/`（Orchestrator Loop + Signal Store 被 0008 推翻） |
 | 加新工具 | **不推荐**——dteam 故意只暴露 1 个工具（dteam_dispatch） |
 
 
 ## 状态机提醒
 
-> **最终 0008 形态**没有独立 Orchestrator Loop 状态机：主模型（T1）在对话里直接路由 + 调 dteam_dispatch fan-out + 收结果 + 按需 fresh 验收 + 回退。该内核已实现；当前旧 `index.ts` 尚未替换入口，因此仍会运行 0.6 loop。
+> 当前入口没有独立 Orchestrator Loop 状态机：主模型（T1）在对话里直接路由 + 调 dteam_dispatch fan-out + 收结果 + 按需 fresh 验收 + 回退。
 
 ## 发版流程
 

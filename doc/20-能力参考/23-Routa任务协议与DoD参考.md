@@ -1,5 +1,7 @@
 # Routa 任务协议与 DoD 参考
 
+> **0.7 状态注记（2026-07-10）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter、UI 或 `/dteam` 面板，均是调研时用于对照的 0.6 历史形态；当前 dteam 只保留 T1/T2/T3 fresh `dteam_dispatch`，相关源码、命令和 UI 已删除。以下内容只作机制比较，不描述当前实现。
+
 > 目的：把 Routa 的 Harness 工程 / Kanban / DoD（Definition of Done，完成定义）思想映射到 dteam，明确哪些轻量借鉴值得进入 0.5.x，哪些暂不做，避免把 dteam 做成重型工作流平台。
 
 ## 1. 当前结论

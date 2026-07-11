@@ -3,7 +3,7 @@
 > **状态：✅ 有效（当前定位权威）**
 > **推翻**：[ADR 0006](./0006-dteam重定位为对抗式合议.md)（对抗式合议）+ [ADR 0007](./0007-对抗回合结构与积分制.md)（对抗回合结构与积分制）——经原型验证"繁琐且无用"（积分制成本与收益不成正比，git `78e03a7`）。
 > **保留有效**：0001（有立场替代层）、0002 精神（角色收敛）、0004（不做 resume）。0005 的执行基底（进程内 `AgentSession` + Logical Isolation、Multi-Provider Routing、Adaptive Concurrency）保留并承载新定位；0005 的 Signal Store 与 Orchestrator Loop 在本 ADR 砍掉。
-> **实施状态**：定位与文档已生效；0.7 的 T1/T2/T3 fresh dispatch 内核、档位路由、超时回退和并发已实现并有测试。`index.ts` 仍公开 0.6.0 Orchestrator Loop；旧 SignalStore/五角色/入口替换待后续阶段完成。
+> **实施状态**：定位与文档已生效；0.7 的 T1/T2/T3 fresh dispatch 内核、档位路由、超时/取消回退、并发与公开 `dteam_dispatch` 已实现并有测试。旧 SignalStore/五角色/loop/UI 已删除。
 
 ## 1. 一句话决定
 
@@ -108,9 +108,12 @@ dispatch 的 fresh 特性保证：主模型想验收时，验收 worker 是独�
 - **fresh 验收默认可选**：关键任务由主模型显式以 T1 + 只读 `tools` 调 dispatch；不为每次产出强制增加质量闸门。
 - **T3 默认只读**：独立小改需调用方在 `tools` 显式授予限定 `edit` / `write`；回退不得越过该显式上限。
 
+已验证的实现：
+
+- dispatch 单次调用同步返回结构化 `DispatchResult`；主模型通过多个并行工具调用 fan-out，并在主对话收集结果。
+
 仍留实施验证的分支：
 
-- dispatch 的 worker 结果回收机制（同步等返回？依赖 Pi 并行工具调用？）
 - dteam 与 dgoal 在同一会话里的配合细节（dgoal goal 里调 dispatch fan-out）
 
 ## 9. 关联

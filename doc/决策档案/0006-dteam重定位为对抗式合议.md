@@ -2,7 +2,7 @@
 
 > **状态：❌ 已被 [ADR 0008](./0008-dteam重定位为模型分级路由执行层.md) 推翻**（原型验证繁琐无用，git `78e03a7`）。仅保留追溯。
 > **推翻**：[ADR 0005](./0005-dteam-0.6.0-重定义为自发生长召唤池.md) 的「自发生长」定位——第 7（vs dgoal 边界含糊）、第 8（无预先计划，召唤轨迹即计划）、第 14（进程内 check 收口）、第 17（每轮 LLM 现场决策）四条。
-> **保留有效**：0001（有立场的子代理替代层）、0002（角色写死）、0004（不做 resume）。0005 的进程内 worker + Logical Isolation（第 5/11 条）、Signal Store（第 6/12 条）作为**执行基底**保留，但承载的是对抗式合议，不再是自发生长。
+> **当时保留**：0001（有立场的子代理替代层）、0002（角色写死）、0004（不做 resume）。0005 的进程内 worker + Logical Isolation、Signal Store 当时作为对抗式合议的执行基底。**0.7 实现注记**：当前只保留进程内 fresh worker、Logical Isolation、Multi-Provider Routing 与 Adaptive Concurrency；Signal Store、五角色和对抗运行时均已删除。
 
 ## 1. 一句话决定
 
@@ -96,7 +96,7 @@ dteam 从「基于 goal 自发生长的召唤池」重定位为：**对抗式合
 
 ## 9. 实施指向
 
-本 ADR 是定位级决策，不展开实现细节。源码与文档改造方向（`orchestrator-loop.ts` 的每轮现场决策、`check-gate.ts` 的进程内 check、五角色 `agents/*.md` prompt、触发协议、术语表）由后续实施方案定义。
+本 ADR 是定位级决策，不展开实现细节。**当时**的源码与文档改造方向包括 `orchestrator-loop.ts` 的每轮现场决策、`check-gate.ts` 的进程内 check、五角色 `agents/*.md` prompt、触发协议与术语表；这些实现已被 ADR 0008 推翻并在 0.7 删除。
 
 **对现有能力参考的重新定性**（回应"越努力越没用"）：
 - 22 多worker「可确定的协作关系由 runtime 执行」→ **本 ADR 采纳其核心**，对抗回合结构由 runtime 确定，智能推理留给 worker。

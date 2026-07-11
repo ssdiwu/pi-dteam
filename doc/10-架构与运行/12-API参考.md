@@ -1,10 +1,10 @@
 # dteam API 参考
 
-> dteam 对外保持轻量：1 个工具 `dteam_dispatch` + 1 个命令 `/dteam`。
+> dteam 对外只保留 1 个工具：`dteam_dispatch`。
 >
 > 0008 重定位后：dteam 是模型分级路由执行层，单工具统一执行/验收/回退。
 >
-> ⚠️ **实施状态**：`leaf.ts` / `session.ts` 的 0.7 fresh dispatch 内核已完成并有自动化测试；当前 `index.ts` 仍暴露旧 `dteam` 工具并执行 Orchestrator Loop，因此 `dteam_dispatch` 尚不可从 Pi 对外调用。
+> **实施状态**：`leaf.ts` / `session.ts` 的 0.7 fresh dispatch 内核、唯一入口与自动化测试均已完成；0.6 loop/signal/UI 已删除。
 
 ## 1. 工具：`dteam_dispatch`
 
@@ -37,28 +37,19 @@ dteam_dispatch(task="重做这个任务：...", tier="T1")
 
 **关键**：dispatch 创建的 worker 都是 fresh session（Logical Isolation），所以验收天然 fresh——不需要第二个工具。
 
-## 2. 命令：`/dteam`
-
-| 输入 | 行为 |
-|---|---|
-| `/dteam <task>` | 显式启动（提示主模型进入分级路由模式） |
-| `/dteam` | toggle（切换）面板展开 / 折叠 |
-| `/dteam close` | 关闭面板 |
-
-## 3. 运行态观察
+## 2. 运行态观察
 
 | 渠道 | 作用 |
 |---|---|
-| `/dteam` | 展开 / 关闭实时面板，看 dispatch 执行 + 各档位 worker |
-| widget（小组件） | 执行中显示紧凑摘要（当前 dispatch、各档位 worker） |
-| status（状态栏） | 显示 dteam 正在执行 |
-| notify（通知） | 完成、失败、回退提示 |
+| 工具结果 | `dteam_dispatch` 将结构化 DispatchResult 返回主对话 |
+| status（状态栏） | 执行期间显示当前 tier 与 task，结束后清理 |
+| notify（通知） | 完成或失败提示；成功回退由返回结果的 `fellBack` 字段表达，不单独通知 |
 
-## 4. 完成判定
+## 3. 完成判定
 
 dteam 没有独立的"完成判定"——主模型自己决定何时收口（它推进对话）。关键 task 主模型调 fresh 验收确认；不强制（A 形态要轻）。
 
-## 5. 结果结构（dispatch 内核当前契约）
+## 4. 结果结构（dispatch 内核当前契约）
 
 ```ts
 interface DispatchResult {
@@ -79,12 +70,21 @@ interface DispatchResult {
 
 > 旧 `DteamResult6`（summonTrail + signalSnapshot + checkConclusion）随 Orchestrator Loop 一起退场。
 
-## 6. `availableTools` 契约
+## 5. 档位模型配置
+
+| 环境变量 | 作用 |
+|---|---|
+| `DTEAM_T1_MODEL` / `T2` / `T3` | 显式指定该档主模型，格式 `provider/id` |
+| `DTEAM_T1_FALLBACK_MODELS` / `T2` / `T3` | 逗号分隔的同档 provider 回退链 |
+
+未配置 primary 时才回落当前 `ctx.model`；不按模型名称或价格猜档。回退到 T1 后默认恢复 T1 高思考。
+
+## 6. `tools` 契约
 
 | 场景 | 行为 |
 |---|---|
 | 主 LLM 传非空 `tools` | dispatch 只允许 worker 用这些工具 |
-| 不传 | 回落到档位默认白名单 |
+| 不传 | 采用**请求档**默认白名单，并作为同档 fallback 与 T1 回退的上限（T3 仍只读） |
 | 工具名不存在 | intersect（取交集）过滤 |
 
 ## 7. 内部 API（已完成的 dispatch 内核）
@@ -96,7 +96,7 @@ interface DispatchResult {
 | 档位配置 | `src/session/tier-config.ts` | 已实现：T1/T2/T3 默认模型路由、thinking、工具白名单 |
 | 路由 / 并发 | `src/dispatch/*` | 已迁移：显式模型链与 Adaptive Concurrency；不创建执行 loop |
 
-> 0.6.0 的 `orchestrator-loop.ts` / `signals/*` 待退场（0008 推翻）。
+> 0.6.0 的 `orchestrator-loop.ts` / `signals/*` 已删除（0008 推翻）。
 
 ## 8. 当前不提供的 API
 
