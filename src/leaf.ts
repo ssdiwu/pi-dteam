@@ -1,162 +1,44 @@
 /**
- * dteam worker 执行器（leaf）
+ * dteam 0.7 fresh worker dispatch。
  *
- * 0.7 主路径：`dispatch(request, ctx)` 按 T1/T2/T3 创建一次 fresh worker。
- * `execute(role, …)` 仅为 0.6 Orchestrator Loop 过渡兼容，随旧 runtime 一起删除。
- *
- * 拆出去的子文件：
- *  - src/leaf/worker-id.ts : nextWorkerId
- *  - src/leaf/extract.ts   : extractFinalText
- *  - src/leaf/supplement.ts : waitForSupplement
+ * 每次尝试创建逻辑隔离的进程内 AgentSession；同档模型链失败后，非 T1
+ * 请求才回退 T1。没有 Orchestrator Loop、Signal Store 或五角色执行链。
  */
 
-import { createWorkerSession, pickAvailableModel } from "./session.js";
+import { createWorkerSession } from "./session.js";
 import { DTEAM_CONFIG } from "./config.js";
 import { AdaptiveConcurrency } from "./dispatch/concurrency.js";
 import { isRateLimitError, tierModelCandidates } from "./dispatch/model-routing.js";
 import { TIER_MODEL_ROUTES, getTierThinking, getTierTools } from "./session/tier-config.js";
-import type { DteamContext } from "./types/context.js";
 import type { DispatchAttempt, DispatchRequest, DispatchResult, Tier, TierModelRoutes } from "./types/dispatch.js";
-import type { RoleName } from "./types/role.js";
-import { nextWorkerId } from "./leaf/worker-id.js";
 import { extractLastText } from "./leaf/extract.js";
-import { waitForSupplement } from "./leaf/supplement.js";
-
-/**
- * 用指定角色执行一个任务。
- * 支持信号自愈：叶子发 help → 等待根注入补充信息 → 继续执行。
- *
- * @param tools 可选：显式指定此 worker 的工具子集（0.4.1 已落地，方案 D）。
- *              undefined → 走 ROLE_DEFAULTS[role].tools（0.4.0 兼容行为）。
- *              设计：见 doc/40-版本实施方案/41-工具动态加载方案.md
- */
-export async function execute(
-  role: RoleName,
-  task: string,
-  ctx: LeafContext,
-  goal: string,
-  tools?: string[],
-  extraCustomTools?: any[],
-): Promise<string> {
-  const dteam = ctx.dteam;
-  const workerId = dteam?.currentStepId ?? nextWorkerId(role);
-  const input = `[全局目标: ${goal}]\n\n${task}`;
-
-  // 注册 worker 到 runs
-  if (dteam) {
-    dteam.runsStore.addWorker(dteam.runId, {
-      id: workerId, role, task, input,
-      signals: [], startedAt: Date.now(), status: "running",
-    });
-  }
-
-  // 构建 worker 级 dteamContext（覆盖 workerId）
-  const workerDteamCtx: DteamContext | undefined = dteam
-    ? { signalBus: dteam.signalBus, runsStore: dteam.runsStore, runId: dteam.runId, workerId, pendingSupplements: dteam.pendingSupplements, injectionQueue: dteam.injectionQueue }
-    : undefined;
-
-  const session = await createWorkerSession({
-    role,
-    cwd: ctx.cwd || process.cwd(),
-    modelStr: pickAvailableModel(ctx),
-    ctx,
-    dteamContext: workerDteamCtx,
-    builtInTools: tools,
-    customTools: extraCustomTools,
-    logicalIsolation: ctx.logicalIsolation,
-    onSession: ctx.onWorkerSession,
-  });
-
-  // maxToolRounds 防护：单次 prompt 内工具调用超限则 abort 中断 worker
-  // 慢模型（或角色 prompt 不清晰）可能让 worker 陷入无限工具调用循环
-  let toolCallCount = 0;
-  let abortedByToolLimit = false;
-  const unsubscribe = typeof session.subscribe === "function"
-    ? session.subscribe((ev: any) => {
-        if (ev?.type === "tool_execution_end") {
-          toolCallCount += 1;
-          if (toolCallCount >= DTEAM_CONFIG.leaf.maxToolRounds && !abortedByToolLimit) {
-            abortedByToolLimit = true;
-            session.abort()?.catch?.(() => {});
-          }
-        }
-      })
-    : null;
-
-  let currentTask = input;
-  let output = "(no output)";
-
-  for (let round = 0; round < DTEAM_CONFIG.leaf.maxHelpRounds; round++) {
-    const roundStart = Date.now();
-    await session.prompt(currentTask);
-
-    // 工具调用上限中断：不进入 help 自愈，直接跳出返回中断输出
-    if (abortedByToolLimit) break;
-
-    output = extractLastText(session.messages as any[]);
-
-    if (!dteam) break;
-
-    // 检查本轮新发的 help 信号 或 根转发的内容
-    const helpSignals = dteam.signalBus.getHistory(workerId)
-      .filter(s => s.type === "help" && s.timestamp >= roundStart);
-    const injectionQueue = dteam.injectionQueue.get(workerId) ?? [];
-    const hasInjection = injectionQueue.length > 0;
-
-    if (helpSignals.length === 0 && !hasInjection) break;
-
-    // 等待根注入补充信息（可能来自 help 自愈 或 root 转发）
-    const supplement = await waitForSupplement(dteam, workerId, DTEAM_CONFIG.leaf.supplementTimeoutMs);
-    if (!supplement) break;
-
-    const source = hasInjection ? "根转发（来自其他叶子的发现/进度）" : "help 信号响应";
-    currentTask = `## 补充信息（${source}）\n${supplement}\n\n请继续完成原任务。不要重复已完成的工作，直接从补充信息出发继续。`;
-  }
-
-  // 取最终输出（被中断时也取已有的 assistant 文本）
-  output = extractLastText(session.messages as any[]);
-  if (abortedByToolLimit) {
-    output = `${output}\n\n[worker 因工具调用上限（${DTEAM_CONFIG.leaf.maxToolRounds} 次）被中断；可能未完成全部工作]`;
-  }
-  if (typeof unsubscribe === "function") {
-    try { unsubscribe(); } catch {}
-  }
-
-  // 标记 worker 完成
-  if (dteam) {
-    dteam.runsStore.finishWorker(dteam.runId, workerId, output,
-      output === "(no output)" ? "failed" : "done");
-  }
-
-  return output;
-}
-
-/**
- * 叶子执行器的最小 ctx 接口（修 L-1：去掉 ctx: any）。
- * 完整 PiExtensionContext 有更多字段，这里只声明 leaf 用到的。
- */
-export interface LeafContext {
-  cwd: string;
-  dteam?: DteamContext;
-  modelRegistry: any;
-  model?: { provider: string; id: string };
-  [k: string]: any; // 兼容其他字段（session 创建时透传）
-}
 
 /** 0.7 单次派发需要的最小上下文；不含 signal / run / task plan 状态。 */
-export interface DispatchContext extends Omit<LeafContext, "dteam"> {
+export interface DispatchContext {
+  cwd?: string;
+  modelRegistry: any;
+  model?: { provider: string; id: string };
   tierModelRoutes?: TierModelRoutes;
   /** 单个 worker prompt 总超时；缺省使用 DTEAM_CONFIG.dispatch.workerTimeoutMs。 */
   timeoutMs?: number;
+  /** Pi 工具调用取消信号；取消后不继续 provider/T1 回退。 */
+  signal?: AbortSignal;
   /** 可选共享 limiter；主模型并发调用 dispatch 时由入口注入。 */
   concurrency?: AdaptiveConcurrency;
+}
+
+class DispatchCanceledError extends Error {
+  constructor() {
+    super("dteam_dispatch 已取消");
+    this.name = "DispatchCanceledError";
+  }
 }
 
 /**
  * 按 T1/T2/T3 执行一次 fresh worker 派发。
  *
  * 同档的显式 provider fallback 逐个尝试；请求 T1 以外的档位全部硬失败时，
- * 再用 T1 重做。调用方显式 tools 始终作为所有尝试的权限上限。
+ * 再用 T1 重做。请求档解析出的 tools（显式或默认）始终作为所有尝试的权限上限。
  */
 export async function dispatch(request: DispatchRequest, ctx: DispatchContext): Promise<DispatchResult> {
   const startedAt = Date.now();
@@ -165,15 +47,21 @@ export async function dispatch(request: DispatchRequest, ctx: DispatchContext): 
   if (!request.task.trim()) {
     return failedResult(request, request.tier, getTierThinking(request.tier, request.thinking), getTierTools(request.tier, request.tools), attempts, startedAt, "dteam_dispatch: task 不能为空");
   }
+  if (ctx.signal?.aborted) {
+    return failedResult(request, request.tier, getTierThinking(request.tier, request.thinking), getTierTools(request.tier, request.tools), attempts, startedAt, "dteam_dispatch 已取消");
+  }
 
   const attemptTiers: Tier[] = request.tier === "T1" ? ["T1"] : [request.tier, "T1"];
+  // 工具上限由请求档一次性解析；T3 默认只读不能因回退到 T1 而扩权。
+  const requestTools = getTierTools(request.tier, request.tools);
   let lastTier = request.tier;
   let lastThinking = getTierThinking(request.tier, request.thinking);
-  let lastTools = getTierTools(request.tier, request.tools);
+  let lastTools = requestTools;
 
   for (const tier of attemptTiers) {
-    const thinking = getTierThinking(tier, request.thinking);
-    const tools = getTierTools(tier, request.tools);
+    // 调用方 thinking 覆盖只作用于请求档；T1 硬回退恢复 T1 的高思考默认。
+    const thinking = getTierThinking(tier, tier === request.tier ? request.thinking : undefined);
+    const tools = requestTools;
     lastTier = tier;
     lastThinking = thinking;
     lastTools = tools;
@@ -202,6 +90,9 @@ export async function dispatch(request: DispatchRequest, ctx: DispatchContext): 
         };
       } catch (error) {
         attempts.push({ tier, model, error: errorMessage(error) });
+        if (error instanceof DispatchCanceledError) {
+          return failedResult(request, tier, thinking, tools, attempts, startedAt, error.message);
+        }
       }
     }
   }
@@ -230,13 +121,12 @@ async function runDispatchAttempt(
   let succeeded = false;
 
   if (limiter) {
-    while (!limiter.acquire()) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    await acquireSlot(limiter, ctx.signal);
     acquired = true;
   }
 
   try {
+    throwIfCanceled(ctx.signal);
     const session = await createWorkerSession({
       tier,
       cwd: ctx.cwd || process.cwd(),
@@ -246,10 +136,15 @@ async function runDispatchAttempt(
       thinkingLevel: thinking,
       logicalIsolation: true,
     });
+    if (ctx.signal?.aborted) {
+      abortWorker(session);
+      throw new DispatchCanceledError();
+    }
     const output = await promptWithToolLimit(
       session,
       task,
       ctx.timeoutMs ?? DTEAM_CONFIG.dispatch.workerTimeoutMs,
+      ctx.signal,
     );
     succeeded = true;
     return output;
@@ -261,15 +156,21 @@ async function runDispatchAttempt(
   }
 }
 
-async function promptWithToolLimit(session: any, task: string, timeoutMs: number): Promise<string> {
+async function promptWithToolLimit(
+  session: any,
+  task: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<string> {
   let toolCallCount = 0;
   let abortedByToolLimit = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let cancelListener: (() => void) | undefined;
   const unsubscribe = typeof session.subscribe === "function"
     ? session.subscribe((event: any) => {
         if (event?.type !== "tool_execution_end" || abortedByToolLimit) return;
         toolCallCount += 1;
-        if (toolCallCount >= DTEAM_CONFIG.leaf.maxToolRounds) {
+        if (toolCallCount >= DTEAM_CONFIG.dispatch.maxToolRounds) {
           abortedByToolLimit = true;
           abortWorker(session);
         }
@@ -277,23 +178,59 @@ async function promptWithToolLimit(session: any, task: string, timeoutMs: number
     : undefined;
 
   try {
+    throwIfCanceled(signal);
     const timeoutError = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
         abortWorker(session);
         reject(new Error(`worker 执行超时（${timeoutMs}ms）`));
       }, timeoutMs);
     });
-    await Promise.race([session.prompt(task), timeoutError]);
+    const races: Promise<unknown>[] = [session.prompt(task), timeoutError];
+    if (signal) {
+      races.push(new Promise<never>((_resolve, reject) => {
+        cancelListener = () => {
+          abortWorker(session);
+          reject(new DispatchCanceledError());
+        };
+        signal.addEventListener("abort", cancelListener, { once: true });
+      }));
+    }
+    await Promise.race(races);
     if (abortedByToolLimit) {
-      throw new Error(`worker 因工具调用上限（${DTEAM_CONFIG.leaf.maxToolRounds} 次）被中断`);
+      throw new Error(`worker 因工具调用上限（${DTEAM_CONFIG.dispatch.maxToolRounds} 次）被中断`);
     }
     const output = extractLastText(session.messages as any[]);
     if (output === "(no output)") throw new Error("worker 未返回 assistant 文本");
     return output;
   } finally {
     if (timeout) clearTimeout(timeout);
+    if (signal && cancelListener) signal.removeEventListener("abort", cancelListener);
     try { unsubscribe?.(); } catch { /* 释放监听失败不影响调用方 */ }
   }
+}
+
+async function acquireSlot(limiter: AdaptiveConcurrency, signal?: AbortSignal): Promise<void> {
+  while (!limiter.acquire()) {
+    throwIfCanceled(signal);
+    await new Promise<void>((resolve, reject) => {
+      let onAbort: (() => void) | undefined;
+      const timeout = setTimeout(() => {
+        if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, 10);
+      if (!signal) return;
+      onAbort = () => {
+        clearTimeout(timeout);
+        signal.removeEventListener("abort", onAbort!);
+        reject(new DispatchCanceledError());
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+}
+
+function throwIfCanceled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DispatchCanceledError();
 }
 
 function abortWorker(session: any): void {

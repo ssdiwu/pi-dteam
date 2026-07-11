@@ -1,7 +1,7 @@
 {
   "name": "pi-dteam",
-  "version": "0.6.0",
-  "description": "dteam - goal-driven self-growing multi-worker collaboration extension for Pi (summon pool / collective intelligence); synchronous foreground Orchestrator Loop with fixed five roles and mandatory check gate",
+  "version": "0.7.0",
+  "description": "dteam - model-tier routing execution layer for Pi; fresh T1/T2/T3 dispatch with explicit model fallback, optional fresh review, and bounded parallel fan-out",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -19,7 +19,6 @@
   "files": [
     "index.ts",
     "src/**/*.ts",
-    "agents/**/*",
     "README.md",
     "README-zh.md",
     "CHANGELOG.md"
@@ -42,7 +41,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "pretest": "npm run build",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "pretest": "npm run build && npm run typecheck:test",
     "test": "vitest run --exclude 'archive/**'",
     "test:watch": "vitest --exclude 'archive/**'"
   }

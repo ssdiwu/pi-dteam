@@ -100,14 +100,26 @@ describe("dispatch", () => {
     const readOnlyTools = ["read", "grep", "find", "ls"];
 
     const result = await dispatch(
-      { task: "检查结果", tier: "T3", tools: readOnlyTools },
+      { task: "检查结果", tier: "T3", thinking: "low", tools: readOnlyTools },
       context(),
     );
 
-    expect(result).toMatchObject({ status: "done", requestedTier: "T3", tier: "T1", fellBack: true });
+    expect(result).toMatchObject({ status: "done", requestedTier: "T3", tier: "T1", thinking: "high", fellBack: true });
     expect(result.attempts).toEqual([expect.objectContaining({ tier: "T3", error: "429 rate limit" })]);
     expect(mockCreateWorkerSession.mock.calls.map(([options]) => options.tier)).toEqual(["T3", "T1"]);
+    expect(mockCreateWorkerSession.mock.calls[1][0].thinkingLevel).toBe("high");
     expect(mockCreateWorkerSession.mock.calls[1][0].builtInTools).toEqual(readOnlyTools);
+  });
+
+  it("T3 未显式 tools 时回退 T1 仍保持 T3 默认只读", async () => {
+    mockCreateWorkerSession
+      .mockRejectedValueOnce(new Error("T3 provider down"))
+      .mockResolvedValueOnce(sessionWithOutput("T1 只读回退完成"));
+
+    const result = await dispatch({ task: "只读检查", tier: "T3" }, context());
+
+    expect(result).toMatchObject({ status: "done", tier: "T1", tools: ["read", "grep", "find", "ls"] });
+    expect(mockCreateWorkerSession.mock.calls[1][0].builtInTools).toEqual(["read", "grep", "find", "ls"]);
   });
 
   it("T1 硬失败不会递归回退", async () => {
@@ -137,6 +149,25 @@ describe("dispatch", () => {
     expect(hanging.abort).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ status: "done", tier: "T1", fellBack: true });
     expect(result.attempts).toEqual([expect.objectContaining({ tier: "T3", error: expect.stringContaining("执行超时") })]);
+  });
+
+  it("Pi 取消信号 abort 当前 worker 且不继续回退", async () => {
+    const controller = new AbortController();
+    const hanging = {
+      prompt: vi.fn(() => new Promise<void>(() => {})),
+      abort: vi.fn().mockResolvedValue(undefined),
+      messages: [],
+    };
+    mockCreateWorkerSession.mockResolvedValue(hanging);
+
+    const pending = dispatch({ task: "可取消任务", tier: "T3" }, context({ signal: controller.signal }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    const result = await pending;
+
+    expect(hanging.abort).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ status: "failed", requestedTier: "T3", tier: "T3", fellBack: false, error: "dteam_dispatch 已取消" });
+    expect(mockCreateWorkerSession).toHaveBeenCalledTimes(1);
   });
 
   it("共享 AdaptiveConcurrency 允许并行 dispatch 并在 429 后降并发", async () => {

@@ -3,21 +3,26 @@
 本文件记录 dteam 的用户可感知变更与关键实现收口。  
 格式参考 Keep a Changelog，但保持中文、简洁、面向项目实际。
 
-## [Unreleased]
+## [0.7.0] - 2026-07-10
 
-### 重定位
-- 新增 [ADR 0008](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md)：dteam 从已放弃的对抗式合议重定位为**模型分级路由执行层**，明确主模型（T1）负责思考/路由/验收，小任务交给 T3 并行执行，失败或质量不过时回退 T1。
-- 明确与 `pi-dgoal` 的边界：dteam = 多模型分级路由；dgoal = 单模型建检循环。两者独立并列，不合并、不自动切换。
-- 目标外部契约收敛为单工具 `dteam_dispatch(task, tier, thinking?, tools?)`；T1/T2/T3 模型档位取代旧五角色，思考强度默认跟随档位。
+### Added
+- 新增唯一公开工具 `dteam_dispatch(task, tier, thinking?, tools?)`：每次调用创建 fresh、Logical Isolation（逻辑隔离）的进程内 worker；执行、可选 fresh 验收和回退均复用该工具。
+- 新增 T1/T2/T3 档位：默认思考强度为高/中/低；T3 默认只读，`bash` / `edit` / `write` 必须由调用方在 `tools` 显式授权。
+- 新增显式模型路由环境配置：`DTEAM_T1_MODEL` / `T2` / `T3` 及对应 `_FALLBACK_MODELS`；未配置主模型才回落当前 `ctx.model`，不猜测模型档位。
+- 新增同档 provider fallback、T3/T2 硬失败→T1 回退、worker timeout、Pi 取消和共享自适应并发；初始并发为 2，429 可降至 1。
 
-### 文档
-- 同步根 README、AGENTS、术语表、架构/API/触发协议、路线图和决策索引到 0008 口径。
-- 新增 Skill-MAS 与 ZCode Swarm 一手调研，并按 0008 坐标系重评借鉴边界。
-- ADR 0006/0007 标记为已被 0008 推翻；保留 fresh check 零件并迁移为 dispatch 的 fresh 验收用法。
+### Changed
+- dteam 从 0.6.0 Orchestrator Loop 入口切换为模型分级 dispatch；主模型负责路由，T3 可并行 fan-out，关键任务按需用 T1 只读 fresh 验收。
+- `package.json` 与 `package-lock.json` 版本升至 `0.7.0`；根 README、AGENTS、术语表、架构/API/触发协议、路线图和 ADR 0008 同步当前行为。
 
-### 实施状态
-- 本段仅记录定位与文档决策；运行时 API 尚未改变。`src/` 仍是 0.6.0 的 Orchestrator Loop + SignalStore，包版本仍为 `0.6.0`。
-- 0.7.0 代码改造（砍 Orchestrator Loop/Signal Store、实现 `dteam_dispatch`、五角色改 T1/T2/T3）留给后续 dgoal 执行；本次不打 tag、不发布。
+### Removed
+- 删除 0.6 Orchestrator Loop、Signal Store、五角色、Reporter、Signal UI、`/dteam` slash command 及其测试/类型/prompt；不保留兼容入口。
+
+### Verification
+- `npm run build` 与 `npm test` 通过（5 files / 34 tests）。
+- 离线扩展加载成功（`pi -ne -e ./index.ts --offline --no-session --verbose --list-models`）。
+- 真实 Pi 冒烟：`pi -ne -e ./index.ts --no-session --model minimax-cn/MiniMax-M2.7 --tools dteam_dispatch -p '...'` 调用 `dteam_dispatch(task="...", tier="T3", tools=["read"])`，返回 `status=done`、`tier=T3`、`fellBack=false`，未回退；其他 provider/模型仍需手验。
+- 本次不打 tag、不发布 npm、不 push。
 
 ## [0.6.0] - 2026-06-22
 

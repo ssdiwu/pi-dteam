@@ -1,8 +1,8 @@
 /**
  * dteam 0.7 — Multi-Provider Routing（多供应商路由）。
  *
- * 键可以是旧 runtime 尚未退场时的 role，也可以是 0.7 的 Tier；
- * 这里不判断模型名称、价格或能力，只消费调用方明确配置的主模型与回退链。
+ * 路由键由当前 dispatch 调用的 Tier 决定；
+ * 不判断模型名称、价格或能力，只消费调用方明确配置的主模型与回退链。
  */
 
 import { resolveModelStr } from "../session/model-resolver.js";

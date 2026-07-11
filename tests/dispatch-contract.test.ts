@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getTierThinking, getTierTools, TIER_DEFAULTS } from "../src/session/tier-config.js";
+import { getTierThinking, getTierTools, tierModelRoutesFromEnv, TIER_DEFAULTS } from "../src/session/tier-config.js";
 import { modelCandidates, resolveTierModelWithFallback } from "../src/dispatch/model-routing.js";
 
 describe("T1/T2/T3 dispatch contract", () => {
@@ -21,6 +21,17 @@ describe("T1/T2/T3 dispatch contract", () => {
     expect(getTierThinking("T2")).toBe("medium");
     expect(getTierThinking("T3")).toBe("low");
     expect(getTierThinking("T3", "medium")).toBe("medium");
+  });
+
+  it("只从显式环境变量读取档位主模型与 fallback 链", () => {
+    expect(tierModelRoutesFromEnv({
+      DTEAM_T1_MODEL: "frontier/main",
+      DTEAM_T1_FALLBACK_MODELS: " frontier/backup, alt/t1 ",
+      DTEAM_T3_MODEL: "fast/main",
+    })).toEqual({
+      T1: { primary: "frontier/main", fallbackModels: ["frontier/backup", "alt/t1"] },
+      T3: { primary: "fast/main" },
+    });
   });
 });
 

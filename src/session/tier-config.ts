@@ -4,7 +4,7 @@
  * T3 只读是安全默认：bash、edit、write 都要由调用方在 tools 显式授予。
  */
 
-import type { ThinkingLevel, Tier, TierModelRoutes } from "../types/dispatch.js";
+import { TIERS, type ThinkingLevel, type Tier, type TierModelRoutes } from "../types/dispatch.js";
 
 export const READ_ONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
 export const WRITABLE_TOOLS = ["bash", "edit", "write"] as const;
@@ -43,6 +43,32 @@ export const TIER_MODEL_ROUTES: TierModelRoutes = {
   T2: {},
   T3: {},
 };
+
+/**
+ * 从明确声明的环境变量装配档位模型路由。
+ *
+ * - DTEAM_T1_MODEL / DTEAM_T2_MODEL / DTEAM_T3_MODEL：`provider/id`
+ * - DTEAM_T1_FALLBACK_MODELS 等：逗号分隔的 `provider/id` 链
+ *
+ * 不提供 primary 时保留空配置，由 dispatch 回落当前 ctx.model；不会按名称或价格猜档。
+ */
+export function tierModelRoutesFromEnv(env: Record<string, string | undefined> = process.env): TierModelRoutes {
+  const routes: TierModelRoutes = {};
+  for (const tier of TIERS) {
+    const primary = env[`DTEAM_${tier}_MODEL`]?.trim();
+    const fallbackModels = (env[`DTEAM_${tier}_FALLBACK_MODELS`] ?? "")
+      .split(",")
+      .map((model) => model.trim())
+      .filter(Boolean);
+    if (primary || fallbackModels.length > 0) {
+      routes[tier] = {
+        ...(primary ? { primary } : {}),
+        ...(fallbackModels.length > 0 ? { fallbackModels } : {}),
+      };
+    }
+  }
+  return routes;
+}
 
 export function getTierTools(tier: Tier, requestedTools?: string[]): string[] {
   if (requestedTools === undefined) return [...TIER_DEFAULTS[tier].tools];

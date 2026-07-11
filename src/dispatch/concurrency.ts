@@ -12,10 +12,12 @@
  */
 
 export interface ConcurrencyConfig {
-  /** 最小并发（降不破） */
+  /** 最小并发（429 后降不破） */
   min: number;
   /** 最大并发（升不破） */
   max: number;
+  /** 冷启动并发；省略时取 min。默认让首批 T3 dispatch 可并行。 */
+  initial?: number;
   /** 429 后冷却毫秒数：冷却期内不升并发 */
   cooldownMs: number;
   /** 连续成功多少次后升并发 */
@@ -25,6 +27,7 @@ export interface ConcurrencyConfig {
 export const DEFAULT_CONCURRENCY_CONFIG: ConcurrencyConfig = {
   min: 1,
   max: 4,
+  initial: 2,
   cooldownMs: 30_000,
   successStreakToRise: 3,
 };
@@ -40,8 +43,8 @@ export class AdaptiveConcurrency {
   private successStreak = 0;
 
   constructor(private readonly config: ConcurrencyConfig = DEFAULT_CONCURRENCY_CONFIG) {
-    // 起始并发：min（保守起步，逐步上升）
-    this.current = config.min;
+    const initial = config.initial ?? config.min;
+    this.current = Math.max(config.min, Math.min(config.max, initial));
   }
 
   /** 当前允许的并发上限 */
