@@ -25,7 +25,7 @@
 - `npm run build` 与 `npm test` 通过（5 files / 36 tests）。
 - 离线扩展加载成功（`pi -ne -e ./index.ts --offline --no-session --verbose --list-models`）。
 - 真实 Pi 冒烟：`pi -ne -e ./index.ts --no-session --model minimax-cn/MiniMax-M2.7 --tools dteam_dispatch -p '...'` 调用 `dteam_dispatch(task="...", tier="T3", tools=["read"])`，返回 `status=done`、`tier=T3`、`fellBack=false`，未回退；其他 provider/模型仍需手验。
-- 本次不打 tag、不发布 npm、不 push。
+- 已创建 Git tag `v0.7.0`；npm publish 与远端 push 待 507 确认。
 
 ## [0.6.0] - 2026-06-22
 
