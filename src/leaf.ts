@@ -117,17 +117,19 @@ async function runDispatchAttempt(
   ctx: DispatchContext,
 ): Promise<string> {
   const limiter = ctx.concurrency;
+  const timeoutMs = ctx.timeoutMs ?? DTEAM_CONFIG.dispatch.workerTimeoutMs;
+  const deadline = Date.now() + timeoutMs;
   let acquired = false;
   let succeeded = false;
 
   if (limiter) {
-    await acquireSlot(limiter, ctx.signal);
+    await acquireSlot(limiter, ctx.signal, deadline, timeoutMs);
     acquired = true;
   }
 
   try {
     throwIfCanceled(ctx.signal);
-    const session = await createWorkerSession({
+    const session = await createSessionBeforeDeadline({
       tier,
       cwd: ctx.cwd || process.cwd(),
       modelStr,
@@ -135,15 +137,12 @@ async function runDispatchAttempt(
       builtInTools: tools,
       thinkingLevel: thinking,
       logicalIsolation: true,
-    });
-    if (ctx.signal?.aborted) {
-      abortWorker(session);
-      throw new DispatchCanceledError();
-    }
+    }, deadline, timeoutMs, ctx.signal);
+    throwIfCanceled(ctx.signal);
     const output = await promptWithToolLimit(
       session,
       task,
-      ctx.timeoutMs ?? DTEAM_CONFIG.dispatch.workerTimeoutMs,
+      Math.max(1, deadline - Date.now()),
       ctx.signal,
     );
     succeeded = true;
@@ -156,6 +155,49 @@ async function runDispatchAttempt(
   }
 }
 
+async function createSessionBeforeDeadline(
+  options: Parameters<typeof createWorkerSession>[0],
+  deadline: number,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<any> {
+  throwIfCanceled(signal);
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancelListener: (() => void) | undefined;
+  const creation = createWorkerSession(options);
+
+  return new Promise<any>((resolve, reject) => {
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (signal && cancelListener) signal.removeEventListener("abort", cancelListener);
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    timer = setTimeout(() => fail(timeoutError(timeoutMs)), Math.max(1, deadline - Date.now()));
+    if (signal) {
+      cancelListener = () => fail(new DispatchCanceledError());
+      signal.addEventListener("abort", cancelListener, { once: true });
+    }
+    void creation.then(
+      async (session) => {
+        if (settled || signal?.aborted) {
+          await abortWorker(session);
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve(session);
+      },
+      (error) => fail(error instanceof Error ? error : new Error(String(error))),
+    );
+  });
+}
+
 async function promptWithToolLimit(
   session: any,
   task: string,
@@ -164,6 +206,7 @@ async function promptWithToolLimit(
 ): Promise<string> {
   let toolCallCount = 0;
   let abortedByToolLimit = false;
+  let toolLimitAbort: Promise<void> | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let cancelListener: (() => void) | undefined;
   const unsubscribe = typeof session.subscribe === "function"
@@ -172,31 +215,30 @@ async function promptWithToolLimit(
         toolCallCount += 1;
         if (toolCallCount >= DTEAM_CONFIG.dispatch.maxToolRounds) {
           abortedByToolLimit = true;
-          abortWorker(session);
+          toolLimitAbort ??= abortWorker(session);
         }
       })
     : undefined;
 
   try {
     throwIfCanceled(signal);
-    const timeoutError = new Promise<never>((_resolve, reject) => {
+    const timeoutResult = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
-        abortWorker(session);
-        reject(new Error(`worker 执行超时（${timeoutMs}ms）`));
+        void abortWorker(session).then(() => reject(timeoutError(timeoutMs)));
       }, timeoutMs);
     });
-    const races: Promise<unknown>[] = [session.prompt(task), timeoutError];
+    const races: Promise<unknown>[] = [session.prompt(task), timeoutResult];
     if (signal) {
       races.push(new Promise<never>((_resolve, reject) => {
         cancelListener = () => {
-          abortWorker(session);
-          reject(new DispatchCanceledError());
+          void abortWorker(session).then(() => reject(new DispatchCanceledError()));
         };
         signal.addEventListener("abort", cancelListener, { once: true });
       }));
     }
     await Promise.race(races);
     if (abortedByToolLimit) {
+      await toolLimitAbort;
       throw new Error(`worker 因工具调用上限（${DTEAM_CONFIG.dispatch.maxToolRounds} 次）被中断`);
     }
     const output = extractLastText(session.messages as any[]);
@@ -209,15 +251,22 @@ async function promptWithToolLimit(
   }
 }
 
-async function acquireSlot(limiter: AdaptiveConcurrency, signal?: AbortSignal): Promise<void> {
+async function acquireSlot(
+  limiter: AdaptiveConcurrency,
+  signal: AbortSignal | undefined,
+  deadline: number,
+  timeoutMs: number,
+): Promise<void> {
   while (!limiter.acquire()) {
     throwIfCanceled(signal);
+    const waitMs = deadline - Date.now();
+    if (waitMs <= 0) throw timeoutError(timeoutMs);
     await new Promise<void>((resolve, reject) => {
       let onAbort: (() => void) | undefined;
       const timeout = setTimeout(() => {
         if (signal && onAbort) signal.removeEventListener("abort", onAbort);
         resolve();
-      }, 10);
+      }, Math.min(10, waitMs));
       if (!signal) return;
       onAbort = () => {
         clearTimeout(timeout);
@@ -229,14 +278,23 @@ async function acquireSlot(limiter: AdaptiveConcurrency, signal?: AbortSignal): 
   }
 }
 
+function timeoutError(timeoutMs: number): Error {
+  return new Error(`worker 执行超时（${timeoutMs}ms）`);
+}
+
 function throwIfCanceled(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DispatchCanceledError();
 }
 
-function abortWorker(session: any): void {
+async function abortWorker(session: any): Promise<void> {
   try {
     const aborted = session.abort?.();
-    if (aborted && typeof aborted.catch === "function") void aborted.catch(() => {});
+    if (aborted && typeof aborted.then === "function") {
+      await Promise.race([
+        Promise.resolve(aborted).catch(() => {}),
+        new Promise<void>((resolve) => setTimeout(resolve, DTEAM_CONFIG.dispatch.abortGraceMs)),
+      ]);
+    }
   } catch {
     // abort 失败不能阻止回退尝试
   }

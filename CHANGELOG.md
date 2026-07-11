@@ -15,11 +15,14 @@
 - dteam 从 0.6.0 Orchestrator Loop 入口切换为模型分级 dispatch；主模型负责路由，T3 可并行 fan-out，关键任务按需用 T1 只读 fresh 验收。
 - `package.json` 与 `package-lock.json` 版本升至 `0.7.0`；根 README、AGENTS、术语表、架构/API/触发协议、路线图和 ADR 0008 同步当前行为。
 
+### Fixed
+- dispatch 的 deadline 现在覆盖并发槽等待、worker session 创建和 prompt；超时/取消会有界等待 abort，避免过早释放并发槽后启动 fallback。
+
 ### Removed
 - 删除 0.6 Orchestrator Loop、Signal Store、五角色、Reporter、Signal UI、`/dteam` slash command 及其测试/类型/prompt；不保留兼容入口。
 
 ### Verification
-- `npm run build` 与 `npm test` 通过（5 files / 34 tests）。
+- `npm run build` 与 `npm test` 通过（5 files / 36 tests）。
 - 离线扩展加载成功（`pi -ne -e ./index.ts --offline --no-session --verbose --list-models`）。
 - 真实 Pi 冒烟：`pi -ne -e ./index.ts --no-session --model minimax-cn/MiniMax-M2.7 --tools dteam_dispatch -p '...'` 调用 `dteam_dispatch(task="...", tier="T3", tools=["read"])`，返回 `status=done`、`tier=T3`、`fellBack=false`，未回退；其他 provider/模型仍需手验。
 - 本次不打 tag、不发布 npm、不 push。

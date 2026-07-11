@@ -5,6 +5,8 @@ export const DTEAM_CONFIG = {
     workerTimeoutMs: 60_000,
     /** 单次 fresh worker 最多工具调用次数，防止无界循环。 */
     maxToolRounds: 8,
+    /** 超时/取消后等待 worker abort 完成的最长时间，避免无限占用并发槽。 */
+    abortGraceMs: 1_000,
   },
 } as const;
 

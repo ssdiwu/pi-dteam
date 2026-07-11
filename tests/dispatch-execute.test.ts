@@ -131,6 +131,52 @@ describe("dispatch", () => {
     expect(mockCreateWorkerSession).toHaveBeenCalledTimes(1);
   });
 
+  it("session 创建超时会回退 T1，并在迟到 session 创建后中止它", async () => {
+    let resolveLateSession!: (session: any) => void;
+    const lateSession = {
+      abort: vi.fn().mockResolvedValue(undefined),
+      prompt: vi.fn(),
+      messages: [],
+    };
+    const lateCreation = new Promise<any>((resolve) => {
+      resolveLateSession = resolve;
+    });
+    mockCreateWorkerSession
+      .mockReturnValueOnce(lateCreation)
+      .mockResolvedValueOnce(sessionWithOutput("T1 创建超时回退完成"));
+
+    const result = await Promise.race([
+      dispatch({ task: "创建可能挂起", tier: "T3" }, context({ timeoutMs: 5 })),
+      new Promise<"test timeout">((resolve) => setTimeout(() => resolve("test timeout"), 50)),
+    ]);
+
+    expect(result).not.toBe("test timeout");
+    expect(result).toMatchObject({ status: "done", tier: "T1", fellBack: true });
+    resolveLateSession(lateSession);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(lateSession.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it("超时会等待 abort 完成后才释放槽并回退", async () => {
+    let resolveAbort!: () => void;
+    const hanging = {
+      prompt: vi.fn(() => new Promise<void>(() => {})),
+      abort: vi.fn(() => new Promise<void>((resolve) => { resolveAbort = resolve; })),
+      messages: [],
+    };
+    mockCreateWorkerSession
+      .mockResolvedValueOnce(hanging)
+      .mockResolvedValueOnce(sessionWithOutput("T1 abort 后回退完成"));
+
+    const pending = dispatch({ task: "等待 abort", tier: "T3" }, context({ timeoutMs: 5 }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(hanging.abort).toHaveBeenCalledTimes(1);
+    expect(mockCreateWorkerSession).toHaveBeenCalledTimes(1);
+
+    resolveAbort();
+    await expect(pending).resolves.toMatchObject({ status: "done", tier: "T1", fellBack: true });
+  });
+
   it("worker 超时会 abort 当前 session 并回退 T1", async () => {
     const hanging = {
       prompt: vi.fn(() => new Promise<void>(() => {})),

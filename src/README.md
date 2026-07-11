@@ -23,7 +23,7 @@
 
 | 路径 | 职责 |
 |---|---|
-| `config.ts` | dispatch 超时与单 worker 工具调用上限 |
+| `config.ts` | dispatch 总超时、abort 宽限期与单 worker 工具调用上限 |
 | `leaf.ts` | dispatch 执行、同档模型链、T1 回退、timeout/cancellation、权限上限 |
 | `session.ts` | fresh worker `AgentSession` 工厂 |
 | `session/tier-config.ts` | T1/T2/T3 默认 prompt、thinking、工具，以及显式环境模型路由 |
