@@ -51,4 +51,48 @@ describe("/dteam dialog rendering", () => {
     expect(terminal.join("\n")).toContain("只读封存");
     expect(terminal.join("\n")).not.toContain("取消（需确认）");
   });
+
+  it("详情渲染实时文本、thinking、工具和 timeout 诊断，耗时使用 s/mXs", () => {
+    const live: WorkerSnapshot = {
+      ...base,
+      liveText: "正在检查",
+      liveThinking: "分析中",
+      liveTool: "read",
+      lastActivity: "运行工具 read",
+      startedAt: Date.now() - 90_000,
+      timeoutDiagnostic: { requestId: "r", totalBudgetMs: 300_000, attemptBudgetMs: 300_000, maxRecoveryBudgetMs: 600_000, elapsedMs: 90_000, lastActivity: "运行工具 read", currentTool: "read", outputSummary: "部分输出" },
+    };
+    const text = renderWorkerDetail(live).join("\n");
+    expect(text).toContain("实时输出：正在检查");
+    expect(text).toContain("思考：分析中");
+    expect(text).toContain("当前工具：read");
+    expect(text).toContain("超时诊断");
+    expect(text).toContain("5m0s");
+    expect(text).toContain("1m30s");
+    expect(text).not.toContain("90000ms");
+  });
+
+  it("列表渲染实时输出、thinking、工具、最后活动和 timeout 诊断", () => {
+    const live: WorkerSnapshot = {
+      ...base,
+      liveTool: "grep",
+      liveText: "搜索中",
+      liveThinking: "分析中",
+      lastActivity: "运行工具 grep",
+      timeoutDiagnostic: { requestId: "r", totalBudgetMs: 300_000, attemptBudgetMs: 300_000, maxRecoveryBudgetMs: 600_000, elapsedMs: 90_000, lastActivity: "运行工具 grep", currentTool: "grep", outputSummary: "部分输出" },
+    };
+    const text = renderWorkerList([live]).join("\n");
+    expect(text).toContain("当前工具：grep");
+    expect(text).toContain("实时输出：搜索中");
+    expect(text).toContain("思考：分析中");
+    expect(text).toContain("最后活动：运行工具 grep");
+    expect(text).toContain("超时诊断");
+  });
+
+  it("宽度小于 20 时也不越界", () => {
+    for (const width of [10, 19]) {
+      const lines = renderWorkerList([{ ...base, liveThinking: "很长的思考" }], undefined, 0, width);
+      expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+    }
+  });
 });

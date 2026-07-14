@@ -48,11 +48,14 @@ describe("dteam 0.8 extension entry", () => {
   it("工具描述提供档位选择和基本用法", () => {
     const { tool } = register();
     expect(tool.description).toContain("T3=明确、机械、可独立验证的小任务");
-    expect(tool.description).toContain("T3/T2 遇硬失败会 fresh 回退 T1");
+    expect(tool.description).toContain("跨档只能由主代理按 T3→T2→T1 明确决定");
     expect(tool.description).toContain("type=dispatch");
     expect(tool.description).toContain("type=respond");
     expect(tool.description).toContain("需 addTools 才能额外调用");
-    expect(tool.description).toContain("respond 只回应 waiting worker 的结构化请求");
+    expect(tool.description).toContain("respond 回应 waiting worker 或 timeout recovery 的结构化请求");
+    expect(tool.description).toContain("worker 每次 attempt 默认五分钟");
+    expect(tool.description).toContain("timeout recovery 独立累计上限十分钟");
+    expect(tool.description).toContain("实时文本、thinking、当前工具和 timeout 诊断只投影到 Snapshot");
   });
 
   it("只注册一个 dteam 工具和同名 /dteam 命令", () => {
@@ -71,10 +74,32 @@ describe("dteam 0.8 extension entry", () => {
     expect(response.content[0].text).toContain("workers 数量必须是 1–32");
   });
 
+  it("respond 拒绝非法 timeout recovery schema", () => {
+    const { tool } = register();
+    const bad = tool.execute("call", { type: "respond", workerId: "w", requestId: "r", response: { type: "escalate" } }, undefined, undefined, context());
+    return expect(bad).resolves.toMatchObject({ isError: true });
+  });
+
   it("worker 内部事件不直接展示到主对话，避免重复显示", () => {
     const pi = { sendMessage: vi.fn() };
     sendParentEvent(pi as any, { type: "failed", workerId: "w", title: "审查", payload: { error: "failed", state: "failed" } } as any);
     expect(pi.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ customType: "dteam-worker", display: false }), expect.any(Object));
+  });
+
+  it("parent event 不转发 worker 输出中的常见敏感值", () => {
+    const pi = { sendMessage: vi.fn() };
+    sendParentEvent(pi as any, { type: "completed", workerId: "w", title: "api_key=sk-title-secret", payload: { result: "api_key=sk-12345678901234567890 DATABASE_URL=postgresql://u:pw@example.test/db" } } as any);
+    const message = pi.sendMessage.mock.calls[0]?.[0];
+    expect(JSON.stringify(message)).not.toContain("sk-title-secret");
+    expect(JSON.stringify(message)).not.toContain("sk-12345678901234567890");
+    expect(JSON.stringify(message)).not.toContain("postgresql://u:pw@example.test/db");
+  });
+
+  it("工具 schema 保持 Pi 兼容，并由 runtime 做分支 fail-closed 校验", () => {
+    const { tool } = register();
+    expect(tool.parameters.type).toBe("object");
+    expect(tool.parameters.properties.type.enum).toEqual(["dispatch", "respond"]);
+    expect(tool.parameters.required).toEqual(["type"]);
   });
 
   it("respond 缺少字段或分支字段时 fail-closed", async () => {

@@ -2,7 +2,7 @@
 
 > **A model-tier routing execution layer for Pi — small tasks fan out to small models, the strong model thinks.**
 
-The main model (T1 frontier tier) acts as owner: it thinks / decides / routes / reviews, and fans out small tasks to small models (T3 fast tier) in parallel. Thinking budget follows the tier; when a small model can't deliver, a fresh review falls back to the strong model.
+The main model (T1 frontier tier) acts as owner: it thinks / decides / routes / reviews, and fans out independent fact-gathering tasks to small models (T3 fast tier) in parallel. Thinking budget follows the tier; the main model synthesizes results and explicitly escalates work step by step from T3 to T2 to T1.
 
 **Sister project**: [`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) — independent and parallel. **dteam = multi-model tier routing; dgoal = single-model build-check loop.** The main LLM chooses which to use; they are not merged, not auto-switched. Chinese version: [`README-zh.md`](./README-zh.md).
 
@@ -14,9 +14,9 @@ dteam exists because **using a strong model for small tasks is a double waste** 
 
 - **Single tool `dteam({ type: "dispatch" | "respond", ... })`** — dispatch and typed worker responses share one model tool; `/dteam` is the user management command.
 - **T1 / T2 / T3 model tiers** (replace the old five roles) — anchored to vendor product lines (flagship / standard / fast).
-- **Thinking follows tier** — T1 high / T2 medium / T3 low; hard tasks fall back to the strong model (which has high thinking built in), rather than making a small model think longer.
+- **Thinking follows tier** — T1 high / T2 medium / T3 low; the main model escalates only after it synthesizes lower-tier evidence, rather than making a small model think longer.
 - **Fresh review (optional)** — dispatch creates isolated in-process `AgentSession` workers; the main model explicitly requests a T1 read-only review only for critical work, countering its "grade your own homework" bias.
-- **Fallback** — hard failure auto-falls back; quality failure triggers fallback via fresh review.
+- **Recovery and escalation** — same-tier model candidates auto-fallback for availability; cross-tier escalation is explicitly decided by the main model (T3 → T2 → T1).
 - **Adaptive Concurrency + Multi-Provider Routing** — multiple workers in flight, per-tier model + fallback chains.
 
 ## Model tiers (T1/T2/T3)
@@ -62,7 +62,7 @@ Full protocol: see [`doc/10-架构与运行/14-dteam触发协议.md`](./doc/10-�
 
 ## Current state
 
-- ✅ **0.7.0**: T1/T2/T3 fresh dispatch, provider/T1 fallback, timeout, cancellation, adaptive concurrency, and explicit tier model chains.
+- ✅ **0.7.0**: T1/T2/T3 fresh dispatch, same-tier provider fallback, timeout, cancellation, adaptive concurrency, and explicit tier model chains.
 - ✅ **0.8.0 runtime**: session-scoped Worker Manager, multi-worker acceptance, typed signals, deferred response, restricted dynamic tools, `/dteam` management and confirmed cancellation are implemented.
 - ✅ 0.6 Orchestrator Loop / Signal Store / five-role source and UI have been removed; ADR 0005–0007 remain as historical decisions only.
 - ✅ `npm run build` and `npm test` cover the 0.7 routing base and 0.8 manager, signals, dynamic tools, cancellation, UI state, and entry.
