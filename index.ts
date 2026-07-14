@@ -1,10 +1,11 @@
 /** dteam 0.8 — 唯一模型工具 `dteam` 与用户管理命令 `/dteam`。 */
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { matchesKey } from "@earendil-works/pi-tui";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "./src/dispatch/concurrency.js";
 import { WorkerManager, sanitizeUnknown } from "./src/runtime/worker-manager.js";
 import { formatDteamConfigWarning, loadDteamConfig, type DteamConfigStatus } from "./src/session/model-config.js";
 import type { DteamParams, ParentEvent } from "./src/runtime/types.js";
-import { renderWorkerDetail, renderWorkerList } from "./src/tui/dteam-dialog.js";
+import { clampSelection, detailLineCount, nextScrollOffset, nextWorkerSelection, renderWorkerDetail, renderWorkerFallback, renderWorkerList, workersForView, type WorkerView } from "./src/tui/dteam-dialog.js";
 import { setupI18n, t } from "./src/tui/i18n.js";
 import { confirmWorkerCancellation } from "./src/tui/cancel.js";
 
@@ -129,36 +130,56 @@ export default function registerDteam(pi: ExtensionAPI) {
       runtime.config = config;
       if (!config.valid) { ctx.ui.notify(formatDteamConfigWarning(config), "warning"); return; }
       const manager = managerFor(pi, runtime, ctx, config);
-      if (!ctx.ui?.custom) { ctx.ui.notify(renderWorkerList(manager.list()).join("\n"), "info"); return; }
+      if (!ctx.ui?.custom) { ctx.ui.notify(renderWorkerFallback(manager.list()).join("\n"), "info"); return; }
       try {
         await ctx.ui.custom((tui, theme, _kb, done) => {
           runtime.render = () => tui.requestRender();
           let selected = 0;
           let detail = false;
-          const selectedWorker = () => manager.list()[selected];
+          let detailOffset = 0;
+          let selectedWorkerId: string | undefined;
+          let view: WorkerView = "active";
+          const visibleWorkers = () => workersForView(manager.list(), view);
+          const selectedWorker = () => {
+            const workers = visibleWorkers();
+            return workers[clampSelection(selected, workers.length)];
+          };
+          const detailWorker = () => selectedWorkerId ? manager.get(selectedWorkerId) : undefined;
           return {
             render: (width: number) => {
               const items = manager.list();
-              if (detail && items[selected]) return renderWorkerDetail(items[selected]!, theme, width, t);
-              return renderWorkerList(items, theme, selected, width, t);
+              const worker = detail ? detailWorker() : selectedWorker();
+              if (detail && worker) return renderWorkerDetail(worker, theme, width, t, detailOffset);
+              return renderWorkerList(items, theme, selected, width, t, view);
             },
             invalidate: () => {},
             handleInput: (data: string) => {
-              const items = manager.list();
-              const worker = selectedWorker();
-              if (data === "\u001b" || data === "q") return detail ? (detail = false) : done(undefined);
-              if (!detail && (data === "\u001b[B" || data === "j")) selected = Math.min(Math.max(0, items.length - 1), selected + 1);
-              if (!detail && (data === "\u001b[A" || data === "k")) selected = Math.max(0, selected - 1);
-              if (!detail && data === "\r" && worker) detail = true;
-              if (detail && data === "s" && worker && ["queued", "running", "waiting"].includes(worker.state)) {
-                void ctx.ui.input(t("steering.title"), t("steering.placeholder"))
-                  .then((instruction) => { if (instruction) return manager.steer(worker.id, instruction); })
-                  .catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
+              const workers = visibleWorkers();
+              const worker = detail ? detailWorker() : selectedWorker();
+              if (matchesKey(data, "escape") || data === "q") {
+                if (detail) { detail = false; detailOffset = 0; selectedWorkerId = undefined; }
+                else { done(undefined); return; }
+              } else if (!detail && (matchesKey(data, "left") || data === "h")) {
+                view = "active"; selected = 0;
+              } else if (!detail && (matchesKey(data, "right") || data === "l")) {
+                view = "history"; selected = 0;
+              } else if (!detail) {
+                const next = nextWorkerSelection(data, selected, workers.length);
+                if (next !== null) selected = next;
+                else if (data === "\r" && worker) { detail = true; detailOffset = 0; selectedWorkerId = worker.id; }
+              } else if (worker) {
+                const next = nextScrollOffset(data, detailOffset, detailLineCount(worker, t));
+                if (next !== null) detailOffset = next;
+                else if (data === "s" && ["queued", "running", "waiting"].includes(worker.state)) {
+                  void ctx.ui.input(t("steering.title"), t("steering.placeholder"))
+                    .then((instruction) => { if (instruction) return manager.steer(worker.id, instruction); })
+                    .catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
+                } else if (data === "c" && ["queued", "running", "waiting"].includes(worker.state)) {
+                  void confirmWorkerCancellation(ctx.ui, manager, worker.id, worker.title, t)
+                    .catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
+                }
               }
-              if (detail && data === "c" && worker && ["queued", "running", "waiting"].includes(worker.state)) {
-                void confirmWorkerCancellation(ctx.ui, manager, worker.id, worker.title, t)
-                  .catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
-              }
+              tui.requestRender();
             },
           };
         }, {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const { mockLoadDteamConfig } = vi.hoisted(() => ({ mockLoadDteamConfig: vi.fn() }));
+const { mockCreateWorkerSession, mockLoadDteamConfig } = vi.hoisted(() => ({ mockCreateWorkerSession: vi.fn(), mockLoadDteamConfig: vi.fn() }));
+vi.mock("../src/session.js", () => ({ createWorkerSession: mockCreateWorkerSession }));
 vi.mock("../src/session/model-config.js", () => ({
   loadDteamConfig: mockLoadDteamConfig,
   formatDteamConfigWarning: vi.fn((status: any) => status.errors.join(";")),
@@ -97,6 +98,43 @@ describe("dteam 0.8 extension entry", () => {
     expect(JSON.stringify(message)).not.toContain("sk-title-secret");
     expect(JSON.stringify(message)).not.toContain("sk-12345678901234567890");
     expect(JSON.stringify(message)).not.toContain("postgresql://u:pw@example.test/db");
+  });
+
+  it("详情以 worker ID 保持终态化的原记录", async () => {
+    let finishFirst!: () => void;
+    const first: any = {
+      abort: vi.fn().mockResolvedValue(undefined),
+      setActiveToolsByName: vi.fn(),
+      messages: [],
+      prompt: vi.fn(() => new Promise<void>((resolve) => {
+        finishFirst = () => {
+          first.messages = [{ role: "assistant", content: [{ type: "text", text: "first complete" }] }];
+          resolve();
+        };
+      })),
+    };
+    const second: any = { abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [], prompt: vi.fn(() => new Promise<void>(() => {})) };
+    mockCreateWorkerSession.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const { pi, tool, command } = register();
+    let component: any;
+    const ctx = context();
+    (ctx.ui as any).custom = vi.fn(async (factory: any) => {
+      component = factory({ requestRender: vi.fn() }, {}, undefined, vi.fn());
+    });
+    await tool.execute("call", { type: "dispatch", workers: [
+      { title: "first", task: "first", tier: "T3" },
+      { title: "second", task: "second", tier: "T3" },
+    ] }, undefined, undefined, ctx);
+    await vi.waitFor(() => expect(first.prompt).toHaveBeenCalled());
+    await command.handler("", ctx);
+    component.handleInput("\r");
+    expect(component.render(80).join("\n")).toContain("first");
+    finishFirst();
+    await vi.waitFor(() => expect(component.render(80).join("\n")).toContain("只读封存"));
+    expect(component.render(80).join("\n")).toContain("first");
+    expect(component.render(80).join("\n")).not.toContain("second");
+    const shutdown = pi.on.mock.calls.find(([event]: any[]) => event === "session_shutdown")?.[1];
+    shutdown!({}, ctx);
   });
 
   it("工具 schema 保持 Pi 兼容，并由 runtime 做分支 fail-closed 校验", () => {
