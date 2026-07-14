@@ -1,6 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { WorkerSnapshot } from "../runtime/types.js";
+import { formatDuration } from "../duration.js";
 import { t, type Translate } from "./i18n.js";
 
 type ThemeLike = Pick<Theme, "fg" | "bold">;
@@ -21,6 +22,11 @@ export function renderWorkerList(items: WorkerSnapshot[], theme?: ThemeLike, sel
       const tier = item.requestedTier === item.activeTier ? item.activeTier : `${item.requestedTier} → ${item.activeTier}`;
       lines.push(`${marker} ${safeText(item.title) || translate("dialog.untitled")}`);
       lines.push(`  ${translate(`state.${item.state}`)} · ${translate("dialog.tier", { value: tier })} · ${translate("dialog.elapsed", { value: elapsed(item, translate) })}`);
+      if (item.liveTool) lines.push(`  ${translate("dialog.liveTool", { value: safeText(item.liveTool) })}`);
+      if (item.liveText) lines.push(`  ${translate("dialog.liveText", { value: safeText(item.liveText) })}`);
+      if (item.liveThinking) lines.push(`  ${translate("dialog.liveThinking", { value: safeText(item.liveThinking) })}`);
+      if (item.lastActivity) lines.push(`  ${translate("dialog.lastActivity", { value: safeText(item.lastActivity) })}`);
+      if (item.timeoutDiagnostic) lines.push(`  ${timeoutLabel(item, translate)}`);
       lines.push(`  ${translate("dialog.task", { value: safeText(item.task) || translate("dialog.noTask") })}`);
       if (item.latestFinding) lines.push(`  ${translate("dialog.finding", { value: safeText(item.latestFinding) })}`);
       if (item.error) lines.push(`  ${translate("dialog.error", { value: safeText(item.error) })}`);
@@ -42,6 +48,11 @@ export function renderWorkerDetail(item: WorkerSnapshot, theme?: ThemeLike, widt
     translate("dialog.tools", { value: item.activeTools.map(safeText).join(", ") || translate("dialog.none") }),
     translate("dialog.fallback", { value: item.fallbackTrail.length > 1 ? item.fallbackTrail.map(safeText).join(" → ") : translate("dialog.none") }),
     translate("dialog.task", { value: safeText(item.task) || translate("dialog.noTask") }),
+    ...(item.liveText ? [translate("dialog.liveText", { value: safeText(item.liveText) })] : []),
+    ...(item.liveThinking ? [translate("dialog.liveThinking", { value: safeText(item.liveThinking) })] : []),
+    ...(item.liveTool ? [translate("dialog.liveTool", { value: safeText(item.liveTool) })] : []),
+    ...(item.lastActivity ? [translate("dialog.lastActivity", { value: safeText(item.lastActivity) })] : []),
+    ...(item.timeoutDiagnostic ? [timeoutLabel(item, translate), translate("dialog.timeoutOutput", { value: safeText(item.timeoutDiagnostic.outputSummary) })] : []),
     ...(item.latestFinding ? [translate("dialog.finding", { value: safeText(item.latestFinding) })] : []),
     ...(item.result ? [translate("dialog.result", { value: safeText(item.result) })] : []),
     ...(item.error ? [translate("dialog.error", { value: safeText(item.error) })] : []),
@@ -59,7 +70,18 @@ function safeText(value: string): string {
 
 function elapsed(item: WorkerSnapshot, translate: Translate = t): string {
   if (!item.startedAt) return translate("state.queued");
-  return `${Math.max(0, (item.endedAt ?? Date.now()) - item.startedAt)}ms`;
+  return formatDuration(Math.max(0, (item.endedAt ?? Date.now()) - item.startedAt));
+}
+
+function timeoutLabel(item: WorkerSnapshot, translate: Translate): string {
+  const diagnostic = item.timeoutDiagnostic!;
+  return translate("dialog.timeout", {
+    attemptBudget: formatDuration(diagnostic.attemptBudgetMs),
+    maxBudget: formatDuration(diagnostic.maxRecoveryBudgetMs),
+    elapsed: formatDuration(diagnostic.elapsedMs),
+    lastActivity: safeText(diagnostic.lastActivity),
+    currentTool: safeText(diagnostic.currentTool),
+  });
 }
 
 function paint(theme: ThemeLike | undefined, name: ThemeColor, text: string): string {
@@ -71,8 +93,9 @@ function bold(theme: ThemeLike | undefined, text: string): string {
 }
 
 function frame(lines: string[], title: string, theme: ThemeLike | undefined, width: number): string[] {
-  const innerWidth = Math.max(20, width);
-  const bodyWidth = Math.max(0, innerWidth - 2);
+  const innerWidth = Math.max(1, Math.floor(width));
+  if (innerWidth === 1) return ["│"];
+  const bodyWidth = innerWidth - 2;
   const titleText = truncateToWidth(` ${safeText(title)} `, bodyWidth);
   const titlePadding = Math.max(0, innerWidth - visibleWidth(titleText) - 2);
   const leftPadding = Math.floor(titlePadding / 2);

@@ -1,7 +1,7 @@
 /** dteam 0.8 — 唯一模型工具 `dteam` 与用户管理命令 `/dteam`。 */
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "./src/dispatch/concurrency.js";
-import { WorkerManager } from "./src/runtime/worker-manager.js";
+import { WorkerManager, sanitizeUnknown } from "./src/runtime/worker-manager.js";
 import { formatDteamConfigWarning, loadDteamConfig, type DteamConfigStatus } from "./src/session/model-config.js";
 import type { DteamParams, ParentEvent } from "./src/runtime/types.js";
 import { renderWorkerDetail, renderWorkerList } from "./src/tui/dteam-dialog.js";
@@ -40,14 +40,22 @@ function managerFor(
 }
 
 export function sendParentEvent(pi: ExtensionAPI, event: ParentEvent, hasUI = true): void {
-  const text = JSON.stringify({ dteam: event.type, workerId: event.workerId, title: event.title, ...((event.payload && typeof event.payload === "object") ? event.payload : { payload: event.payload }) });
-  pi.sendMessage?.({ customType: "dteam-worker", content: text, display: false, details: event }, { triggerTurn: hasUI, deliverAs: hasUI ? "followUp" : "nextTurn" });
+  const payload = sanitizeUnknown(event.payload);
+  const body = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : { payload };
+  const title = String(sanitizeUnknown(event.title));
+  const text = JSON.stringify({ ...body, dteam: event.type, workerId: event.workerId, title });
+  const details = { ...event, title, payload };
+  pi.sendMessage?.({ customType: "dteam-worker", content: text, display: false, details }, { triggerTurn: hasUI, deliverAs: hasUI ? "followUp" : "nextTurn" });
 }
 
 function validateResponse(raw: any): { ok: true; value: any } | { ok: false; error: string } {
   if (raw?.type === "provide_context" && typeof raw.context === "string") return { ok: true, value: { type: raw.type, context: raw.context } };
   if (raw?.type === "grant_tools" && Array.isArray(raw.tools) && raw.tools.every((tool: unknown) => typeof tool === "string")) return { ok: true, value: { type: raw.type, tools: raw.tools } };
   if (raw?.type === "decision" && typeof raw.decision === "string") return { ok: true, value: { type: raw.type, decision: raw.decision } };
+  if (raw?.type === "retry") return { ok: true, value: { type: raw.type } };
+  if (raw?.type === "escalate" && ["T1", "T2", "T3"].includes(raw.tier)) return { ok: true, value: { type: raw.type, tier: raw.tier } };
+  if (raw?.type === "extend" && typeof raw.additionalMs === "number" && Number.isFinite(raw.additionalMs) && raw.additionalMs > 0) return { ok: true, value: { type: raw.type, additionalMs: raw.additionalMs } };
+  if (raw?.type === "stop" && (raw.reason === undefined || typeof raw.reason === "string")) return { ok: true, value: { type: raw.type, ...(typeof raw.reason === "string" ? { reason: raw.reason } : {}) } };
   if (raw?.type === "deny" && typeof raw.reason === "string") return { ok: true, value: { type: raw.type, reason: raw.reason } };
   return { ok: false, error: "respond response 字段不符合 type 对应 schema" };
 }
@@ -80,14 +88,14 @@ export default function registerDteam(pi: ExtensionAPI) {
   pi.registerTool({
     name: "dteam",
     label: "dteam",
-    description: "dteam 模型分级后台 worker 工具，仅支持 type=dispatch 和 type=respond。按推理复杂度选 tier：T3=明确、机械、可独立验证的小任务（默认仅 read/grep/find/ls，需 addTools 才能额外调用）；T2=目标清楚的标准复杂度任务；T1=复杂推理、决策、综合、验收。T3/T2 遇硬失败会 fresh 回退 T1。dispatch 派发 1–32 个互不依赖的 worker（每项含 title/task/tier，可用 addTools 约束本次权限；立即返回 queued，结果经 follow-up 回传）；respond 只回应 waiting worker 的结构化请求，不创建新 worker。主代理负责依赖理解、验收和后续路由；不要传依赖图、batch 或 goal/task 映射。",
+    description: "dteam 模型分级后台 worker 工具，仅支持 type=dispatch 和 type=respond。按推理复杂度选 tier：T3=明确、机械、可独立验证的小任务（默认仅 read/grep/find/ls，需 addTools 才能额外调用）；T2=目标清楚的标准复杂度任务；T1=复杂推理、决策、综合、验收。先并行 T3 收集事实；跨档只能由主代理按 T3→T2→T1 明确决定，同档模型候选才会自动回退。worker 每次 attempt 默认五分钟，timeout recovery 独立累计上限十分钟；respond 可选择 retry/escalate/extend/stop。实时文本、thinking、当前工具和 timeout 诊断只投影到 Snapshot，由 /dteam 展示，不原样回显到主对话。dispatch 派发 1–32 个互不依赖的 worker（每项含 title/task/tier，可用 addTools 约束本次权限；立即返回 queued，结果经 follow-up 回传）；respond 回应 waiting worker 或 timeout recovery 的结构化请求，不创建新 worker。主代理负责依赖理解、验收和后续路由；不要传依赖图、batch 或 goal/task 映射。",
     parameters: {
       type: "object",
       properties: {
         type: { type: "string", enum: ["dispatch", "respond"] },
         workers: { type: "array", minItems: 1, maxItems: 32, items: { type: "object", properties: { title: { type: "string" }, task: { type: "string" }, tier: { type: "string", enum: ["T1", "T2", "T3"] }, addTools: { type: "array", items: { type: "string" } } }, required: ["title", "task", "tier"] } },
         workerId: { type: "string" }, requestId: { type: "string" },
-        response: { type: "object", properties: { type: { type: "string", enum: ["provide_context", "grant_tools", "decision", "deny"] }, context: { type: "string" }, tools: { type: "array", items: { type: "string" } }, decision: { type: "string" }, reason: { type: "string" } }, required: ["type"] },
+        response: { type: "object", properties: { type: { type: "string", enum: ["provide_context", "grant_tools", "decision", "retry", "escalate", "extend", "stop", "deny"] }, context: { type: "string" }, tools: { type: "array", items: { type: "string" } }, decision: { type: "string" }, tier: { type: "string", enum: ["T1", "T2", "T3"] }, additionalMs: { type: "number" }, reason: { type: "string" } }, required: ["type"] },
       },
       required: ["type"],
     } as any,
