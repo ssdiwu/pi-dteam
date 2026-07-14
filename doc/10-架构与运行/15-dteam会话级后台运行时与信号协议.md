@@ -36,7 +36,7 @@ Worker Manager（本 Pi 会话内，唯一运行态 owner）
   ├─ fresh worker 2: ...
   └─ fresh worker n: ...
 
-worker ──B 类 signal──► Worker Manager ──followUp──► 主代理
+worker ──B 类 signal──► Worker Manager ──结构化 parent event──► 主代理
 worker ◄─C 类 signal─── Worker Manager ◄─主代理决策
 ```
 
@@ -55,7 +55,7 @@ interface WorkerRecord {
   task: string
   requestedTier: Tier
   activeTier: Tier
-  fallbackTrail: Attempt[] // 如 T3 → T1，直接供 UI 显示
+  fallbackTrail: Attempt[] // 同档候选与主代理明确的相邻升级轨迹
   state: "queued" | "running" | "waiting" | "completed" | "failed" | "timed_out" | "cancelled" | "shutdown"
   session: AgentSession
   controller: AbortController
@@ -71,7 +71,7 @@ interface WorkerRecord {
 
 `waiting` 只表示 worker 发出了需要主代理回答的 request（请求），其原 `AgentSession` 仍保留；`completed` / `failed` / `cancelled` 后封存为只读历史，不能 steering（插队指令）、补上下文或再授权。
 
-取消流程是 `running` / `waiting` → **确认** → `cancelled`；session shutdown 进入独立 `shutdown`；超时进入独立 `timed_out`。它们不与 `failed` 合并；用户取消必须产生 `reason: "user_cancelled"`。
+取消流程是 `running` / `waiting` → **确认** → `cancelled`；session shutdown 进入独立 `shutdown`。worker 达到总预算时先建立 timeout recovery request 并等待主代理的 retry / escalate / extend / stop；只有 stop 或恢复上限耗尽后才进入 `timed_out`。它们不与 `failed` 合并；用户取消必须产生 `reason: "user_cancelled"`。
 
 ### 3.2 三份状态而非旧 Signal Store
 
@@ -113,6 +113,10 @@ dteam({
     | { type: "provide_context", context: string }
     | { type: "grant_tools", tools: string[] }
     | { type: "decision", decision: string }
+    | { type: "retry" }
+    | { type: "escalate", tier: "T2" | "T1" }
+    | { type: "extend", additionalMs: number }
+    | { type: "stop", reason?: string }
     | { type: "deny", reason: string },
 })
 ```
@@ -120,7 +124,7 @@ dteam({
 - `tier` 绝不由 dteam 猜测。初始注册权限 = 该 worker 的 tier 默认基础工具 ∪ 已核验的 `addTools` ∪ `dteam_signal`，但首次 prompt 激活集只含基础工具与 signal；T3 仍默认本地只读。
 - `addTools` 不接受 `web`、`browser` 等能力标签；工具名不可用、重复或越过当前会话授予清单时，一律 fail-closed（失败即关闭）。`grant_tools` 只能激活该 worker 的 `addTools` 候选。
 - `dispatch` 返回每项各自的 `DispatchAccepted { workerId, title, tier, state: "queued" }`，不得等待任一 worker 完成；不存在 `batchId`、batch 接收凭据或 batch 完成态。
-- `respond` 只接受仍处于 waiting 的匹配 `workerId + requestId`，且 C 类 response 必须匹配对应 B 类 request；先完成 C 类 signal（父级信号）状态变更，再兑现原 `dteam_signal` 阻塞工具的 deferred result（`grant_tools` 先更新 active tools）。不创建新 session，也不以 `followUp()` 作为解锁主路径。
+- `respond` 只接受仍处于 waiting 的匹配 `workerId + requestId`，且 C 类 response 必须匹配对应 B 类 request；先完成 C 类 signal（父级信号）状态变更，再兑现原 `dteam_signal` 阻塞工具的 deferred result（`grant_tools` 先更新 active tools）。`retry` / `escalate` / `extend` 是 timeout recovery 的特例：它们创建一个新的 fresh `AgentSession` 并注入裁剪恢复摘要，而不是恢复原 session；其他 response 也通过 `RequestState` deferred result 恢复原 session，主代理通知可用 follow-up 传递，但不负责解锁 worker。
 - 用户取消不走模型 `respond`：只能从 `/dteam` 的二次确认或 session shutdown（会话关闭）触发内部 `cancel`，避免模型无确认中止用户的后台工作。
 - 一次调用列出的 worker 不表示依赖、共同归属某个 dgoal task，或完成后自动继续下一组；主代理已独立判断这些请求目前可启动。
 
@@ -131,7 +135,7 @@ dteam({
 | `completed` | 500ms–1s 的短窗口合并多个成功结果，以一条 follow-up（后续消息）交给主代理 |
 | `failed` | 立即单条 follow-up |
 | `cancelled` | 立即单条 follow-up；用户取消固定携带 `reason: "user_cancelled"` |
-| `request_context` / `request_tools` / `request_decision` / `blocked` | 立即 follow-up，请主代理明确回应 |
+| `request_context` / `request_tools` / `request_decision` / `blocked` / `timeout_recovery` | 立即 follow-up，请主代理明确回应 |
 | `progress` / `finding` | 只更新 Snapshot、时间线和 `/dteam`；不为每条过程信号打断主对话 |
 
 汇聚窗口只合并成功结果；不能吞掉失败、取消、阻塞或请求。
@@ -142,7 +146,7 @@ dteam({
 
 ### A 类：系统 signal（Manager 产生）
 
-`worker_queued`、`worker_started`、`worker_waiting`、`worker_completed`、`worker_failed`、`worker_cancelled`、`fallback_started`、`fallback_completed`。
+`worker_queued`、`worker_started`、`worker_waiting`、`worker_timeout_requested`、`worker_completed`、`worker_failed`、`worker_timed_out`、`worker_cancelled`、`attempt_started`、`attempt_completed`。
 
 它们是状态迁移的事实来源；worker 不得伪造。
 
@@ -163,13 +167,17 @@ dteam({
 
 | kind | 对应 B 类 | 行为 |
 |---|---|---|
-| `provide_context` | `request_context` | 写入原 session 的 follow-up，恢复该 worker |
-| `grant_tools` | `request_tools` | 更新 active tool set，再 follow-up 告知授权边界 |
-| `deny` | 任意 request | 以明确原因恢复 worker；worker 可改方案或 `blocked` |
-| `decision` | `request_decision` / `blocked` | 传入主代理判断，恢复 worker |
+| `provide_context` | `request_context` | 通过 `RequestState` deferred result 返回上下文，恢复该 worker |
+| `grant_tools` | `request_tools` | 更新 active tool set，再通过 `RequestState` deferred result 返回授权边界 |
+| `deny` | 任意 request | 通过 `RequestState` deferred result 返回明确原因，worker 可改方案或 `blocked` |
+| `decision` | `request_decision` / `blocked` | 通过 `RequestState` deferred result 传入主代理判断，恢复 worker |
+| `retry` | `timeout_recovery` | 创建同档 fresh attempt，并注入裁剪恢复摘要 |
+| `escalate` | `timeout_recovery` | 只允许 T3→T2 或 T2→T1 的 fresh attempt |
+| `extend` | `timeout_recovery` | 在次数和总预算上限内延长当前 worker 预算 |
+| `stop` | `timeout_recovery` | 写入 `timed_out` 终态与诊断 |
 | `cancel` | 任意运行态 | abort worker；只由已确认的取消流程发送 |
 
-C 类不是公开 Pi tool；由主代理的自然语言 follow-up（或 `/dteam` 交互）被 dteam 解析并调用 Manager 内部 API。worker 永远不直接调用另一个 worker。
+C 类以唯一公开 `dteam` 工具的结构化 `respond` 参数表达；Manager 对 request kind 与 response schema fail-closed 校验后调用内部 API。`/dteam` 只提供用户 steering 和确认取消，不解析自然语言恢复动作。worker 永远不直接调用另一个 worker。
 
 ## 6. 原 AgentSession 的动态工具注入：已验证的约束
 
@@ -196,8 +204,8 @@ Pi `AgentSession`（已在本机 Pi 0.80.6 核验）提供：
 
 `/dteam` 是唯一管理命令；不另设 `/subagents`。
 
-- **列表默认页**：运行中与历史合并，运行中置顶；一行优先显示 `title`，显式 worker ID，右侧显示 `T3 → T1` 回退链、耗时和状态。
-- **详情页**：选择 worker 后进入同一会话式详情，显示 Signal Log 时间线、权限、结果或错误。运行中直接进入 Takeover View（接管视图）。
+- **列表默认页**：运行中与历史合并，运行中置顶；一行优先显示 `title`、当前工具、裁剪实时输出、档位轨迹、耗时和状态。
+- **详情页**：选择 worker 后进入同一会话式详情，显示有界 Signal Log 事实、权限、实时文本、思考片段、当前工具、timeout 诊断、结果或错误。运行中直接进入 Takeover View（接管视图）。
 - **运行中接管**：允许 steering；取消必须二次确认；等待请求时提供“将决策交给主代理”的状态而非让用户代替主代理做路由。
 - **结束后封存**：`completed` / `failed` / `cancelled` 详情只读。
 - **布局**：借 dgoal 的 `ui.custom({ overlay: true, maxHeight: "85%" })`；标题钉顶、正文滚动，复用 `j/k`、方向键、`Esc` 的滚动/关闭策略。不做常驻浮窗。

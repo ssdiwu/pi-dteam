@@ -60,20 +60,21 @@ dteam({
 - `provide_context`：提供上下文。
 - `grant_tools`：只授予本次 `addTools` 候选。
 - `decision`：提供主代理决定。
+- `retry` / `escalate` / `extend` / `stop`：仅回应 timeout recovery，请求同档 fresh 重试、相邻档位升级、有限延长预算或终止。
 - `deny`：明确拒绝及原因。
 
-回应先更新权限或请求状态，再兑现原 worker 的 `dteam_signal` 阻塞工具调用；不创建新 session，不依赖 `followUp()` 解锁。
+回应先更新权限或请求状态，再兑现原 worker 的 `dteam_signal` 阻塞工具调用；timeout recovery 会创建 fresh worker attempt，不恢复旧 session；不依赖 `followUp()` 解锁。
 
 ## 2. Worker 与 signal
 
 worker 是当前 Pi 进程内的 fresh `AgentSession`。Worker Manager 管理：
 
-- `queued → running → waiting → completed/failed/timed_out/cancelled/shutdown` 生命周期；超时、用户取消和 session shutdown 保持独立终态；
-- T3/T2 到 T1 回退、共享 Adaptive Concurrency；
+- `queued → running → waiting → completed/failed/timed_out/cancelled/shutdown` 生命周期；timeout 先进入等待主代理恢复决策的状态，stop 后才成为 `timed_out` 终态；用户取消和 session shutdown 保持独立终态；
+- 同档模型候选回退、共享 Adaptive Concurrency；跨档由主代理按 T3→T2→T1 决定；
 - `progress` / `finding` 过程事实；
 - `request_context` / `request_tools` / `request_decision` / `blocked` 阻塞请求。
 
-worker 只能经 `dteam_signal` 向 Manager 发信号，不能 P2P；主代理经 `dteam` 回应。成功结果 500ms 短窗合并，失败、取消和阻塞请求立即回传。
+worker 只能经 `dteam_signal` 向 Manager 发信号，不能 P2P；主代理经 `dteam` 回应。成功结果 500ms 短窗合并，失败、取消、阻塞请求和 timeout recovery 立即回传。
 
 ## 3. 工具权限
 
