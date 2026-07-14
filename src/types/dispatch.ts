@@ -35,12 +35,12 @@ export interface DispatchAttempt {
   error?: string;
 }
 
-/** 一次派发的可追溯结果；硬失败后的 T1 尝试也写入 attempts。 */
+/** 一次派发的可追溯结果；同档候选尝试写入 attempts，跨档升级由主代理决定。 */
 export interface DispatchResult {
   status: "done" | "failed";
   task: string;
   requestedTier: Tier;
-  /** 实际完成任务的档位；T3 硬失败后可能是 T1。 */
+  /** 实际完成任务的档位；同档候选自动尝试，跨档升级由主代理决定。 */
   tier: Tier;
   thinking: ThinkingLevel;
   tools: string[];

@@ -1,12 +1,14 @@
 /**
- * dteam 0.7 fresh worker dispatch。
+ * dteam 0.7 fresh worker dispatch（历史同步入口；0.8 生产路径走 WorkerManager）。
  *
- * 每次尝试创建逻辑隔离的进程内 AgentSession；同档模型链失败后，非 T1
- * 请求才回退 T1。没有 Orchestrator Loop、Signal Store 或五角色执行链。
+ * 每次创建逻辑隔离的进程内 AgentSession；同档模型链失败后自动尝试下一个同档候选，
+ * 不再自动跨档到 T1（跨档升级由主代理决策，见 ADR 0012）。没有 Orchestrator Loop、
+ * Signal Store 或五角色执行链。
  */
 
 import { createWorkerSession } from "./session.js";
 import { DTEAM_CONFIG } from "./config.js";
+import { formatDuration } from "./duration.js";
 import { AdaptiveConcurrency } from "./dispatch/concurrency.js";
 import { isRateLimitError, tierModelCandidates } from "./dispatch/model-routing.js";
 import { TIER_MODEL_ROUTES, getTierThinking, getTierTools } from "./session/tier-config.js";
@@ -21,7 +23,7 @@ export interface DispatchContext {
   tierModelRoutes?: TierModelRoutes;
   /** 单个 worker prompt 总超时；缺省使用 DTEAM_CONFIG.dispatch.workerTimeoutMs。 */
   timeoutMs?: number;
-  /** Pi 工具调用取消信号；取消后不继续 provider/T1 回退。 */
+  /** Pi 工具调用取消信号；取消后不继续同档 provider 回退。 */
   signal?: AbortSignal;
   /** 可选共享 limiter；主模型并发调用 dispatch 时由入口注入。 */
   concurrency?: AdaptiveConcurrency;
@@ -37,8 +39,9 @@ class DispatchCanceledError extends Error {
 /**
  * 按 T1/T2/T3 执行一次 fresh worker 派发。
  *
- * 同档的显式 provider fallback 逐个尝试；请求 T1 以外的档位全部硬失败时，
- * 再用 T1 重做。请求档解析出的 tools（显式或默认）始终作为所有尝试的权限上限。
+ * 同档显式 provider fallback 逐个尝试；不再自动跨档到 T1——若该档所有候选失败，
+ * 直接返回 failed，由调用方（主代理）决定下一步（见 ADR 0012）。请求档解析出的
+ * tools（显式或默认）始终作为所有尝试的权限上限。
  */
 export async function dispatch(request: DispatchRequest, ctx: DispatchContext): Promise<DispatchResult> {
   const startedAt = Date.now();
@@ -51,15 +54,15 @@ export async function dispatch(request: DispatchRequest, ctx: DispatchContext): 
     return failedResult(request, request.tier, getTierThinking(request.tier, request.thinking), getTierTools(request.tier, request.tools), attempts, startedAt, "dteam_dispatch 已取消");
   }
 
-  const attemptTiers: Tier[] = request.tier === "T1" ? ["T1"] : [request.tier, "T1"];
-  // 工具上限由请求档一次性解析；T3 默认只读不能因回退到 T1 而扩权。
+  const attemptTiers: Tier[] = [request.tier];
+  // 同档候选自动回退；跨档升级只由主代理明确决定（ADR 0012），不在 dispatch 内跳 T1。
   const requestTools = getTierTools(request.tier, request.tools);
   let lastTier = request.tier;
   let lastThinking = getTierThinking(request.tier, request.thinking);
   let lastTools = requestTools;
 
   for (const tier of attemptTiers) {
-    // 调用方 thinking 覆盖只作用于请求档；T1 硬回退恢复 T1 的高思考默认。
+    // 调用方 thinking 覆盖只作用于请求档；不再自动跨档回退（ADR 0012）。
     const thinking = getTierThinking(tier, tier === request.tier ? request.thinking : undefined);
     const tools = requestTools;
     lastTier = tier;
@@ -284,7 +287,7 @@ async function acquireSlot(
 }
 
 function timeoutError(timeoutMs: number): Error {
-  return new Error(`worker 执行超时（${timeoutMs}ms）`);
+  return new Error(`worker 执行超时（${formatDuration(timeoutMs)}）`);
 }
 
 function throwIfCanceled(signal?: AbortSignal): void {

@@ -77,7 +77,7 @@ describe("dispatch", () => {
     }));
   });
 
-  it("同档 provider fallback 在转 T1 前先尝试", async () => {
+  it("同档 provider fallback 会逐个尝试候选", async () => {
     mockCreateWorkerSession.mockImplementation(async (options: any) => {
       if (options.modelStr === "missing/model") throw new Error("model unavailable");
       return sessionWithOutput("T3 fallback provider 完成");
@@ -93,10 +93,9 @@ describe("dispatch", () => {
     expect(mockCreateWorkerSession.mock.calls.map(([options]) => options.tier)).toEqual(["T3", "T3"]);
   });
 
-  it("T3 硬失败后自动以 T1 重做，并保持显式 tools 上限", async () => {
+  it("T3 硬失败不再自动跨档，返回 failed 由主代理决定下一步", async () => {
     mockCreateWorkerSession
-      .mockRejectedValueOnce(new Error("429 rate limit"))
-      .mockResolvedValueOnce(sessionWithOutput("T1 回退完成"));
+      .mockRejectedValueOnce(new Error("429 rate limit"));
     const readOnlyTools = ["read", "grep", "find", "ls"];
 
     const result = await dispatch(
@@ -104,22 +103,19 @@ describe("dispatch", () => {
       context(),
     );
 
-    expect(result).toMatchObject({ status: "done", requestedTier: "T3", tier: "T1", thinking: "high", fellBack: true });
+    expect(result).toMatchObject({ status: "failed", requestedTier: "T3", tier: "T3", fellBack: false });
     expect(result.attempts).toEqual([expect.objectContaining({ tier: "T3", error: "429 rate limit" })]);
-    expect(mockCreateWorkerSession.mock.calls.map(([options]) => options.tier)).toEqual(["T3", "T1"]);
-    expect(mockCreateWorkerSession.mock.calls[1][0].thinkingLevel).toBe("high");
-    expect(mockCreateWorkerSession.mock.calls[1][0].builtInTools).toEqual(readOnlyTools);
+    expect(mockCreateWorkerSession.mock.calls.map(([options]) => options.tier)).toEqual(["T3"]);
   });
 
-  it("T3 未显式 tools 时回退 T1 仍保持 T3 默认只读", async () => {
+  it("T3 未显式 tools 硬失败仍停留在 T3", async () => {
     mockCreateWorkerSession
-      .mockRejectedValueOnce(new Error("T3 provider down"))
-      .mockResolvedValueOnce(sessionWithOutput("T1 只读回退完成"));
+      .mockRejectedValueOnce(new Error("T3 provider down"));
 
     const result = await dispatch({ task: "只读检查", tier: "T3" }, context());
 
-    expect(result).toMatchObject({ status: "done", tier: "T1", tools: ["read", "grep", "find", "ls"] });
-    expect(mockCreateWorkerSession.mock.calls[1][0].builtInTools).toEqual(["read", "grep", "find", "ls"]);
+    expect(result).toMatchObject({ status: "failed", tier: "T3", tools: ["read", "grep", "find", "ls"], fellBack: false });
+    expect(mockCreateWorkerSession).toHaveBeenCalledTimes(1);
   });
 
   it("T1 硬失败不会递归回退", async () => {
@@ -131,7 +127,7 @@ describe("dispatch", () => {
     expect(mockCreateWorkerSession).toHaveBeenCalledTimes(1);
   });
 
-  it("session 创建超时会回退 T1，并在迟到 session 创建后中止它", async () => {
+  it("session 创建超时返回 failed，并在迟到 session 创建后中止它", async () => {
     let resolveLateSession!: (session: any) => void;
     const lateSession = {
       abort: vi.fn().mockResolvedValue(undefined),
@@ -141,9 +137,7 @@ describe("dispatch", () => {
     const lateCreation = new Promise<any>((resolve) => {
       resolveLateSession = resolve;
     });
-    mockCreateWorkerSession
-      .mockReturnValueOnce(lateCreation)
-      .mockResolvedValueOnce(sessionWithOutput("T1 创建超时回退完成"));
+    mockCreateWorkerSession.mockReturnValueOnce(lateCreation);
 
     const result = await Promise.race([
       dispatch({ task: "创建可能挂起", tier: "T3" }, context({ timeoutMs: 5 })),
@@ -151,22 +145,20 @@ describe("dispatch", () => {
     ]);
 
     expect(result).not.toBe("test timeout");
-    expect(result).toMatchObject({ status: "done", tier: "T1", fellBack: true });
+    expect(result).toMatchObject({ status: "failed", requestedTier: "T3", tier: "T3", fellBack: false });
     resolveLateSession(lateSession);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(lateSession.abort).toHaveBeenCalledTimes(1);
   });
 
-  it("超时会等待 abort 完成后才释放槽并回退", async () => {
+  it("超时会等待 abort 完成后才释放槽", async () => {
     let resolveAbort!: () => void;
     const hanging = {
       prompt: vi.fn(() => new Promise<void>(() => {})),
       abort: vi.fn(() => new Promise<void>((resolve) => { resolveAbort = resolve; })),
       messages: [],
     };
-    mockCreateWorkerSession
-      .mockResolvedValueOnce(hanging)
-      .mockResolvedValueOnce(sessionWithOutput("T1 abort 后回退完成"));
+    mockCreateWorkerSession.mockResolvedValueOnce(hanging);
 
     const pending = dispatch({ task: "等待 abort", tier: "T3" }, context({ timeoutMs: 5 }));
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -174,18 +166,16 @@ describe("dispatch", () => {
     expect(mockCreateWorkerSession).toHaveBeenCalledTimes(1);
 
     resolveAbort();
-    await expect(pending).resolves.toMatchObject({ status: "done", tier: "T1", fellBack: true });
+    await expect(pending).resolves.toMatchObject({ status: "failed", tier: "T3", fellBack: false });
   });
 
-  it("worker 超时会 abort 当前 session 并回退 T1", async () => {
+  it("worker 超时会 abort 当前 session 并返回 failed", async () => {
     const hanging = {
       prompt: vi.fn(() => new Promise<void>(() => {})),
       abort: vi.fn().mockResolvedValue(undefined),
       messages: [],
     };
-    mockCreateWorkerSession
-      .mockResolvedValueOnce(hanging)
-      .mockResolvedValueOnce(sessionWithOutput("T1 超时回退完成"));
+    mockCreateWorkerSession.mockResolvedValueOnce(hanging);
 
     const result = await dispatch(
       { task: "读取结果", tier: "T3" },
@@ -193,7 +183,7 @@ describe("dispatch", () => {
     );
 
     expect(hanging.abort).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({ status: "done", tier: "T1", fellBack: true });
+    expect(result).toMatchObject({ status: "failed", tier: "T3", fellBack: false });
     expect(result.attempts).toEqual([expect.objectContaining({ tier: "T3", error: expect.stringContaining("执行超时") })]);
   });
 

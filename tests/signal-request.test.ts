@@ -52,9 +52,10 @@ describe("worker signal protocol", () => {
     const managerInstance = manager((event) => { events.push(event); });
     const accepted = managerInstance.dispatch([{ title: "signal", task: "task", tier: "T1" }])[0]!;
     await managerInstance.receiveSignal(accepted.workerId, { kind: "progress", message: "half" });
-    await managerInstance.receiveSignal(accepted.workerId, { kind: "finding", summary: "found" });
+    await managerInstance.receiveSignal(accepted.workerId, { kind: "finding", summary: "found password=hunter2" });
     expect(events.filter((event) => event.type === "request")).toHaveLength(0);
-    expect(managerInstance.signalLog.snapshot(accepted.workerId)?.latestFinding).toBe("found");
+    expect(JSON.stringify(managerInstance.signalLog.eventsFor(accepted.workerId))).not.toContain("hunter2");
+    expect(managerInstance.signalLog.snapshot(accepted.workerId)?.latestFinding).toBe("found password=[REDACTED_SECRET]");
 
     const waiting = managerInstance.receiveSignal(accepted.workerId, { kind: "request_context", requestId: "r1", question: "need" });
     await vi.waitFor(() => expect(managerInstance.get(accepted.workerId)?.state).toBe("waiting"));
@@ -62,6 +63,31 @@ describe("worker signal protocol", () => {
     managerInstance.respond(accepted.workerId, "r1", { type: "provide_context", context: "provided" });
     await expect(waiting).resolves.toEqual({ type: "provide_context", context: "provided" });
     managerInstance.shutdown();
+  });
+
+  it("重复 requestId 被拒绝且不破坏原 pending request", async () => {
+    const instance = manager();
+    const accepted = instance.dispatch([{ title: "重复", task: "task", tier: "T1" }])[0]!;
+    const first = instance.receiveSignal(accepted.workerId, { kind: "request_context", requestId: "same", question: "one" });
+    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    await expect(instance.receiveSignal(accepted.workerId, { kind: "request_context", requestId: "same", question: "duplicate" })).resolves.toMatchObject({ type: "deny" });
+    expect(instance.requestState.list()).toHaveLength(1);
+    instance.respond(accepted.workerId, "same", { type: "provide_context", context: "ctx" });
+    await expect(first).resolves.toMatchObject({ type: "provide_context" });
+    instance.shutdown();
+  });
+
+  it("grant_tools 的 session API 失败时清理 pending 并返回 deny", async () => {
+    const workerSession: any = { setActiveToolsByName: vi.fn(() => { throw new Error("tool switch failed"); }), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(workerSession);
+    const instance = manager();
+    const accepted = instance.dispatch([{ title: "授权失败", task: "task", tier: "T1", addTools: ["edit"] }])[0]!;
+    const waiting = instance.receiveSignal(accepted.workerId, { kind: "request_tools", requestId: "tools-fail", tools: ["edit"], reason: "need" });
+    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    expect(() => instance.respond(accepted.workerId, "tools-fail", { type: "grant_tools", tools: ["edit"] })).not.toThrow();
+    await expect(waiting).resolves.toMatchObject({ type: "deny" });
+    expect(instance.requestState.list()).toHaveLength(0);
+    instance.shutdown();
   });
 
   it("grant_tools 先切换同一 AgentSession 的 active tools 再恢复 signal", async () => {
