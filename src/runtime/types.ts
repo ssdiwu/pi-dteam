@@ -8,6 +8,10 @@ export type ParentResponse =
   | { type: "provide_context"; context: string }
   | { type: "grant_tools"; tools: string[] }
   | { type: "decision"; decision: string }
+  | { type: "retry" }
+  | { type: "escalate"; tier: Tier }
+  | { type: "extend"; additionalMs: number }
+  | { type: "stop"; reason?: string }
   | { type: "deny"; reason: string };
 
 export interface WorkerRequest {
@@ -40,6 +44,17 @@ export interface SignalEvent {
   payload: unknown;
 }
 
+export interface TimeoutDiagnostic {
+  requestId: string;
+  totalBudgetMs: number;
+  attemptBudgetMs: number;
+  maxRecoveryBudgetMs: number;
+  elapsedMs: number;
+  lastActivity: string;
+  currentTool: string;
+  outputSummary: string;
+}
+
 export interface WorkerSnapshot {
   id: string;
   title: string;
@@ -52,6 +67,11 @@ export interface WorkerSnapshot {
   startedAt?: number;
   endedAt?: number;
   latestFinding?: string;
+  liveText?: string;
+  liveThinking?: string;
+  liveTool?: string;
+  lastActivity?: string;
+  timeoutDiagnostic?: TimeoutDiagnostic;
   result?: string;
   error?: string;
   cancelReason?: string;
