@@ -5,6 +5,7 @@ import { WorkerManager } from "./src/runtime/worker-manager.js";
 import { formatDteamConfigWarning, loadDteamConfig, type DteamConfigStatus } from "./src/session/model-config.js";
 import type { DteamParams, ParentEvent } from "./src/runtime/types.js";
 import { renderWorkerDetail, renderWorkerList } from "./src/tui/dteam-dialog.js";
+import { setupI18n, t } from "./src/tui/i18n.js";
 import { confirmWorkerCancellation } from "./src/tui/cancel.js";
 
 function errorResult(message: string) {
@@ -30,7 +31,7 @@ function managerFor(
     onParentEvent: (event) => {
       sendParentEvent(pi, event, ctx.hasUI);
       const active = current.manager?.active().length ?? 0;
-      ctx.ui?.setStatus?.("dteam", active > 0 ? `${active} worker active` : undefined);
+      ctx.ui?.setStatus?.("dteam", active > 0 ? t("status.active", { count: active }) : undefined);
     },
     onChange: () => current.render?.(),
   });
@@ -38,9 +39,9 @@ function managerFor(
   return manager;
 }
 
-function sendParentEvent(pi: ExtensionAPI, event: ParentEvent, hasUI = true): void {
+export function sendParentEvent(pi: ExtensionAPI, event: ParentEvent, hasUI = true): void {
   const text = JSON.stringify({ dteam: event.type, workerId: event.workerId, title: event.title, ...((event.payload && typeof event.payload === "object") ? event.payload : { payload: event.payload }) });
-  pi.sendMessage?.({ customType: "dteam-worker", content: text, display: true, details: event }, { triggerTurn: hasUI, deliverAs: hasUI ? "followUp" : "nextTurn" });
+  pi.sendMessage?.({ customType: "dteam-worker", content: text, display: false, details: event }, { triggerTurn: hasUI, deliverAs: hasUI ? "followUp" : "nextTurn" });
 }
 
 function validateResponse(raw: any): { ok: true; value: any } | { ok: false; error: string } {
@@ -57,6 +58,7 @@ function isParams(value: unknown): value is DteamParams {
 
 export default function registerDteam(pi: ExtensionAPI) {
   const runtime: { manager?: WorkerManager; config?: DteamConfigStatus; render?: () => void } = {};
+  setupI18n(pi, () => runtime.render?.());
 
   pi.on("session_start", (_event, ctx) => {
     runtime.manager?.shutdown();
@@ -97,7 +99,7 @@ export default function registerDteam(pi: ExtensionAPI) {
         const manager = managerFor(pi, runtime, ctx, config);
         if (rawParams.type === "dispatch") {
           const accepted = manager.dispatch(rawParams.workers);
-          ctx.ui?.setStatus?.("dteam", `${manager.active().length} worker active`);
+          ctx.ui?.setStatus?.("dteam", t("status.active", { count: manager.active().length }));
           return { content: [{ type: "text" as const, text: JSON.stringify({ accepted }, null, 2) }], details: { accepted } };
         }
         if (typeof rawParams.workerId !== "string" || typeof rawParams.requestId !== "string" || !rawParams.response || typeof rawParams.response.type !== "string") return errorResult("respond 需要 workerId、requestId 和 response");
@@ -128,28 +130,32 @@ export default function registerDteam(pi: ExtensionAPI) {
           return {
             render: (width: number) => {
               const items = manager.list();
-              if (detail && items[selected]) return renderWorkerDetail(items[selected]!, theme, width);
-              return renderWorkerList(items, theme, selected, width);
+              if (detail && items[selected]) return renderWorkerDetail(items[selected]!, theme, width, t);
+              return renderWorkerList(items, theme, selected, width, t);
             },
             invalidate: () => {},
             handleInput: (data: string) => {
               const items = manager.list();
+              const worker = selectedWorker();
               if (data === "\u001b" || data === "q") return detail ? (detail = false) : done(undefined);
               if (!detail && (data === "\u001b[B" || data === "j")) selected = Math.min(Math.max(0, items.length - 1), selected + 1);
               if (!detail && (data === "\u001b[A" || data === "k")) selected = Math.max(0, selected - 1);
-              if (!detail && data === "\r" && selectedWorker()) detail = true;
-              if (detail && data === "s" && selectedWorker() && ["queued", "running", "waiting"].includes(selectedWorker()!.state)) {
-                void ctx.ui.input("Steering", "给 worker 的插队指令")
-                  .then((instruction) => { if (instruction) return manager.steer(selectedWorker()!.id, instruction); })
+              if (!detail && data === "\r" && worker) detail = true;
+              if (detail && data === "s" && worker && ["queued", "running", "waiting"].includes(worker.state)) {
+                void ctx.ui.input(t("steering.title"), t("steering.placeholder"))
+                  .then((instruction) => { if (instruction) return manager.steer(worker.id, instruction); })
                   .catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
               }
-              if (detail && data === "c" && selectedWorker() && ["queued", "running", "waiting"].includes(selectedWorker()!.state)) {
-                void confirmWorkerCancellation(ctx.ui, manager, selectedWorker()!.id, selectedWorker()!.title)
+              if (detail && data === "c" && worker && ["queued", "running", "waiting"].includes(worker.state)) {
+                void confirmWorkerCancellation(ctx.ui, manager, worker.id, worker.title, t)
                   .catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
               }
             },
           };
-        }, { overlay: true, overlayOptions: { maxHeight: "85%" } });
+        }, {
+          overlay: true,
+          overlayOptions: { anchor: "center", width: "100%", maxHeight: "85%", margin: 1 },
+        });
       } finally {
         runtime.render = undefined;
       }

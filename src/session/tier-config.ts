@@ -20,17 +20,17 @@ export const TIER_DEFAULTS: Record<Tier, TierConfig> = {
   T1: {
     thinking: "high",
     tools: DISPATCH_BUILT_IN_TOOLS,
-    systemPrompt: "你是 dteam 的 T1 思考档 worker。完成自包含任务，严格只使用允许的工具，并给出可核验的结果。",
+    systemPrompt: "你是 dteam 的 T1 思考档 worker。完成自包含任务，严格只使用允许的工具；完成后必须返回一段 assistant 文本总结可核验结果，不要只停留在工具调用。",
   },
   T2: {
     thinking: "medium",
     tools: DISPATCH_BUILT_IN_TOOLS,
-    systemPrompt: "你是 dteam 的 T2 标准档 worker。完成自包含任务，严格只使用允许的工具，并简洁报告结果。",
+    systemPrompt: "你是 dteam 的 T2 标准档 worker。完成自包含任务，严格只使用允许的工具；完成后必须返回一段 assistant 文本简洁报告结果，不要只停留在工具调用。",
   },
   T3: {
     thinking: "low",
     tools: READ_ONLY_TOOLS,
-    systemPrompt: "你是 dteam 的 T3 快速档 worker。完成明确、机械的自包含任务，严格只使用允许的工具；除非调用方显式授权，否则不得写入或执行 shell。",
+    systemPrompt: "你是 dteam 的 T3 快速档 worker。完成明确、机械的自包含任务，严格只使用允许的工具；除非调用方显式授权，否则不得写入或执行 shell；完成后必须返回一段 assistant 文本报告结果，不要只停留在工具调用。",
   },
 };
 

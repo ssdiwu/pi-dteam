@@ -13,7 +13,7 @@ describe("/dteam cancellation confirmation", () => {
     const manager = { cancel: vi.fn() };
     const ui = { confirm: vi.fn().mockResolvedValue(true) };
     await expect(confirmWorkerCancellation(ui, manager, "w", "worker")).resolves.toBe(true);
-    expect(ui.confirm).toHaveBeenCalledWith("取消 worker", "确认取消 worker？");
+    expect(ui.confirm).toHaveBeenCalledWith("取消 worker", "确认取消 worker「worker」？");
     expect(manager.cancel).toHaveBeenCalledWith("w", "user_cancelled");
   });
 });

@@ -52,6 +52,15 @@ describe("WorkerManager", () => {
     manager.shutdown();
   });
 
+  it("无 assistant 文本会继续尝试 T1 回退", async () => {
+    const noText = { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValueOnce(noText).mockResolvedValueOnce(session("T1 完成"));
+    const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/model" }, T1: { primary: "ctx/model" } } }));
+    const [accepted] = manager.dispatch([{ title: "无文本回退", task: "任务", tier: "T3" }]);
+    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+    expect(manager.get(accepted!.workerId)).toMatchObject({ activeTier: "T1", fallbackTrail: ["T3", "T1"], result: "T1 完成" });
+  });
+
   it("模型候选后缀覆盖 worker thinking，回退保持候选顺序", async () => {
     mockCreateWorkerSession.mockResolvedValue(session("完成"));
     const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/model:high", fallbackModels: ["ctx/fallback:low"] } } }));

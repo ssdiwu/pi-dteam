@@ -1,35 +1,90 @@
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { WorkerSnapshot } from "../runtime/types.js";
+import { t, type Translate } from "./i18n.js";
 
-export function renderWorkerList(items: WorkerSnapshot[], theme?: any, selected = 0, width = 80): string[] {
-  const title = theme?.fg ? theme.fg("accent", theme.bold("dteam workers")) : "dteam workers";
-  const lines = [title, ""];
-  if (items.length === 0) lines.push("(no workers)");
-  for (const [index, item] of items.entries()) {
-    const marker = index === selected ? ">" : " ";
-    const trail = item.fallbackTrail.length > 1 ? ` ${item.fallbackTrail.join(" → ")}` : ` ${item.activeTier}`;
-    const elapsed = item.startedAt ? `${Math.max(0, (item.endedAt ?? Date.now()) - item.startedAt)}ms` : "queued";
-    const line = `${marker} ${item.title} [${item.id}] ${item.state}${trail} ${elapsed}`;
-    lines.push(theme?.fg ? theme.fg(index === selected ? "accent" : "text", line.slice(0, width)) : line.slice(0, width));
-    if (item.latestFinding) lines.push(`    finding: ${item.latestFinding}`);
+type ThemeLike = Pick<Theme, "fg" | "bold">;
+type ThemeColor = Parameters<Theme["fg"]>[0];
+
+export function renderWorkerList(items: WorkerSnapshot[], theme?: ThemeLike, selected = 0, width = 80, translate: Translate = t): string[] {
+  const active = items.filter((item) => ["queued", "running", "waiting"].includes(item.state)).length;
+  const lines = [
+    paint(theme, "muted", translate("dialog.count", { count: items.length, active })),
+    "",
+  ];
+
+  if (items.length === 0) {
+    lines.push(paint(theme, "muted", translate("dialog.noWorkers")));
+  } else {
+    for (const [index, item] of items.entries()) {
+      const marker = index === selected ? "▶" : " ";
+      const tier = item.requestedTier === item.activeTier ? item.activeTier : `${item.requestedTier} → ${item.activeTier}`;
+      lines.push(`${marker} ${safeText(item.title) || translate("dialog.untitled")}`);
+      lines.push(`  ${translate(`state.${item.state}`)} · ${translate("dialog.tier", { value: tier })} · ${translate("dialog.elapsed", { value: elapsed(item, translate) })}`);
+      lines.push(`  ${translate("dialog.task", { value: safeText(item.task) || translate("dialog.noTask") })}`);
+      if (item.latestFinding) lines.push(`  ${translate("dialog.finding", { value: safeText(item.latestFinding) })}`);
+      if (item.error) lines.push(`  ${translate("dialog.error", { value: safeText(item.error) })}`);
+      if (index < items.length - 1) lines.push("");
+    }
   }
-  lines.push("", "↑/↓ or j/k select · Enter details · Esc close");
-  return lines;
+
+  lines.push("", paint(theme, "dim", translate("dialog.controls.list")));
+  return frame(lines, translate("dialog.listTitle"), theme, width);
 }
 
-export function renderWorkerDetail(item: WorkerSnapshot, theme?: any, width = 80): string[] {
-  const color = (name: string, text: string) => theme?.fg ? theme.fg(name, text) : text;
-  return [
-    color("accent", theme?.bold?.(`dteam / ${item.title}`) ?? `dteam / ${item.title}`),
+export function renderWorkerDetail(item: WorkerSnapshot, theme?: ThemeLike, width = 80, translate: Translate = t): string[] {
+  const active = ["queued", "running", "waiting"].includes(item.state);
+  const lines = [
+    translate("dialog.id", { value: safeText(item.id) }),
+    translate("dialog.state", { value: translate(`state.${item.state}`) }),
+    translate("dialog.tier", { value: `${item.requestedTier} → ${item.activeTier}` }),
+    translate("dialog.elapsed", { value: elapsed(item, translate) }),
+    translate("dialog.tools", { value: item.activeTools.map(safeText).join(", ") || translate("dialog.none") }),
+    translate("dialog.fallback", { value: item.fallbackTrail.length > 1 ? item.fallbackTrail.map(safeText).join(" → ") : translate("dialog.none") }),
+    translate("dialog.task", { value: safeText(item.task) || translate("dialog.noTask") }),
+    ...(item.latestFinding ? [translate("dialog.finding", { value: safeText(item.latestFinding) })] : []),
+    ...(item.result ? [translate("dialog.result", { value: safeText(item.result) })] : []),
+    ...(item.error ? [translate("dialog.error", { value: safeText(item.error) })] : []),
     "",
-    `id: ${item.id}`,
-    `state: ${item.state}`,
-    `tier: ${item.requestedTier} → ${item.activeTier}`,
-    `tools: ${item.activeTools.join(", ")}`,
-    `task: ${item.task}`.slice(0, width),
-    ...(item.latestFinding ? [`finding: ${item.latestFinding}`] : []),
-    ...(item.result ? [`result: ${item.result}`] : []),
-    ...(item.error ? [`error: ${item.error}`] : []),
-    "",
-    ...(["queued", "running", "waiting"].includes(item.state) ? ["s steering · c cancel (confirm) · Esc back"] : ["read-only archive · Esc back"]),
+    paint(theme, "dim", translate(active ? "dialog.controls.running" : "dialog.controls.archive")),
   ];
+  return frame(lines, translate("dialog.detailTitle", { title: safeText(item.title) || translate("dialog.untitled") }), theme, width);
+}
+
+function safeText(value: string): string {
+  return value
+    .replace(/\r\n?|\n/g, " ↵ ")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "�");
+}
+
+function elapsed(item: WorkerSnapshot, translate: Translate = t): string {
+  if (!item.startedAt) return translate("state.queued");
+  return `${Math.max(0, (item.endedAt ?? Date.now()) - item.startedAt)}ms`;
+}
+
+function paint(theme: ThemeLike | undefined, name: ThemeColor, text: string): string {
+  return typeof theme?.fg === "function" ? theme.fg(name, text) : text;
+}
+
+function bold(theme: ThemeLike | undefined, text: string): string {
+  return typeof theme?.bold === "function" ? theme.bold(text) : text;
+}
+
+function frame(lines: string[], title: string, theme: ThemeLike | undefined, width: number): string[] {
+  const innerWidth = Math.max(20, width);
+  const bodyWidth = Math.max(0, innerWidth - 2);
+  const titleText = truncateToWidth(` ${safeText(title)} `, bodyWidth);
+  const titlePadding = Math.max(0, innerWidth - visibleWidth(titleText) - 2);
+  const leftPadding = Math.floor(titlePadding / 2);
+  const rightPadding = titlePadding - leftPadding;
+  const border = (text: string) => paint(theme, "border", text);
+  const top = border("╭" + "─".repeat(leftPadding))
+    + paint(theme, "accent", bold(theme, titleText))
+    + border("─".repeat(rightPadding) + "╮");
+  const body = lines.map((line) => {
+    const content = truncateToWidth(line.replace(/\r\n?|\n/g, " ↵ "), bodyWidth);
+    const padding = " ".repeat(Math.max(0, bodyWidth - visibleWidth(content)));
+    return border("│") + content + padding + border("│");
+  });
+  return [top, ...body, border("╰" + "─".repeat(Math.max(0, innerWidth - 2)) + "╯")];
 }

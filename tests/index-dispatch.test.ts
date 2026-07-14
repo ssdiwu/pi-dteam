@@ -4,7 +4,7 @@ vi.mock("../src/session/model-config.js", () => ({
   loadDteamConfig: mockLoadDteamConfig,
   formatDteamConfigWarning: vi.fn((status: any) => status.errors.join(";")),
 }));
-import registerDteam from "../index.js";
+import registerDteam, { sendParentEvent } from "../index.js";
 
 function register() {
   const pi = {
@@ -59,6 +59,12 @@ describe("dteam 0.8 extension entry", () => {
     const response = await tool.execute("call", { type: "dispatch", workers: Array.from({ length: count }, (_, i) => ({ title: String(i), task: "x", tier: "T3" })) }, undefined, undefined, context());
     expect(response.isError).toBe(true);
     expect(response.content[0].text).toContain("workers 数量必须是 1–32");
+  });
+
+  it("worker 内部事件不直接展示到主对话，避免重复显示", () => {
+    const pi = { sendMessage: vi.fn() };
+    sendParentEvent(pi as any, { type: "failed", workerId: "w", title: "审查", payload: { error: "failed", state: "failed" } } as any);
+    expect(pi.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ customType: "dteam-worker", display: false }), expect.any(Object));
   });
 
   it("respond 缺少字段或分支字段时 fail-closed", async () => {
