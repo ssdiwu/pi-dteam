@@ -1,6 +1,6 @@
 # 25-swarm-ide 蜂群 IM 编排参考
 
-> **0.7 状态注记（2026-07-10）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter、UI 或 `/dteam` 面板，均是调研时用于对照的 0.6 历史形态；当前 dteam 只保留 T1/T2/T3 fresh `dteam_dispatch`，相关源码、命令和 UI 已删除。以下内容只作机制比较，不描述当前实现。
+> **0.8 状态注记（2026-07-14）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter，均是调研时用于对照的 0.6 历史形态，已删除。当前 dteam 已实现会话级后台 Worker Manager、唯一工具 `dteam`（dispatch/respond）、有类型 signal 和 `/dteam` 实时管理面板；以下内容只作机制比较，不描述当前实现。
 
 > `chmod777john/swarm-ide`：把多 agent 协作建模成"微信式 IM"的开源蜂群平台。极简原语 `create`（创建子 agent）+ `send`（向任意 agent 发消息）+ `wakeup`（消息唤醒），拓扑在运行中自演化，人类是特殊 agent 可介入任意层级。独立 Web 平台（Bun + Next.js + Drizzle/PostgreSQL + Redis Streams + SSE），不是 Pi 扩展。
 > 仓库：https://github.com/chmod777john/swarm-ide
@@ -53,7 +53,7 @@ swarm-ide 整体路线（动态 create 任意 role agent + 液态拓扑 + IM 即
 | 咒语 | 模式 | dteam 对应 |
 |---|---|---|
 | `tree-executor` | 多级树递归（父→子→父汇总） | dteam 不做多层级（1 层调度），但"汇报+汇总"形态接近 `check` 收口 |
-| `router-experts` | 按关键词路由到专家 | 接近 dteam Orchestrator 按信号选角色 |
+| `router-experts` | 按关键词路由到专家 | 仅印证主代理按任务复杂度选择 T1/T2/T3，不引入专家角色市场 |
 | `map-reduce` | 并行分片→汇总 | 接近 dteam Adaptive Concurrency + Peer Forwarding |
 | `critic-loop` | 生成→批评→改写循环 | 接近 dteam `build → check` 回路 |
 
@@ -63,21 +63,21 @@ swarm-ide 整体路线（动态 create 任意 role agent + 液态拓扑 + IM 即
 
 | swarm-ide 做法 | 冲突点 | dteam 立场 |
 |---|---|---|
-| `create` 动态创建任意 role 子 agent | 违反固定五角色 | ADR 0002：`explore/design/build/check/close` 写死，不做 agent market（代理市场） |
+| `create` 动态创建任意 role 子 agent | 超出当前 T1/T2/T3 边界 | dteam 不做 agent market（代理市场）；档位和工具权限由主代理显式选择 |
 | 液态拓扑 / 嵌套 agent / agent 主动雇佣下属 | 多层 Hierarchical Delegation（层级委派） | dteam 故意 1 层调度；"自发生长"指任务从执行涌现，不是拓扑自演化 |
-| IM 即编排（所有对话是群，messages 表驱动） | dteam 是 Signal Store（TTL 衰减），不是持久 messages | Signal Store 随编排循环结束清理，不落项目目录（见术语表） |
+| IM 即编排（所有对话是群，messages 表驱动） | dteam 使用当前会话 Signal Log、Worker Snapshot 和 RequestState，不做持久 messages | 当前会话结束或 reload 后不 resume，不落项目目录 |
 | 独立 Web 平台 + PostgreSQL 持久化 + 长驻 runner | dteam 是 Pi extension（扩展），进程内按需召唤 | ADR 0004：不做 resume / 默认持久化；worker 是进程内 `AgentSession`，不是长驻 OS runner |
-| 人 = 特殊 agent，介入任意 worker 对话 | swarm-ide 是长驻 agent 平台，人天然可与任意 agent 聊；dteam worker 是一次性短驻 session | dteam 用户通过主 LLM 交互，不直接和 worker 聊；但 dteam 已有 `help` + `injectionQueue` 短驻反馈回路（`leaf.ts`），能在单 goal 内做到"人补充信息注入 worker"，不需要 swarm-ide 的全量直接对话 |
+| 人 = 特殊 agent，介入任意 worker 对话 | swarm-ide 是长驻 agent 平台，人天然可与任意 agent 聊；dteam worker 是一次性短驻 session | 当前 dteam 用户通过主 LLM 交互，不直接和 worker 聊；主代理经结构化 `dteam.respond` 回应 context/tools/decision 或 timeout recovery，不引入 `help`、`injectionQueue` 旧回路 |
 | Redis Streams / Upstash 跨进程实时 | dteam 单进程内 `session.subscribe` | 不引入跨进程消息中间件 |
 
-### 3.2 同思路（dteam 已有，印证方向）
+### 3.2 同思路（旧 0.6 dteam 对照；当前实现以 0.8 文档为准）
 
-| swarm-ide 机制 | dteam 0.6.0 对应 | 关系 |
+| swarm-ide 机制 | 旧 dteam 0.6.0 对应 | 关系 |
 |---|---|---|
-| `AgentEventBus` per-agent channel + subscribe | `session.subscribe` 承接 worker 事件 | **构成**：dteam 已有等价机制（`orchestrator-loop.ts` 的 `attachSubscribeToStore` 已挂 worker `turn_end`） |
-| `send` 触发目标 agent wake | worker 结果/信号实时回 Orchestrator | **构成**：dteam 信号回路同构 |
+| `AgentEventBus` per-agent channel + subscribe | 当前 `session.subscribe` 投影 worker 事件 | **已有局部机制**：0.8 Worker Manager 将事件投影为有界 Snapshot，不恢复旧 `orchestrator-loop.ts` / Store |
+| `send` 触发目标 agent wake | worker 结果/结构化 signal 回主代理 | **部分借鉴**：当前通过 parent event 通知，阻塞回应由 `RequestState` deferred result 恢复，不存在 Orchestrator 回路 |
 | 同 agent 串行 / 不同 agent 并行 | Adaptive Concurrency（自适应并发） | **不对应**：swarm-ide 串行的是"同一个长驻 agent"；dteam 并发召唤的是多个**新** worker 实例，不存在"同一 worker 被并发召两次"，所以该约束不迁移 |
-| spells 用自然语言咒语编排 | LLM-Driven Orchestration（每轮 LLM 决策） | **构成**：dteam Orchestrator 本质就在"念咒语"，且更彻底（开放式 LLM 决策，非固定模板） |
+| spells 用自然语言咒语编排 | 主代理按需选择 `dteam` dispatch/respond | **部分借鉴**：当前不恢复 LLM-Driven Orchestration 循环，由主代理直接负责路由与 recovery 决策 |
 | `get_skill` 按需加载技能 | dteam `reference_architecture` 工具 | **构成**：同思路 |
 
 ### 3.3 候选（参考性观察，非实施计划）
@@ -86,26 +86,26 @@ swarm-ide 整体路线（动态 create 任意 role agent + 液态拓扑 + IM 即
 
 #### A. 可观察性——大部分已构成
 
-0.6 时曾以 `UIWorkerState` 对照 swarm-ide 事件表；0.7 已删除独立 UI/Signal 状态，不再维护这些事件。当前只返回 `DispatchResult` 并用 `ctx.ui` status/notify 做单次反馈，因此 `agent.created`/`group.created`/`interrupt_all`/`db.write` 仍无对应物，也不借。
+0.6 时曾以 `UIWorkerState` 对照 swarm-ide 事件表；旧独立 UI/Signal 状态已删除。当前 0.8 由 Worker Manager 维护有类型 signal 和 Snapshot，`/dteam` 展示实时状态；不对应 `agent.created`/`group.created`/`interrupt_all`/`db.write`，也不借。
 
-唯一缺的**轮次维度**明确不做：用户对一次 dteam 的感知粒度是三段（开启 dteam → 完成工作 → 验收 check 收口），worker 内部工具调用轮次属于黑箱（见术语表 `Live Loop View`）。同理，debug 模式下钻 worker 完整 `llm_history` 也不做。
+唯一缺的**轮次维度**明确不做：用户对一次 dteam 的感知粒度是后台受理 → 完成/等待 → 主代理验收，worker 内部工具调用轮次属于黑箱；当前 `/dteam` 只展示有界实时 Snapshot，不提供完整 `llm_history` 下钻。
 
 #### B. 协议强化——单 worker 工具循环上限（仅观察）
 
-swarm-ide 用 `maxToolRounds = 3` 约束单个 agent 单轮推理内的工具循环轮数。dteam 现在只有 Orchestrator 级 `maxRounds`（召唤轮数上限），没有单 worker 内部工具循环上限——**如果未来出现 worker 烧 token 不出来的真实 case**，可参考这个解法。是否做、怎么做，留待真实痛点出现时再定（且需先确认 Pi SDK `createAgentSession` 能否配置该上限）。
+swarm-ide 用 `maxToolRounds = 3` 约束单个 agent 单轮推理内的工具循环轮数。当前 dteam 使用每次 attempt 五分钟、timeout recovery 十分钟累计上限和 `maxToolRounds` 配置约束；跨档升级仍由主代理经 `respond` 决定。更细的循环策略留待真实痛点出现时再定。
 
-swarm-ide 的 `didSend` reminder（未发消息就追问）在 dteam 无对应痛点：dteam 已有 `turn_end → progress` 自动信号兜底（`attachSubscribeToStore`）+ `check` 收口，结构上不会静默。
+swarm-ide 的 `didSend` reminder（未发消息就追问）在当前 dteam 无对应痛点：Worker Manager 有界投影 message/tool 事件，完成、失败和 timeout 通过 parent event 通知主代理。
 
 #### C. 模式库——spells 作为 reference_architecture 素材
 
-dteam 已有 `reference_architecture` 工具（`reference-data.ts`），现仅注入给 `design` 角色。swarm-ide 的 4 个 spells（tree / router / map-reduce / critic-loop）是现成的协作形态描述，**未来如果 dteam 需要补这块模式词汇**，可参考。当前不作为实施任务。边界：spells 是参考素材，不升格为运行时模式（不违反 ADR 0005 的 LLM-Driven Orchestration）；是否扩大到其他角色是独立决策。
+swarm-ide 的 4 个 spells（tree / router / map-reduce / critic-loop）是协作形态描述，**未来若 dteam 需要补模式词汇**可参考。当前 dteam 不把这些模式升格为运行时编排，也不引入角色市场或 Orchestrator 循环；路由仍由主代理按 T1/T2/T3 和任务边界决定。
 
 ## 4. 可借鉴的具体文件
 
 | 文件 | 价值 | 借鉴方式 |
 |---|---|---|
 | `backend/src/runtime/event-bus.ts` | per-agent ring buffer + `getSince(afterId)` 增量拉取 | **参考**：dteam `session.subscribe` 事件设计可对照 |
-| `backend/src/runtime/ui-bus.ts` | workspace 级 UI 事件契约 | **参考**：dteam `UIStore` 事件粒度（但大部分已构成，见 §3.3-A） |
+| `backend/src/runtime/ui-bus.ts` | workspace 级 UI 事件契约 | **参考**：dteam Worker Snapshot 事件粒度（不引入 workspace 级 UI bus） |
 | `spells/*.md` | 4 个自然语言编排形态描述 | **素材**：未来补 `reference_architecture` 模式词汇时参考 |
 
 ## 5. 决策记录

@@ -1,6 +1,6 @@
 # 26-Gemma concurrent 本地多 agent 并行参考
 
-> **0.7 状态注记（2026-07-10）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter、UI 或 `/dteam` 面板，均是调研时用于对照的 0.6 历史形态；当前 dteam 只保留 T1/T2/T3 fresh `dteam_dispatch`，相关源码、命令和 UI 已删除。以下内容只作机制比较，不描述当前实现。
+> **0.8 状态注记（2026-07-14）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter，均是调研时用于对照的 0.6 历史形态，已删除。当前 dteam 已实现会话级后台 Worker Manager、唯一工具 `dteam`（dispatch/respond）、有类型 signal 和 `/dteam` 实时管理面板；以下内容只作机制比较，不描述当前实现。
 
 > 调研对象：[`google-gemma/cookbook/apps/concurrent`](https://github.com/google-gema/cookbook/tree/main/apps/concurrent)（Google Gemma 官方 2026-06-17 发布）
 > 来源：[微信文章](https://mp.weixin.qq.com/s/6-QZZ4nv0gfM1jLccHewTg) + GitHub README
@@ -10,7 +10,7 @@
 
 **部分值得，价值在印证而非架构。**
 
-cookbook 的编排形态（"orchestrator 一次性拆成 JSON 任务列表 → fan-out 给 N 个同质 worker"）与 dteam 当前骨架 ADR 0005 第 8 条「无预先 Task Plan，召唤轨迹即计划」**直接冲突**，整体形态明确不借。它真正有价值的是用可复现代码证明了一件事：**本地 MoE 推理 + 共享权重 slot（`-np N`）让多 agent 并发的边际成本趋近零**——这给 dteam 的 Multi-Provider Routing 提供了一个「本地 provider 降级候选」的远期备查项，不进路线图优先级。
+cookbook 的编排形态（"orchestrator 一次性拆成 JSON 任务列表 → fan-out 给 N 个同质 worker"）与旧 dteam 0.6 编排草案的“无预先 Task Plan”讨论不同；该历史形态不代表当前 0.8。当前 dteam 以 ADR 0008/0012 的主代理路由、T1/T2/T3、同档候选和相邻升级为准，整体同质编排形态明确不借。它真正有价值的是用可复现代码证明了一件事：**本地 MoE 推理 + 共享权重 slot（`-np N`）让多 agent 并发的边际成本趋近零**——这给 dteam 的 Multi-Provider Routing 提供了一个「本地 provider 降级候选」的远期备查项，不进路线图优先级。
 
 ## 2. 核心机制速览
 
@@ -25,14 +25,14 @@ cookbook 的编排形态（"orchestrator 一次性拆成 JSON 任务列表 → f
 
 ### 3.1 设计冲突（明确不借）
 
-- **「先规划 JSON 任务列表再 fan-out」与 dteam 自发生长冲突**：cookbook 的 orchestrator 一次性把目标拆成固定 JSON 列表再分发给固定 N 个 worker，本质是「预先 plan + fan-out 执行」。dteam ADR 0005 第 8 条明确「无预先 Task Plan，召唤轨迹即计划」，第 17 条「LLM-Driven Orchestration 每轮一次 LLM 调用决定召唤谁」。照搬这个「先 plan 再分发」会直接退化回 0.5.0 的 planner 穷举（已被推翻，见术语表 §2.5）。**不借**。
-- **「N 个同质 worker 无状态并行」与 dteam 信号驱动异构召唤冲突**：cookbook 的 worker 是一次性 fan-out，不回流信号、不根据中间结果调整。dteam 的 worker 通过 `worker_sendSignal` 发 `progress/found/blocked/help` 到 Signal Store，Orchestrator 每轮根据信号快照决定下一步召唤哪个固定角色（explore/design/build/check/close）。照搬无回流 fan-out 会让 dteam 退化成无脑并行，丢掉自发生长和强制 check 收口。**不借**。
-- **「固定 N 同质 worker 池」与「固定五角色异构」定位不同**：cookbook 开 10 个同质 worker 干同类活；dteam 固定五角色异构、工具权限分层（build 唯一能 edit）。这是定位差异，不借其同质并发池形态。
+- **「先规划 JSON 任务列表再 fan-out」与当前主代理路由边界不同**：cookbook 的 orchestrator 一次性把目标拆成固定 JSON 列表再分发给固定 N 个 worker，本质是「预先 plan + fan-out 执行」。当前 dteam 由主代理直接选择独立 dispatch，不恢复旧 0.6 的 LLM 编排循环或任务计划图；同质预先分发形态**不借**。
+- **「N 个同质 worker 无状态并行」与旧 0.6 dteam 的信号驱动异构召唤不同**：cookbook 的 worker 是一次性 fan-out，不回流信号、不根据中间结果调整。旧 0.6 dteam 曾通过 `worker_sendSignal`、Signal Store 和 Orchestrator 组织固定角色；该形态已删除。当前 0.8 dteam 由主代理路由，Worker Manager 投影有界 Snapshot，timeout recovery 由主代理经 `respond` 决定。照搬同质并发池仍会忽略当前的权限、预算和验收边界，**不借**。
+- **「固定 N 同质 worker 池」与旧 0.6「固定五角色异构」定位不同**：cookbook 开 10 个同质 worker 干同类活；当前 0.8 dteam 使用 T1/T2/T3 档位和按需工具授权，不再维护五角色。这里仍不借同质并发池形态。
 
 ### 3.2 同思路（已有，印证方向）
 
-- **LLM 做结构化任务拆解/分发**：cookbook orchestrator 输出 JSON plan；dteam Orchestrator LLM 调 `orchestrator_decide` customTool 输出结构化决策（summon/check/done/fail + role + task）。印证 dteam「LLM-Driven Orchestration + tool calling 替代自由文本解析」方向对（见 `orchestrator-loop/decision-tool.ts`）。
-- **并发 worker + 实时可视化**：cookbook 终端网格 + dashboard 实时显示 token 速率；dteam 有 Live Loop View + widget + `/dteam` panel 展示 Orchestrator Loop 推进和 Signal Store 快照。方向印证（见术语表 §5 Live Loop View）。
+- **LLM 做结构化任务拆解/分发**：cookbook orchestrator 输出 JSON plan；当前 dteam 的 `dteam` 工具使用结构化 `dispatch/respond` schema，由主代理决定 worker、tier 与 recovery action。可复用的是结构化 tool calling，不是旧 `orchestrator_decide` 循环。
+- **并发 worker + 实时可视化**：cookbook 终端网格 + dashboard 实时显示 token 速率；当前 0.8 dteam 的 `/dteam` panel 展示 Worker Snapshot 的实时文本、thinking、工具活动和 timeout 诊断。方向有借鉴，但不引入 Live Loop View、widget 或 Orchestrator。
 - **scenario 注册式扩展**：cookbook `scenarios.py` 模板化扩展；dteam 当前以 `tier-config.ts` 固定 T1/T2/T3，不做角色市场或场景注册。三档已足够，无需吸收。
 
 ### 3.3 候选（值得吸收）

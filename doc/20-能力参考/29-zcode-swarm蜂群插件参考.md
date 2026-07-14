@@ -1,6 +1,6 @@
 # 29-ZCode Swarm 蜂群插件参考
 
-> **0.7 状态注记（2026-07-10）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter、UI 或 `/dteam` 面板，均是调研时用于对照的 0.6 历史形态；当前 dteam 只保留 T1/T2/T3 fresh `dteam_dispatch`，相关源码、命令和 UI 已删除。以下内容只作机制比较，不描述当前实现。
+> **0.8 状态注记（2026-07-14）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter，均是调研时用于对照的 0.6 历史形态，已删除。当前 dteam 已实现会话级后台 Worker Manager、唯一工具 `dteam`（dispatch/respond）、有类型 signal 和 `/dteam` 实时管理面板；以下内容只作机制比较，不描述当前实现。
 
 > 调研对象：`ashelylinluo/zcode-plugin-swarm`（ZCode 桌面版多 Agent 编排插件，MIT，v0.1.0）
 > 一手源：插件发布包 `zcode-agent-teams-plugin.zip` 解压源码（skills/agents/src/lib/commands）+ `security-architecture-review-skill.md`
@@ -75,7 +75,7 @@ skill 还用“上下文重叠度”决定续传还是新开：研究与实现�
 ### 4.1 明确吸收
 
 - **主模型 owner，不外包理解**：T1 必须自己理解 worker 结果后再路由/综合，不能把 worker 摘要原样转交给下一个 worker。
-- **集中派发而非竞争认领**：dteam 采用主模型主动 `dteam_dispatch`，对应 coordinator 星型，而非 swarm 抢单。
+- **集中派发而非竞争认领**：dteam 采用主模型主动调用 `dteam({ type: "dispatch" })`，对应 coordinator 星型，而非 swarm 抢单。
 - **低档模型做机械活**：群聊的 flash 实践印证 T3 快速档的真实价值。
 - **fresh 验收**：验证别人刚写的产出要新开 session；红队 prompt 可作为 T1 只读验收的严格度参考。
 
