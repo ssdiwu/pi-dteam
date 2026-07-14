@@ -93,6 +93,21 @@ describe("dispatch", () => {
     expect(mockCreateWorkerSession.mock.calls.map(([options]) => options.tier)).toEqual(["T3", "T3"]);
   });
 
+  it("同档候选的 thinking 后缀会拆为模型 ID 与思考强度", async () => {
+    mockCreateWorkerSession.mockResolvedValue(sessionWithOutput("带后缀候选完成"));
+
+    const result = await dispatch(
+      { task: "读取配置", tier: "T3" },
+      context({ tierModelRoutes: { T3: { primary: "ctx/model:high" } } }),
+    );
+
+    expect(result).toMatchObject({ status: "done", model: "ctx/model:high", thinking: "high" });
+    expect(mockCreateWorkerSession).toHaveBeenCalledWith(expect.objectContaining({
+      modelStr: "ctx/model",
+      thinkingLevel: "high",
+    }));
+  });
+
   it("T3 硬失败不再自动跨档，返回 failed 由主代理决定下一步", async () => {
     mockCreateWorkerSession
       .mockRejectedValueOnce(new Error("429 rate limit"));

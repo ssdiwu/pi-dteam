@@ -11,7 +11,7 @@ import { DTEAM_CONFIG } from "./config.js";
 import { formatDuration } from "./duration.js";
 import { AdaptiveConcurrency } from "./dispatch/concurrency.js";
 import { isRateLimitError, tierModelCandidates } from "./dispatch/model-routing.js";
-import { TIER_MODEL_ROUTES, getTierThinking, getTierTools } from "./session/tier-config.js";
+import { TIER_MODEL_ROUTES, getTierThinking, getTierTools, parseTierModelCandidate } from "./session/tier-config.js";
 import type { DispatchAttempt, DispatchRequest, DispatchResult, Tier, TierModelRoutes } from "./types/dispatch.js";
 import { extractLastText } from "./leaf/extract.js";
 
@@ -76,14 +76,17 @@ export async function dispatch(request: DispatchRequest, ctx: DispatchContext): 
     }
 
     for (const model of candidates) {
+      const parsedCandidate = parseTierModelCandidate(model, tier);
+      const candidateThinking = parsedCandidate.modelStr === model ? thinking : parsedCandidate.thinkingLevel;
+      lastThinking = candidateThinking;
       try {
-        const result = await runDispatchAttempt(tier, model, request.task, thinking, tools, ctx);
+        const result = await runDispatchAttempt(tier, parsedCandidate.modelStr, request.task, candidateThinking, tools, ctx);
         return {
           status: "done",
           task: request.task,
           requestedTier: request.tier,
           tier,
-          thinking,
+          thinking: candidateThinking,
           tools,
           result,
           model,
@@ -94,7 +97,7 @@ export async function dispatch(request: DispatchRequest, ctx: DispatchContext): 
       } catch (error) {
         attempts.push({ tier, model, error: errorMessage(error) });
         if (error instanceof DispatchCanceledError) {
-          return failedResult(request, tier, thinking, tools, attempts, startedAt, error.message);
+          return failedResult(request, tier, candidateThinking, tools, attempts, startedAt, error.message);
         }
       }
     }
