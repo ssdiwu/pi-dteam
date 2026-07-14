@@ -5,11 +5,16 @@
 
 ## [Unreleased]
 
-### Changed
-- worker 工作工具调用额度改为按档位分配：T3 60 次、T2 120 次、T1 180 次；`dteam_signal` 不计入额度。
+## [0.8.2] - 2026-07-15
 
 ### Added
 - worker 可通过有类型 signal 向主代理申请一次 +60～+120 次（10 的倍数）的工具额度；追加后仍耗尽时明确交由主代理重新派发 fresh worker，不自动续派。
+
+### Changed
+- worker 工作工具调用额度改为按档位分配：T3 60 次、T2 120 次、T1 180 次；`dteam_signal` 不计入额度。
+
+### Fixed
+- 修复历史 `dispatch` 路径未解析 `provider/model[:thinking]` 模型候选后缀，确保模型 ID 与思考强度正确传入 fresh worker。
 
 ## [0.8.1] - 2026-07-14
 
