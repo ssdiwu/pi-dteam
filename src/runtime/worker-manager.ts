@@ -240,8 +240,14 @@ export class WorkerManager {
     const timeoutMs = this.options.timeoutMs ?? DTEAM_CONFIG.dispatch.workerTimeoutMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let onAbort: (() => void) | undefined;
+    let timedOut = false;
+    let timeoutError: WorkerTimeoutError | undefined;
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { void abortBounded(session).then(() => reject(new WorkerTimeoutError(`worker 执行超时（${timeoutMs}ms）`))); }, timeoutMs);
+      timer = setTimeout(() => {
+        timedOut = true;
+        timeoutError = new WorkerTimeoutError(`worker 执行超时（${timeoutMs}ms）`);
+        void abortBounded(session).then(() => reject(timeoutError));
+      }, timeoutMs);
     });
     const cancelled = new Promise<never>((_, reject) => {
       onAbort = () => reject(new Error("dteam: worker 已取消"));
@@ -250,6 +256,7 @@ export class WorkerManager {
     });
     try {
       await Promise.race([session.prompt(record.task), timeout, cancelled]);
+      if (timedOut) throw timeoutError ?? new WorkerTimeoutError(`worker 执行超时（${timeoutMs}ms）`);
       const result = extractLastText(session.messages as any[]);
       if (result === "(no output)") throw new Error("worker 未返回 assistant 文本");
       return result;

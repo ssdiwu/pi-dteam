@@ -140,6 +140,21 @@ describe("WorkerManager", () => {
     expect(hanging.abort).toHaveBeenCalled();
   });
 
+  it("abort 让 prompt resolve 时仍按超时处理，不误报无 assistant 文本", async () => {
+    let resolvePrompt!: () => void;
+    const session = {
+      prompt: vi.fn(() => new Promise<void>((resolve) => { resolvePrompt = resolve; })),
+      abort: vi.fn(() => { resolvePrompt(); return Promise.resolve(); }),
+      messages: [],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const manager = new WorkerManager(options({ timeoutMs: 5 }));
+    const [accepted] = manager.dispatch([{ title: "超时竞态", task: "任务", tier: "T1" }]);
+    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("timed_out"));
+    expect(manager.get(accepted!.workerId)?.error).toContain("worker 执行超时");
+    expect(manager.get(accepted!.workerId)?.error).not.toContain("assistant 文本");
+  });
+
   it("取消会立即打断 hanging prompt 并释放并发槽", async () => {
     const hanging = { prompt: vi.fn(() => new Promise<void>(() => {})), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
     const limiter = new AdaptiveConcurrency({ min: 1, max: 1, initial: 1, cooldownMs: 1000, successStreakToRise: 99 });

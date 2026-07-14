@@ -222,9 +222,13 @@ async function promptWithToolLimit(
 
   try {
     throwIfCanceled(signal);
+    let timedOut = false;
+    let timeoutFailure: Error | undefined;
     const timeoutResult = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
-        void abortWorker(session).then(() => reject(timeoutError(timeoutMs)));
+        timedOut = true;
+        timeoutFailure = timeoutError(timeoutMs);
+        void abortWorker(session).then(() => reject(timeoutFailure));
       }, timeoutMs);
     });
     const races: Promise<unknown>[] = [session.prompt(task), timeoutResult];
@@ -237,6 +241,7 @@ async function promptWithToolLimit(
       }));
     }
     await Promise.race(races);
+    if (timedOut) throw timeoutFailure ?? timeoutError(timeoutMs);
     if (abortedByToolLimit) {
       await toolLimitAbort;
       throw new Error(`worker 因工具调用上限（${DTEAM_CONFIG.dispatch.maxToolRounds} 次）被中断`);
