@@ -51,6 +51,8 @@ describe("dteam 0.8 extension entry", () => {
     expect(tool.description).toContain("T3/T2 遇硬失败会 fresh 回退 T1");
     expect(tool.description).toContain("type=dispatch");
     expect(tool.description).toContain("type=respond");
+    expect(tool.description).toContain("需 addTools 才能额外调用");
+    expect(tool.description).toContain("respond 只回应 waiting worker 的结构化请求");
   });
 
   it("只注册一个 dteam 工具和同名 /dteam 命令", () => {
