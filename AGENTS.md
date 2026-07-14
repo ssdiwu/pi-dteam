@@ -101,7 +101,7 @@ npm run build
 每次 `Git commit`（Git 提交）只做一件事。
 
 示例：
-- `feat: 实现 dteam_dispatch 分级路由`
+- `feat: 实现 dteam 分级路由`
 - `refactor: 五角色配置改为 T1/T2/T3 档位`
 - `docs: 更新 doc/30-路线图/30-项目路线图.md`
 

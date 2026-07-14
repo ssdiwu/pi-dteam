@@ -5,16 +5,32 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-07-14
+
+### Added
+- 跨档升级改为主代理决策式 `T3 → T2 → T1`（ADR 0012）；同档模型候选仍可自动回退。
+- worker timeout 进入可恢复生命周期：主代理经 `dteam.respond` 选择同档 `retry`、相邻 `escalate`、`extend` 或 `stop`；恢复创建 fresh worker 并注入有长度上限的裁剪摘要。
+- `/dteam` 列表和详情实时展示 worker 文本、思考、当前工具、最后活动和 timeout 诊断。
+
 ### Changed
+- 默认每次 worker attempt 预算为五分钟（`workerTimeoutMs=300000`），同一 worker 在当前会话内的 timeout recovery 累计上限为十分钟（`maxRecoveryBudgetMs=600000`）。
 - 模型候选配置改为 dgoal 同款的 `provider/model[:thinking]` 有序数组；数组后续项作为该档位的回退链。
+- 所有用户可见耗时和 timeout 文案使用 `s` 或 `mXs`，不再显示原始毫秒。
 
 ### Fixed
+- 修复 worker 结果、实时 Snapshot 和 parent event 未统一脱敏的问题；常见密钥、连接串和 Basic Auth 凭据不会进入恢复提示或父代理事件。
+- 修复后台 Worker 的工具调用上限未生效、初始 attempt 未遵守较小总预算、创建 session 期间取消不释放并发槽的问题。
+- 修复重复 request、工具授权 API 异常、外部回调异常和 shutdown 延迟刷新 timer 导致的状态/生命周期问题。
 - 修复 `/dteam` 管理 Modal 无包边、标题和关键 worker 信息的问题；现在显示居中边框、worker 计数、task、状态、档位和有效结果信息。
 - 接入 `pi.i18n.v1` bundle：`/dteam` UI 默认中文，并随 `pi-di18n` locale 切换。
 - 修复 worker 内部事件直接显示在主对话导致的重复消息，并增强 assistant 文本提取与 worker 最终文本约束。
 - 补充 `dteam` 工具描述中的 T1/T2/T3 选档规则、fallback 行为和 dispatch/respond 用法边界。
 - 进一步明确 T3 默认工具白名单、`addTools` 权限边界和 `respond` 不创建新 worker。
 - 修复 worker 超时触发 `abort` 后被误报为“未返回 assistant 文本”的竞态。
+
+### Verification
+- `npm run build`、`npm test`（13 files / 105 tests）、Pi 离线扩展加载和 `git diff --check` 通过。
+- 真实 Pi CLI smoke 成功受理 T3 `read` worker：`workerId=aee2f8a9-152d-4ef6-bdb5-afb15704c89e`、`state=queued`；主会话启用 `dteam,read`，未修改文件。
 
 ## [0.8.0] - 2026-07-14
 
@@ -26,7 +42,7 @@
 - 唯一模型工具从 0.7 的 `dteam_dispatch` 切换为 `dteam({ type: "dispatch" | "respond", ... })`；`/dteam` 保留为用户管理命令。
 - 新增必需的个人模型配置 `~/.pi/agent/pi-dteam.json`：T1/T2/T3 缺一不可；配置缺失或不完整时启动告警并拒绝派发，不再静默回落当前 `ctx.model`。
 - 动态工具采用已注册候选激活并 fail-closed；第三方 extension 候选在无法最小安全加载时降级为 built-in 与 dteam custom 工具。
-- 保留 T1/T2/T3 分级路由、共享并发和 T1 回退；不恢复 workflow、Orchestrator Loop、TTL Signal Store、batch、P2P 或 resume。
+- 保留 T1/T2/T3 分级路由、同档候选回退、共享并发；跨档升级由主代理按 T3→T2→T1 决定。不恢复 workflow、Orchestrator Loop、TTL Signal Store、batch、P2P 或 resume。
 
 ### Fixed
 - 修复 worker 取消或 session shutdown 无法立即打断 hanging prompt、并发槽迟迟不释放的问题。
@@ -38,7 +54,7 @@
 - 新增唯一公开工具 `dteam_dispatch(task, tier, thinking?, tools?)`：每次调用创建 fresh、Logical Isolation（逻辑隔离）的进程内 worker；执行、可选 fresh 验收和回退均复用该工具。
 - 新增 T1/T2/T3 档位：默认思考强度为高/中/低；T3 默认只读，`bash` / `edit` / `write` 必须由调用方在 `tools` 显式授权。
 - 新增显式模型路由环境配置：`DTEAM_T1_MODEL` / `T2` / `T3` 及对应 `_FALLBACK_MODELS`；未配置主模型才回落当前 `ctx.model`，不猜测模型档位。
-- 新增同档 provider fallback、T3/T2 硬失败→T1 回退、worker timeout、Pi 取消和共享自适应并发；初始并发为 2，429 可降至 1。
+- 新增同档 provider fallback、worker timeout、Pi 取消和共享自适应并发；跨档升级由主代理决定。初始并发为 2，429 可降至 1。
 
 ### Changed
 - dteam 从 0.6.0 Orchestrator Loop 入口切换为模型分级 dispatch；主模型负责路由，T3 可并行 fan-out，关键任务按需用 T1 只读 fresh 验收。
