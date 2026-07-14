@@ -19,17 +19,18 @@
 
 | 路径 | 职责 |
 |---|---|
-| `runtime/worker-manager.ts` | 生命周期、后台派发、回退、聚合、取消和 session shutdown |
+| `runtime/worker-manager.ts` | 生命周期、后台派发、同档候选、timeout recovery、实时 Snapshot、聚合、取消和 session shutdown |
 | `runtime/signal-log.ts` | append-only Signal Log 与 Snapshot 投影 |
 | `runtime/request-state.ts` | workerId/requestId 作用域的 deferred request |
 | `runtime/signal-tool.ts` | worker 专用 `dteam_signal` |
 | `runtime/tool-policy.ts` | addTools 精确校验和 built-in-only 降级边界 |
 | `tui/dteam-dialog.ts` | `/dteam` 列表、详情和终态只读渲染 |
 | `tui/cancel.ts` | 用户取消二次确认 |
-| `leaf.ts` | 保留 0.7 dispatch 的模型路由/执行辅助，后台 Manager 迁移其回退行为 |
+| `leaf.ts` | 保留 dispatch 的模型路由/执行辅助；同档候选自动尝试，跨档不由执行层自动跳转 |
 | `session.ts` | fresh worker session、候选注册和首次 active set 收窄 |
 | `dispatch/*` | 模型路由和 Adaptive Concurrency |
 | `types/dispatch.ts` | T1/T2/T3 与历史 dispatch 类型 |
+| `duration.ts` | 内部毫秒值到用户可读秒/分秒的统一格式化 |
 
 ## 不变量
 
@@ -38,3 +39,4 @@
 3. worker 只经 Manager 与主代理协作，不 P2P。
 4. 动态工具必须先注册再激活；未知名 fail-closed。第三方 extension 当前降级拒绝。
 5. shutdown / reload 中止活跃 worker，不 resume；completed/failed/timed_out/cancelled/shutdown 只读封存。
+6. 实时流只投影到 Snapshot 并经节流上抛，不用 `display: true` 原样写入主对话；用户通过 `/dteam` 查看实时状态。
