@@ -36,9 +36,18 @@ describe("WorkerManager", () => {
     expect(mockCreateWorkerSession).not.toHaveBeenCalled();
   });
 
-  it("默认 worker 总预算为五分钟", () => {
+  it("默认 worker 总预算为五分钟，并按档位分配工具额度", () => {
     expect(DTEAM_CONFIG.dispatch.workerTimeoutMs).toBe(300_000);
     expect(DTEAM_CONFIG.dispatch.maxRecoveryBudgetMs).toBe(600_000);
+    expect(DTEAM_CONFIG.dispatch.toolCallBudgetByTier).toEqual({ T1: 180, T2: 120, T3: 60 });
+    const manager = new WorkerManager(options());
+    const accepted = manager.dispatch([
+      { title: "T3", task: "任务", tier: "T3" },
+      { title: "T2", task: "任务", tier: "T2" },
+      { title: "T1", task: "任务", tier: "T1" },
+    ]);
+    expect(accepted.map((item) => manager.get(item.workerId)?.toolCallBudget)).toEqual([60, 120, 180]);
+    manager.shutdown();
   });
 
   it("拒绝超过恢复上下文上限的 task", () => {
@@ -58,18 +67,22 @@ describe("WorkerManager", () => {
     manager.shutdown();
   });
 
-  it("后台 Worker 执行工具调用超过上限时终止", async () => {
+  it("dteam_signal 不消耗工作工具额度，超额工作工具会终止 worker", async () => {
     let listener!: (event: any) => void;
     const live: any = session("不应完成");
     live.subscribe = vi.fn((callback: (event: any) => void) => { listener = callback; return () => {}; });
     live.prompt = vi.fn(() => new Promise<void>(() => {}));
     mockCreateWorkerSession.mockResolvedValue(live);
-    const manager = new WorkerManager(options({ timeoutMs: 100 }));
-    const [accepted] = manager.dispatch([{ title: "工具上限", task: "任务", tier: "T3" }]);
+    const manager = new WorkerManager(options({ timeoutMs: 1_000 }));
+    const [accepted] = manager.dispatch([{ title: "工具额度", task: "任务", tier: "T3" }]);
     await vi.waitFor(() => expect(listener).toBeTypeOf("function"));
-    for (let i = 0; i < DTEAM_CONFIG.dispatch.maxToolRounds + 1; i++) listener({ type: "tool_execution_start", toolName: "read" });
+    for (let i = 0; i < 100; i++) listener({ type: "tool_execution_start", toolName: "dteam_signal" });
+    expect(manager.get(accepted!.workerId)?.toolCallCount).toBe(0);
+    for (let i = 0; i < 60; i++) listener({ type: "tool_execution_start", toolName: "read" });
+    expect(manager.get(accepted!.workerId)).toMatchObject({ toolCallCount: 60, toolCallBudget: 60, state: "running" });
+    listener({ type: "tool_execution_start", toolName: "read" });
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
-    expect(manager.get(accepted!.workerId)?.error).toContain("工具调用上限");
+    expect(manager.get(accepted!.workerId)?.error).toContain("工具调用额度");
   });
 
   it("每次 dispatch 读取最新主会话 active tools", () => {

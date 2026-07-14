@@ -1,6 +1,6 @@
 # runtime/
 
-0.8 的会话级后台运行时。这里仅管理当前 Pi 会话内已提交 worker 的生命周期、signal、候选工具和回传；不保存 batch、依赖图、dgoal 状态或跨 reload 恢复数据。每次 attempt 默认五分钟，timeout recovery 独立累计上限十分钟；同档候选自动尝试，跨档仅由主代理经 `respond` 相邻升级。实时文本、thinking、工具活动和 timeout 诊断投影到 Worker Snapshot，供 `/dteam` 消费。
+0.8 的会话级后台运行时。这里仅管理当前 Pi 会话内已提交 worker 的生命周期、signal、候选工具和回传；不保存 batch、依赖图、dgoal 状态或跨 reload 恢复数据。每次 attempt 默认五分钟，timeout recovery 独立累计上限十分钟；同档候选自动尝试，跨档仅由主代理经 `respond` 相邻升级。工作工具额度按初始档位为 T3=60、T2=120、T1=180；worker 可申请一次由主代理批准的 +60～+120（10 的倍数），再次耗尽由主代理重新 dispatch fresh worker。实时文本、thinking、工具活动和 timeout 诊断投影到 Worker Snapshot，供 `/dteam` 消费。
 
 | 文件 | 职责 |
 |---|---|

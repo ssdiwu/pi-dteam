@@ -51,6 +51,7 @@ export function sendParentEvent(pi: ExtensionAPI, event: ParentEvent, hasUI = tr
 function validateResponse(raw: any): { ok: true; value: any } | { ok: false; error: string } {
   if (raw?.type === "provide_context" && typeof raw.context === "string") return { ok: true, value: { type: raw.type, context: raw.context } };
   if (raw?.type === "grant_tools" && Array.isArray(raw.tools) && raw.tools.every((tool: unknown) => typeof tool === "string")) return { ok: true, value: { type: raw.type, tools: raw.tools } };
+  if (raw?.type === "grant_tool_budget" && typeof raw.additionalCalls === "number" && Number.isFinite(raw.additionalCalls)) return { ok: true, value: { type: raw.type, additionalCalls: raw.additionalCalls } };
   if (raw?.type === "decision" && typeof raw.decision === "string") return { ok: true, value: { type: raw.type, decision: raw.decision } };
   if (raw?.type === "retry") return { ok: true, value: { type: raw.type } };
   if (raw?.type === "escalate" && ["T1", "T2", "T3"].includes(raw.tier)) return { ok: true, value: { type: raw.type, tier: raw.tier } };
@@ -88,14 +89,14 @@ export default function registerDteam(pi: ExtensionAPI) {
   pi.registerTool({
     name: "dteam",
     label: "dteam",
-    description: "dteam 模型分级后台 worker 工具，仅支持 type=dispatch 和 type=respond。按推理复杂度选 tier：T3=明确、机械、可独立验证的小任务（默认仅 read/grep/find/ls，需 addTools 才能额外调用）；T2=目标清楚的标准复杂度任务；T1=复杂推理、决策、综合、验收。先并行 T3 收集事实；跨档只能由主代理按 T3→T2→T1 明确决定，同档模型候选才会自动回退。worker 每次 attempt 默认五分钟，timeout recovery 独立累计上限十分钟；respond 可选择 retry/escalate/extend/stop。实时文本、thinking、当前工具和 timeout 诊断只投影到 Snapshot，由 /dteam 展示，不原样回显到主对话。dispatch 派发 1–32 个互不依赖的 worker（每项含 title/task/tier，可用 addTools 约束本次权限；立即返回 queued，结果经 follow-up 回传）；respond 回应 waiting worker 或 timeout recovery 的结构化请求，不创建新 worker。主代理负责依赖理解、验收和后续路由；不要传依赖图、batch 或 goal/task 映射。",
+    description: "dteam 模型分级后台 worker 工具，仅支持 type=dispatch 和 type=respond。按推理复杂度选 tier：T3=明确、机械、可独立验证的小任务（默认仅 read/grep/find/ls，需 addTools 才能额外调用）；T2=目标清楚的标准复杂度任务；T1=复杂推理、决策、综合、验收。先并行 T3 收集事实；跨档只能由主代理按 T3→T2→T1 明确决定，同档模型候选才会自动回退。worker 工作工具调用初始额度为 T3=60、T2=120、T1=180；可在耗尽前请求主代理一次性追加 60–120 次（10 的倍数），再次不足时主代理应重新 dispatch fresh worker。worker 每次 attempt 默认五分钟，timeout recovery 独立累计上限十分钟；respond 可选择 retry/escalate/extend/stop。实时文本、thinking、当前工具和 timeout 诊断只投影到 Snapshot，由 /dteam 展示，不原样回显到主对话。dispatch 派发 1–32 个互不依赖的 worker（每项含 title/task/tier，可用 addTools 约束本次权限；立即返回 queued，结果经 follow-up 回传）；respond 回应 waiting worker 或 timeout recovery 的结构化请求，不创建新 worker。主代理负责依赖理解、验收和后续路由；不要传依赖图、batch 或 goal/task 映射。",
     parameters: {
       type: "object",
       properties: {
         type: { type: "string", enum: ["dispatch", "respond"] },
         workers: { type: "array", minItems: 1, maxItems: 32, items: { type: "object", properties: { title: { type: "string" }, task: { type: "string" }, tier: { type: "string", enum: ["T1", "T2", "T3"] }, addTools: { type: "array", items: { type: "string" } } }, required: ["title", "task", "tier"] } },
         workerId: { type: "string" }, requestId: { type: "string" },
-        response: { type: "object", properties: { type: { type: "string", enum: ["provide_context", "grant_tools", "decision", "retry", "escalate", "extend", "stop", "deny"] }, context: { type: "string" }, tools: { type: "array", items: { type: "string" } }, decision: { type: "string" }, tier: { type: "string", enum: ["T1", "T2", "T3"] }, additionalMs: { type: "number" }, reason: { type: "string" } }, required: ["type"] },
+        response: { type: "object", properties: { type: { type: "string", enum: ["provide_context", "grant_tools", "grant_tool_budget", "decision", "retry", "escalate", "extend", "stop", "deny"] }, context: { type: "string" }, tools: { type: "array", items: { type: "string" } }, additionalCalls: { type: "number" }, decision: { type: "string" }, tier: { type: "string", enum: ["T1", "T2", "T3"] }, additionalMs: { type: "number" }, reason: { type: "string" } }, required: ["type"] },
       },
       required: ["type"],
     } as any,

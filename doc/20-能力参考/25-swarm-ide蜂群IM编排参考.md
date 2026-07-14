@@ -92,7 +92,7 @@ swarm-ide 整体路线（动态 create 任意 role agent + 液态拓扑 + IM 即
 
 #### B. 协议强化——单 worker 工具循环上限（仅观察）
 
-swarm-ide 用 `maxToolRounds = 3` 约束单个 agent 单轮推理内的工具循环轮数。当前 dteam 使用每次 attempt 五分钟、timeout recovery 十分钟累计上限和 `maxToolRounds` 配置约束；跨档升级仍由主代理经 `respond` 决定。更细的循环策略留待真实痛点出现时再定。
+swarm-ide 用 `maxToolRounds = 3` 约束单个 agent 单轮推理内的工具循环轮数。当前 dteam 使用每次 attempt 五分钟、timeout recovery 十分钟累计上限，以及 T3/T2/T1 为 60/120/180 的工作工具额度；worker 可申请一次主代理批准的额度追加，追加后仍不足时由主代理重新派发 fresh worker。跨档升级仍由主代理经 `respond` 决定。更细的循环策略留待真实痛点出现时再定。
 
 swarm-ide 的 `didSend` reminder（未发消息就追问）在当前 dteam 无对应痛点：Worker Manager 有界投影 message/tool 事件，完成、失败和 timeout 通过 parent event 通知主代理。
 

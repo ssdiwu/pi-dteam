@@ -21,13 +21,13 @@ dteam exists because **using a strong model for small tasks is a double waste** 
 
 ## Model tiers (T1/T2/T3)
 
-| Tier | Model | Thinking | Default tools | Use |
-|---|---|---|---|---|
-| **T1 frontier** | flagship | high | full (rw + review) | thinking / decisions / review / fallback redo |
-| **T2 standard** | standard | medium | writable (rw) | regular implementation |
-| **T3 fast** | fast / local | low | read-only by default; explicitly limited write | mechanical small tasks |
+| Tier | Model | Thinking | Default tools | Initial work-tool budget | Use |
+|---|---|---|---|---:|---|
+| **T1 frontier** | flagship | high | full (rw + review) | 180 | thinking / decisions / review / fallback redo |
+| **T2 standard** | standard | medium | writable (rw) | 120 | regular implementation |
+| **T3 fast** | fast / local | low | read-only by default; explicitly limited write | 60 | mechanical small tasks |
 
-Standard anchored to **vendor product-line tiers** (every vendor already ships flagship/standard/fast). dispatch can override defaults (e.g. temporarily grant write to T3 for an isolated module change).
+Standard anchored to **vendor product-line tiers** (every vendor already ships flagship/standard/fast). dispatch can override defaults (e.g. temporarily grant write to T3 for an isolated module change). A worker may request one extra 60–120 work-tool calls (a multiple of 10) through `dteam_signal`; the main agent explicitly grants or denies it. If that allocation is exhausted again, the main agent must dispatch a fresh worker rather than extending it again. `dteam_signal` itself is not counted.
 
 ## Tier model configuration
 

@@ -59,6 +59,7 @@ dteam({
 
 - `provide_context`：提供上下文。
 - `grant_tools`：只授予本次 `addTools` 候选。
+- `grant_tool_budget`：仅回应 `request_tool_budget`；`additionalCalls` 必须为 60–120 且为 10 的倍数。每个 worker 只能批准一次，追加后仍耗尽时主代理重新 dispatch fresh worker。
 - `decision`：提供主代理决定。
 - `retry` / `escalate` / `extend` / `stop`：仅回应 timeout recovery，请求同档 fresh 重试、相邻档位升级、有限延长预算或终止。
 - `deny`：明确拒绝及原因。
@@ -72,7 +73,8 @@ worker 是当前 Pi 进程内的 fresh `AgentSession`。Worker Manager 管理：
 - `queued → running → waiting → completed/failed/timed_out/cancelled/shutdown` 生命周期；timeout 先进入等待主代理恢复决策的状态，stop 后才成为 `timed_out` 终态；用户取消和 session shutdown 保持独立终态；
 - 同档模型候选回退、共享 Adaptive Concurrency；跨档由主代理按 T3→T2→T1 决定；
 - `progress` / `finding` 过程事实；
-- `request_context` / `request_tools` / `request_decision` / `blocked` 阻塞请求。
+- `request_context` / `request_tools` / `request_tool_budget` / `request_decision` / `blocked` 阻塞请求。
+- 工作工具额度按初始档位为 T3=60、T2=120、T1=180；`dteam_signal` 不计入额度。
 
 worker 只能经 `dteam_signal` 向 Manager 发信号，不能 P2P；主代理经 `dteam` 回应。成功结果 500ms 短窗合并，失败、取消、阻塞请求和 timeout recovery 立即回传。
 

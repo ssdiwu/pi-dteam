@@ -62,6 +62,9 @@ interface WorkerRecord {
   baseTools: string[]
   eligibleTools: string[]
   activeTools: string[]
+  toolCallCount: number
+  toolCallBudget: number
+  toolBudgetExtensionCount: number
   startedAt?: number
   endedAt?: number
   result?: WorkerResult
@@ -112,6 +115,7 @@ dteam({
   response:
     | { type: "provide_context", context: string }
     | { type: "grant_tools", tools: string[] }
+    | { type: "grant_tool_budget", additionalCalls: number }
     | { type: "decision", decision: string }
     | { type: "retry" }
     | { type: "escalate", tier: "T2" | "T1" }
@@ -124,7 +128,7 @@ dteam({
 - `tier` 绝不由 dteam 猜测。初始注册权限 = 该 worker 的 tier 默认基础工具 ∪ 已核验的 `addTools` ∪ `dteam_signal`，但首次 prompt 激活集只含基础工具与 signal；T3 仍默认本地只读。
 - `addTools` 不接受 `web`、`browser` 等能力标签；工具名不可用、重复或越过当前会话授予清单时，一律 fail-closed（失败即关闭）。`grant_tools` 只能激活该 worker 的 `addTools` 候选。
 - `dispatch` 返回每项各自的 `DispatchAccepted { workerId, title, tier, state: "queued" }`，不得等待任一 worker 完成；不存在 `batchId`、batch 接收凭据或 batch 完成态。
-- `respond` 只接受仍处于 waiting 的匹配 `workerId + requestId`，且 C 类 response 必须匹配对应 B 类 request；先完成 C 类 signal（父级信号）状态变更，再兑现原 `dteam_signal` 阻塞工具的 deferred result（`grant_tools` 先更新 active tools）。`retry` / `escalate` / `extend` 是 timeout recovery 的特例：它们创建一个新的 fresh `AgentSession` 并注入裁剪恢复摘要，而不是恢复原 session；其他 response 也通过 `RequestState` deferred result 恢复原 session，主代理通知可用 follow-up 传递，但不负责解锁 worker。
+- `respond` 只接受仍处于 waiting 的匹配 `workerId + requestId`，且 C 类 response 必须匹配对应 B 类 request；先完成 C 类 signal（父级信号）状态变更，再兑现原 `dteam_signal` 阻塞工具的 deferred result（`grant_tools` 先更新 active tools）。`grant_tool_budget` 仅能批准一次 +60～+120 次（10 的倍数）；worker 再次耗尽时结束并回传诊断，由主代理重新 dispatch fresh worker。`retry` / `escalate` / `extend` 是 timeout recovery 的特例：它们创建一个新的 fresh `AgentSession` 并注入裁剪恢复摘要，而不是恢复原 session；其他 response 也通过 `RequestState` deferred result 恢复原 session，主代理通知可用 follow-up 传递，但不负责解锁 worker。
 - 用户取消不走模型 `respond`：只能从 `/dteam` 的二次确认或 session shutdown（会话关闭）触发内部 `cancel`，避免模型无确认中止用户的后台工作。
 - 一次调用列出的 worker 不表示依赖、共同归属某个 dgoal task，或完成后自动继续下一组；主代理已独立判断这些请求目前可启动。
 
@@ -158,10 +162,11 @@ dteam({
 | `finding` | 否 | `summary`、可选 `evidence` |
 | `request_context` | 是 | `requestId`、`question`、需要的最小上下文 |
 | `request_tools` | 是 | `requestId`、`tools`、`reason` |
+| `request_tool_budget` | 是 | `requestId`、`reason`；Manager 回传实际已用次数、额度和追加次数 |
 | `request_decision` | 是 | `requestId`、`question`、可选候选与推荐 |
 | `blocked` | 是 | `requestId`、`reason`、可选可行动作 |
 
-非阻塞 B 类 signal 的 custom tool（自定义工具）立即返回；阻塞 B 类 signal 在 `Request State` 建立 deferred（延迟承诺），等待 C 类回应、取消或超时后才结束该工具调用，因此 worker 不会猜测答案继续跑。
+非阻塞 B 类 signal 的 custom tool（自定义工具）立即返回；阻塞 B 类 signal 在 `Request State` 建立 deferred（延迟承诺），等待 C 类回应、取消或超时后才结束该工具调用，因此 worker 不会猜测答案继续跑。工作工具初始额度按档位为 T3=60、T2=120、T1=180，`dteam_signal` 本身不计入；worker 必须在耗尽前提出 `request_tool_budget`，而不是直接继续无界调用。
 
 ### C 类：parent → worker signal
 
@@ -169,6 +174,7 @@ dteam({
 |---|---|---|
 | `provide_context` | `request_context` | 通过 `RequestState` deferred result 返回上下文，恢复该 worker |
 | `grant_tools` | `request_tools` | 更新 active tool set，再通过 `RequestState` deferred result 返回授权边界 |
+| `grant_tool_budget` | `request_tool_budget` | 只接受 +60～+120 次（10 的倍数），每 worker 最多一次；增加当前额度后恢复原 session |
 | `deny` | 任意 request | 通过 `RequestState` deferred result 返回明确原因，worker 可改方案或 `blocked` |
 | `decision` | `request_decision` / `blocked` | 通过 `RequestState` deferred result 传入主代理判断，恢复 worker |
 | `retry` | `timeout_recovery` | 创建同档 fresh attempt，并注入裁剪恢复摘要 |

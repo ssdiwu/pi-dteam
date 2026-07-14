@@ -2,7 +2,7 @@ import { DTEAM_CONFIG } from "../config.js";
 import { formatDuration } from "../duration.js";
 import { AdaptiveConcurrency } from "../dispatch/concurrency.js";
 import { isRateLimitError, tierModelCandidates } from "../dispatch/model-routing.js";
-import { getTierTools, parseTierModelCandidate, tierModelRoutesFromEnv } from "../session/tier-config.js";
+import { getTierPrompt, getTierTools, parseTierModelCandidate, tierModelRoutesFromEnv } from "../session/tier-config.js";
 import { createWorkerSession } from "../session.js";
 import { extractLastText } from "../leaf/extract.js";
 import type { Tier, TierModelRoutes } from "../types/dispatch.js";
@@ -27,6 +27,8 @@ interface WorkerRecord extends WorkerSnapshot {
   pendingRender?: boolean;
   renderTimer?: ReturnType<typeof setTimeout>;
   toolCallCount: number;
+  toolCallBudget: number;
+  toolBudgetExtensionCount: number;
   toolLimitReached: boolean;
   rejectToolLimit?: (error: Error) => void;
 }
@@ -81,6 +83,8 @@ export class WorkerManager {
         recoveryConsumedMs: 0,
         timeoutRecoveryCount: 0,
         toolCallCount: 0,
+        toolCallBudget: toolCallBudgetForTier(request.tier),
+        toolBudgetExtensionCount: 0,
         toolLimitReached: false,
       };
       this.records.set(id, record);
@@ -112,6 +116,9 @@ export class WorkerManager {
         this.signal(record, "worker_resumed", { requestId, remainingRequests: this.requestState.list().filter((request) => request.workerId === workerId).length });
         return { workerId, requestId, state: record.state };
       }
+    } else if (response.type === "grant_tool_budget") {
+      this.grantToolBudget(record, response.additionalCalls);
+      this.signal(record, "grant_tool_budget", { additionalCalls: response.additionalCalls, toolCallBudget: record.toolCallBudget });
     } else {
       this.signal(record, response.type, response);
     }
@@ -120,6 +127,18 @@ export class WorkerManager {
     if (!this.requestState.list().some((request) => request.workerId === workerId)) record.state = "running";
     this.signal(record, "worker_resumed", { requestId, remainingRequests: this.requestState.list().filter((request) => request.workerId === workerId).length });
     return { workerId, requestId, state: record.state };
+  }
+
+  private grantToolBudget(record: WorkerRecord, additionalCalls: number): void {
+    const { min, max, step, maxPerWorker } = DTEAM_CONFIG.dispatch.toolCallBudgetExtension;
+    if (!Number.isInteger(additionalCalls) || additionalCalls < min || additionalCalls > max || additionalCalls % step !== 0) {
+      throw new Error(`dteam: additionalCalls 必须是 ${min}–${max} 的 ${step} 的倍数`);
+    }
+    if (record.toolBudgetExtensionCount >= maxPerWorker) {
+      throw new Error("dteam: worker 工具调用额度只能追加一次；请重新 dispatch fresh worker");
+    }
+    record.toolCallBudget += additionalCalls;
+    record.toolBudgetExtensionCount += 1;
   }
 
   async steer(workerId: string, instruction: string): Promise<void> {
@@ -189,6 +208,11 @@ export class WorkerManager {
         return { type: "deny", reason };
       }
     }
+    if (signal.kind === "request_tool_budget" && record.toolBudgetExtensionCount >= DTEAM_CONFIG.dispatch.toolCallBudgetExtension.maxPerWorker) {
+      const reason = "worker 工具调用额度已追加一次仍不足；主代理应重新 dispatch fresh worker";
+      this.failForToolBudget(record, reason);
+      return { type: "deny", reason };
+    }
     if (signal.kind === "progress") return { ok: true };
     if (signal.kind === "finding") {
       record.latestFinding = truncate(sanitizeSensitive(signal.summary), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
@@ -203,7 +227,10 @@ export class WorkerManager {
     record.state = "waiting";
     this.signal(record, "worker_waiting", { requestId: signal.requestId, kind: signal.kind });
     const waiting = this.requestState.wait({ workerId, requestId: signal.requestId, kind: signal.kind, payload: signal });
-    this.emit({ type: "request", workerId, title: record.title, payload: signal });
+    const payload = signal.kind === "request_tool_budget"
+      ? { ...signal, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount }
+      : signal;
+    this.emit({ type: "request", workerId, title: record.title, payload });
     return waiting;
   }
 
@@ -250,8 +277,6 @@ export class WorkerManager {
     let lastError: unknown;
     for (const candidate of tierModelCandidates(tier, this.options.model, this.options.tierModelRoutes ?? tierModelRoutesFromEnv())) {
       const { modelStr, thinkingLevel } = parseTierModelCandidate(candidate, tier);
-      record.toolCallCount = 0;
-      record.toolLimitReached = false;
       const remainingBudget = record.attemptBudgetMs - record.attemptConsumedMs;
       if (remainingBudget <= 0) throw new WorkerTimeoutError(`worker 累计预算已用尽（${formatDuration(record.totalBudgetMs)}）`);
       const attemptBudgetMs = Math.min(record.attemptBudgetMs, remainingBudget);
@@ -260,6 +285,7 @@ export class WorkerManager {
       try {
         const session = await createSessionWithTimeout({
           tier, cwd: this.options.cwd, modelStr, ctx: { modelRegistry: this.options.modelRegistry },
+          systemPrompt: workerSystemPrompt(tier, record.toolCallBudget),
           builtInTools: getTierTools(tier),
           registeredTools: [...new Set([...getTierTools(tier), ...record.policy.addTools, SIGNAL_TOOL_NAME])],
           initialActiveTools: record.activeTools,
@@ -297,7 +323,7 @@ export class WorkerManager {
           if (record.timeoutRecoveryCount > 0) record.recoveryConsumedMs += creationElapsed;
         }
         lastError = error;
-        if (record.toolLimitReached) throw new WorkerToolLimitError(`worker 工具调用上限（${DTEAM_CONFIG.dispatch.maxToolRounds} 次）`);
+        if (record.toolLimitReached) throw new WorkerToolLimitError(toolBudgetExhaustedMessage(record));
         if (record.controller.signal.aborted || error instanceof WorkerTimeoutError) throw error;
         await abortBounded(record.session);
         record.session = undefined;
@@ -429,6 +455,20 @@ export class WorkerManager {
     void this.run(record);
   }
 
+  private failForToolBudget(record: WorkerRecord, reason: string): void {
+    if (isTerminal(record.state)) return;
+    record.toolLimitReached = true;
+    record.state = "failed";
+    record.terminalReason = "error";
+    record.error = reason;
+    record.endedAt = Date.now();
+    this.requestState.cancelWorker(record.id, reason);
+    record.controller.abort();
+    void abortBounded(record.session);
+    this.signal(record, "worker_tool_budget_exhausted", { reason, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget });
+    this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: reason, state: record.state, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget } });
+  }
+
   private stopTimedOut(record: WorkerRecord, reason?: string): void {
     if (isTerminal(record.state)) return;
     record.state = "timed_out";
@@ -473,11 +513,13 @@ export class WorkerManager {
         if (delta?.type === "thinking_end" && typeof delta.content === "string") record.liveThinking = truncate(sanitizeSensitive(delta.content), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
         if (["text_delta", "text_end", "thinking_delta", "thinking_end"].includes(delta?.type)) record.lastActivity = "生成文本";
       } else if (event?.type === "tool_execution_start" && typeof event.toolName === "string") {
-        record.toolCallCount += 1;
-        if (record.toolCallCount > DTEAM_CONFIG.dispatch.maxToolRounds && !record.toolLimitReached) {
-          record.toolLimitReached = true;
-          record.rejectToolLimit?.(new WorkerToolLimitError(`worker 工具调用上限（${DTEAM_CONFIG.dispatch.maxToolRounds} 次）`));
-          void abortBounded(session);
+        if (event.toolName !== SIGNAL_TOOL_NAME) {
+          record.toolCallCount += 1;
+          if (record.toolCallCount > record.toolCallBudget && !record.toolLimitReached) {
+            record.toolLimitReached = true;
+            record.rejectToolLimit?.(new WorkerToolLimitError(toolBudgetExhaustedMessage(record)));
+            void abortBounded(session);
+          }
         }
         record.liveTool = truncate(sanitizeSensitive(event.toolName), 100);
         record.lastActivity = truncate(sanitizeSensitive(`运行工具 ${event.toolName}`), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
@@ -539,7 +581,7 @@ export class WorkerManager {
     if (!record) return undefined;
     const safe = (value?: string) => value === undefined ? undefined : truncate(sanitizeSensitive(value), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
     const diagnostic = record.timeoutDiagnostic ? { ...record.timeoutDiagnostic, lastActivity: safe(record.timeoutDiagnostic.lastActivity) ?? "", currentTool: safe(record.timeoutDiagnostic.currentTool) ?? "", outputSummary: safe(record.timeoutDiagnostic.outputSummary) ?? "" } : undefined;
-    return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), terminalReason: record.terminalReason };
+    return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), terminalReason: record.terminalReason };
   }
   private emit(event: ParentEvent): void {
     const safeEvent: ParentEvent = {
@@ -613,6 +655,7 @@ function responseAllowed(requestKind: string, responseType: ParentResponse["type
   if (responseType === "deny") return true;
   if (requestKind === "request_context") return responseType === "provide_context";
   if (requestKind === "request_tools") return responseType === "grant_tools";
+  if (requestKind === "request_tool_budget") return responseType === "grant_tool_budget";
   if (requestKind === "request_decision" || requestKind === "blocked") return responseType === "decision";
   if (requestKind === "timeout_recovery") return ["retry", "escalate", "extend", "stop"].includes(responseType);
   return false;
@@ -624,6 +667,21 @@ function isTerminal(state: WorkerSnapshot["state"]): boolean {
 
 function isNextTier(current: Tier, next: Tier): boolean {
   return (current === "T3" && next === "T2") || (current === "T2" && next === "T1");
+}
+
+function toolCallBudgetForTier(tier: Tier): number {
+  return DTEAM_CONFIG.dispatch.toolCallBudgetByTier[tier];
+}
+
+function workerSystemPrompt(tier: Tier, toolCallBudget: number): string {
+  return `${getTierPrompt(tier)}\n\n本 worker 的工作工具调用额度为 ${toolCallBudget} 次；dteam_signal 不计入。若预计额度不足，必须在耗尽前调用 dteam_signal(kind=\"request_tool_budget\", requestId, reason) 请求主代理决定。主代理最多只会追加一次，且追加后再次不足时会结束本 worker，由主代理重新 dispatch fresh worker。`;
+}
+
+function toolBudgetExhaustedMessage(record: WorkerRecord): string {
+  if (record.toolBudgetExtensionCount >= DTEAM_CONFIG.dispatch.toolCallBudgetExtension.maxPerWorker) {
+    return "worker 工具调用额度已追加一次仍耗尽；主代理应重新 dispatch fresh worker";
+  }
+  return "worker 工具调用额度已耗尽；worker 未在耗尽前请求主代理追加额度";
 }
 
 function truncate(value: string, maxChars: number): string {

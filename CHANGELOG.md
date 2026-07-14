@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### Changed
+- worker 工作工具调用额度改为按档位分配：T3 60 次、T2 120 次、T1 180 次；`dteam_signal` 不计入额度。
+
+### Added
+- worker 可通过有类型 signal 向主代理申请一次 +60～+120 次（10 的倍数）的工具额度；追加后仍耗尽时明确交由主代理重新派发 fresh worker，不自动续派。
+
 ## [0.8.1] - 2026-07-14
 
 ### Added

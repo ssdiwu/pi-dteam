@@ -77,6 +77,54 @@ describe("worker signal protocol", () => {
     instance.shutdown();
   });
 
+  it("worker 可请求一次工具调用额度，主代理只接受 60–120 的十位倍数", async () => {
+    const events: any[] = [];
+    const instance = manager((event) => events.push(event));
+    const accepted = instance.dispatch([{ title: "额度", task: "task", tier: "T3" }])[0]!;
+    const waiting = instance.receiveSignal(accepted.workerId, { kind: "request_tool_budget", requestId: "budget-1", reason: "还需读取相关文件" });
+    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "request",
+      workerId: accepted.workerId,
+      payload: expect.objectContaining({ kind: "request_tool_budget", toolCallBudget: 60, toolBudgetExtensionCount: 0 }),
+    }));
+    expect(() => instance.respond(accepted.workerId, "budget-1", { type: "grant_tool_budget", additionalCalls: 50 })).toThrow("60–120");
+    expect(() => instance.respond(accepted.workerId, "budget-1", { type: "grant_tool_budget", additionalCalls: 65 })).toThrow("10 的倍数");
+    instance.respond(accepted.workerId, "budget-1", { type: "grant_tool_budget", additionalCalls: 60 });
+    await expect(waiting).resolves.toEqual({ type: "grant_tool_budget", additionalCalls: 60 });
+    expect(instance.get(accepted.workerId)).toMatchObject({ state: "running", toolCallBudget: 120, toolBudgetExtensionCount: 1 });
+
+    await expect(instance.receiveSignal(accepted.workerId, { kind: "request_tool_budget", requestId: "budget-2", reason: "仍不足" })).resolves.toEqual(expect.objectContaining({ type: "deny" }));
+    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("failed"));
+    expect(instance.get(accepted.workerId)?.error).toContain("重新 dispatch fresh worker");
+    instance.shutdown();
+  });
+
+  it("批准工具额度会恢复同一 AgentSession，不创建 fresh retry", async () => {
+    const workerSession: any = { abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    let signalTool: any;
+    let sessionCalls = 0;
+    const instance = manager();
+    mockCreateWorkerSession.mockImplementation(async (options: any) => {
+      if (!options?.customTools) return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+      sessionCalls += 1;
+      signalTool = options.customTools[0];
+      workerSession.prompt = vi.fn(async () => {
+        await signalTool.execute("call", { kind: "request_tool_budget", requestId: "budget-session", reason: "需要继续" });
+        workerSession.messages = [{ role: "assistant", content: [{ type: "text", text: "continued" }] }];
+      });
+      return workerSession;
+    });
+    const accepted = instance.dispatch([{ title: "恢复额度", task: "task", tier: "T3" }])[0]!;
+    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    instance.respond(accepted.workerId, "budget-session", { type: "grant_tool_budget", additionalCalls: 60 });
+    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("completed"));
+    expect(sessionCalls).toBe(1);
+    expect(workerSession.prompt).toHaveBeenCalledTimes(1);
+    expect(instance.get(accepted.workerId)).toMatchObject({ result: "continued", toolCallBudget: 120, toolBudgetExtensionCount: 1 });
+    instance.shutdown();
+  });
+
   it("grant_tools 的 session API 失败时清理 pending 并返回 deny", async () => {
     const workerSession: any = { setActiveToolsByName: vi.fn(() => { throw new Error("tool switch failed"); }), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
     mockCreateWorkerSession.mockResolvedValue(workerSession);

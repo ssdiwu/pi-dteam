@@ -53,6 +53,8 @@ describe("dteam 0.8 extension entry", () => {
     expect(tool.description).toContain("type=respond");
     expect(tool.description).toContain("需 addTools 才能额外调用");
     expect(tool.description).toContain("respond 回应 waiting worker 或 timeout recovery 的结构化请求");
+    expect(tool.description).toContain("T3=60、T2=120、T1=180");
+    expect(tool.description).toContain("一次性追加 60–120 次（10 的倍数）");
     expect(tool.description).toContain("worker 每次 attempt 默认五分钟");
     expect(tool.description).toContain("timeout recovery 独立累计上限十分钟");
     expect(tool.description).toContain("实时文本、thinking、当前工具和 timeout 诊断只投影到 Snapshot");
@@ -74,10 +76,12 @@ describe("dteam 0.8 extension entry", () => {
     expect(response.content[0].text).toContain("workers 数量必须是 1–32");
   });
 
-  it("respond 拒绝非法 timeout recovery schema", () => {
+  it("respond 拒绝非法 timeout recovery 和工具额度 schema", async () => {
     const { tool } = register();
-    const bad = tool.execute("call", { type: "respond", workerId: "w", requestId: "r", response: { type: "escalate" } }, undefined, undefined, context());
-    return expect(bad).resolves.toMatchObject({ isError: true });
+    const badTimeout = tool.execute("call", { type: "respond", workerId: "w", requestId: "r", response: { type: "escalate" } }, undefined, undefined, context());
+    await expect(badTimeout).resolves.toMatchObject({ isError: true });
+    const badBudget = tool.execute("call", { type: "respond", workerId: "w", requestId: "r", response: { type: "grant_tool_budget", additionalCalls: "60" } }, undefined, undefined, context());
+    await expect(badBudget).resolves.toMatchObject({ isError: true });
   });
 
   it("worker 内部事件不直接展示到主对话，避免重复显示", () => {

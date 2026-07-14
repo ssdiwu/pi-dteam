@@ -7,6 +7,7 @@ export type WorkerState = "queued" | "running" | "waiting" | "completed" | "fail
 export type ParentResponse =
   | { type: "provide_context"; context: string }
   | { type: "grant_tools"; tools: string[] }
+  | { type: "grant_tool_budget"; additionalCalls: number }
   | { type: "decision"; decision: string }
   | { type: "retry" }
   | { type: "escalate"; tier: Tier }
@@ -33,6 +34,7 @@ export type WorkerSignal =
   | { kind: "finding"; summary: string; evidence?: string }
   | { kind: "request_context"; requestId: string; question: string; contextNeeded?: string }
   | { kind: "request_tools"; requestId: string; tools: string[]; reason: string }
+  | { kind: "request_tool_budget"; requestId: string; reason: string }
   | { kind: "request_decision"; requestId: string; question: string; candidates?: string[]; recommendation?: string }
   | { kind: "blocked"; requestId: string; reason: string; action?: string };
 
@@ -64,6 +66,9 @@ export interface WorkerSnapshot {
   fallbackTrail: Tier[];
   state: WorkerState;
   activeTools: string[];
+  toolCallCount?: number;
+  toolCallBudget?: number;
+  toolBudgetExtensionCount?: number;
   startedAt?: number;
   endedAt?: number;
   latestFinding?: string;

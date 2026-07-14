@@ -145,6 +145,7 @@ async function runDispatchAttempt(
     const output = await promptWithToolLimit(
       session,
       task,
+      tier,
       Math.max(1, deadline - Date.now()),
       ctx.signal,
     );
@@ -204,19 +205,21 @@ async function createSessionBeforeDeadline(
 async function promptWithToolLimit(
   session: any,
   task: string,
+  tier: Tier,
   timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<string> {
   let toolCallCount = 0;
   let abortedByToolLimit = false;
   let toolLimitAbort: Promise<void> | undefined;
+  const toolCallBudget = DTEAM_CONFIG.dispatch.toolCallBudgetByTier[tier];
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let cancelListener: (() => void) | undefined;
   const unsubscribe = typeof session.subscribe === "function"
     ? session.subscribe((event: any) => {
         if (event?.type !== "tool_execution_end" || abortedByToolLimit) return;
         toolCallCount += 1;
-        if (toolCallCount >= DTEAM_CONFIG.dispatch.maxToolRounds) {
+        if (toolCallCount > toolCallBudget) {
           abortedByToolLimit = true;
           toolLimitAbort ??= abortWorker(session);
         }
@@ -247,7 +250,7 @@ async function promptWithToolLimit(
     if (timedOut) throw timeoutFailure ?? timeoutError(timeoutMs);
     if (abortedByToolLimit) {
       await toolLimitAbort;
-      throw new Error(`worker 因工具调用上限（${DTEAM_CONFIG.dispatch.maxToolRounds} 次）被中断`);
+      throw new Error(`worker 因工具调用额度（${toolCallBudget} 次）被中断`);
     }
     const output = extractLastText(session.messages as any[]);
     if (output === "(no output)") throw new Error("worker 未返回 assistant 文本");
