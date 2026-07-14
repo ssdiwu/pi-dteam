@@ -374,6 +374,7 @@ export class WorkerManager {
   }
 
   private requestTimeoutRecovery(record: WorkerRecord, error: WorkerTimeoutError): void {
+    this.requestState.cancelWorker(record.id, "worker_timeout_recovery");
     const requestId = crypto.randomUUID();
     const outputSummary = this.outputSummary(record) ?? "暂无输出";
     const diagnostic: TimeoutDiagnostic = {

@@ -67,6 +67,21 @@ describe("WorkerManager", () => {
     manager.shutdown();
   });
 
+  it("进入 timeout recovery 前清理旧的阻塞 request", async () => {
+    const hanging = { prompt: vi.fn(() => new Promise<void>(() => {})), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(hanging);
+    const manager = new WorkerManager(options({ timeoutMs: 100, totalBudgetMs: 100 }));
+    const [accepted] = manager.dispatch([{ title: "超时等待", task: "任务", tier: "T3" }]);
+    await vi.waitFor(() => expect(hanging.prompt).toHaveBeenCalled());
+    const oldRequest = manager.receiveSignal(accepted!.workerId, { kind: "request_context", requestId: "old-context", question: "需要上下文" });
+    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.timeoutDiagnostic).toBeDefined());
+    expect(manager.requestState.list()).toEqual([
+      expect.objectContaining({ workerId: accepted!.workerId, kind: "timeout_recovery" }),
+    ]);
+    manager.shutdown();
+    await expect(oldRequest).resolves.toMatchObject({ type: "deny" });
+  });
+
   it("dteam_signal 不消耗工作工具额度，超额工作工具会终止 worker", async () => {
     let listener!: (event: any) => void;
     const live: any = session("不应完成");
