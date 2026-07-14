@@ -80,7 +80,7 @@ export default function registerDteam(pi: ExtensionAPI) {
   pi.registerTool({
     name: "dteam",
     label: "dteam",
-    description: "dteam 模型分级后台 worker 工具。用 type=dispatch 派发已就绪 worker，用 type=respond 回应 waiting worker 的结构化请求。主代理负责依赖理解和后续路由；不传依赖图或 batch。",
+    description: "dteam 模型分级后台 worker 工具。按推理复杂度选 tier：T3=明确、机械、可独立验证的小任务（默认只读）；T2=目标清楚的标准复杂度任务；T1=复杂推理、决策、综合、验收。T3/T2 遇硬失败会 fresh 回退 T1。用 type=dispatch 派发 1–32 个独立 worker（立即返回 queued，结果经 follow-up 回传），用 type=respond 回应 waiting worker 的结构化请求。主代理负责依赖理解、验收和后续路由；不要传依赖图、batch 或 goal/task 映射。",
     parameters: {
       type: "object",
       properties: {

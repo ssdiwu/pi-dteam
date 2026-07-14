@@ -12,6 +12,7 @@
 - 修复 `/dteam` 管理 Modal 无包边、标题和关键 worker 信息的问题；现在显示居中边框、worker 计数、task、状态、档位和有效结果信息。
 - 接入 `pi.i18n.v1` bundle：`/dteam` UI 默认中文，并随 `pi-di18n` locale 切换。
 - 修复 worker 内部事件直接显示在主对话导致的重复消息，并增强 assistant 文本提取与 worker 最终文本约束。
+- 补充 `dteam` 工具描述中的 T1/T2/T3 选档规则、fallback 行为和 dispatch/respond 用法边界。
 
 ## [0.8.0] - 2026-07-14
 

@@ -45,6 +45,14 @@ describe("dteam 0.8 extension entry", () => {
     expect(response.isError).toBe(true);
   });
 
+  it("工具描述提供档位选择和基本用法", () => {
+    const { tool } = register();
+    expect(tool.description).toContain("T3=明确、机械、可独立验证的小任务");
+    expect(tool.description).toContain("T3/T2 遇硬失败会 fresh 回退 T1");
+    expect(tool.description).toContain("type=dispatch");
+    expect(tool.description).toContain("type=respond");
+  });
+
   it("只注册一个 dteam 工具和同名 /dteam 命令", () => {
     const { pi, tool } = register();
     expect(pi.registerTool).toHaveBeenCalledTimes(1);
