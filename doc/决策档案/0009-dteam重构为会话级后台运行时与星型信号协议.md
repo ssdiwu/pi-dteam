@@ -2,7 +2,7 @@
 
 > **状态：✅ 有效，0.8 已实施**
 >
-> **推翻 / 更新范围**：更新 ADR 0008 中“同步返回、无信号回流、无运行态 UI / `runId` / 后台返回”的实现形态；保留其 dteam = 模型分级路由、T1/T2/T3、fresh 隔离、单公开工具、回退与不做 workflow 的定位。
+> **推翻 / 更新范围**：更新 ADR 0008 中“同步返回、无运行态 UI、无后台返回”的旧实现形态；保留其 dteam = 模型分级路由、T1/T2/T3、fresh 隔离、单公开工具、回退与不做 workflow 的定位。
 >
 > **不复活**：ADR 0005 的 Orchestrator Loop、Signal Store TTL、五角色、信号驱动的下一轮召唤；ADR 0003 的“依附 Extension Runtime 的长期后台 run”；ADR 0004 的 resume 禁令继续有效。
 
@@ -32,7 +32,7 @@
 | dteam 的本质是 T1/T2/T3 模型分级路由 | worker 由同步等待改为会话级后台运行 |
 | 主代理负责任务拆分、tier、验收、综合 | Worker Manager 只管理已派发单任务，不做决策循环 |
 | 单公开模型工具 `dteam` | 以 dispatch/respond 辨别式参数受理 worker，结果先返回 `DispatchAccepted`，完成后 follow-up 回传 |
-| fresh `AgentSession` + Logical Isolation | 原 session 在等待请求时保留，用 `followUp` 继续 |
+| fresh `AgentSession` + Logical Isolation | 原 session 在等待请求时保留，用 `RequestState` deferred result 恢复 |
 | fallback、并发、多供应商路由 | 增加 Worker Snapshot、Signal Log、Request State |
 | 不做 resume | Pi 会话退出/重载即中止活跃 worker；无跨进程恢复 |
 
@@ -44,7 +44,7 @@
 - B 类 worker signal：`progress`、`finding`、`request_context`、`request_tools`、`request_decision`、`blocked`；
 - C 类 parent signal：`provide_context`、`grant_tools`、`deny`、`decision`、`cancel`。
 
-worker 不能互发消息，不能决定下一轮派发，更不能直接升级自身权限。非阻塞过程信号只更新 UI；阻塞请求立刻通过 follow-up 请主代理回答，并用 `Request State` 暂停原 worker。
+worker 不能互发消息，不能决定下一轮派发，更不能直接升级自身权限。非阻塞过程信号只更新 UI；阻塞请求通过结构化 parent event 请主代理回答，并用 `Request State` deferred result 暂停并恢复原 worker。follow-up 仅用于主代理通知，不负责解锁 worker。
 
 完成成功结果允许 500ms–1s 短窗合并；失败、取消、`user_cancelled`、阻塞请求必须立即单条回传。
 
@@ -55,7 +55,7 @@ Pi 已公开 `AgentSession.setActiveToolsByName()`，可在下一个 agent turn 
 因此定为：
 
 1. 主代理在派发时显式传 `addTools`，它是该 worker 的预授权候选上限；不能传抽象能力名或 dteam 自行推测的工具。
-2. worker 仅能用 `request_tools` 请求候选集内工具；Manager 验证后才激活并用原 session 的 `followUp` 继续。
+2. worker 仅能用 `request_tools` 请求候选集内工具；Manager 验证后才激活，并通过 `RequestState` deferred result 恢复原 session。
 3. 候选外工具明确拒绝（fail-closed），不得依赖 Pi 的“未知名静默忽略”。
 4. 0.8 不以“加载所有 extension 再假装没授权”为代价换取任意晚授权；第三方候选 extension 的最小安全加载方式必须先经实现切片验证。
 

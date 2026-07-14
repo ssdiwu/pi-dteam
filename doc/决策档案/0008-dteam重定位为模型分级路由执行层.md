@@ -1,13 +1,13 @@
 # dteam 重定位为模型分级路由执行层
 
-> **状态：✅ 有效（当前定位权威）**
+> **状态：✅ 有效（模型分级定位权威；0.8 运行时细节以 ADR 0009、0012 为准）**
 > **推翻**：[ADR 0006](./0006-dteam重定位为对抗式合议.md)（对抗式合议）+ [ADR 0007](./0007-对抗回合结构与积分制.md)（对抗回合结构与积分制）——经原型验证"繁琐且无用"（积分制成本与收益不成正比，git `78e03a7`）。
 > **保留有效**：0001（有立场替代层）、0002 精神（角色收敛）、0004（不做 resume）。0005 的执行基底（进程内 `AgentSession` + Logical Isolation、Multi-Provider Routing、Adaptive Concurrency）保留并承载新定位；0005 的 Signal Store 与 Orchestrator Loop 在本 ADR 砍掉。
-> **实施状态**：定位与文档已生效；0.7 的 T1/T2/T3 fresh dispatch 内核、档位路由、超时/取消回退、并发与公开 `dteam_dispatch` 已实现并有测试。旧 SignalStore/五角色/loop/UI 已删除。
+> **实施状态**：模型分级定位已生效；0.8 的 T1/T2/T3 fresh worker、档位路由、同档候选、五分钟 attempt、十分钟 timeout recovery、主代理相邻升级、会话级后台运行时和公开 `dteam` 工具已实现并有测试。旧 Orchestrator Loop、五角色与 Signal Store 已删除；当前运行态由 Worker Snapshot、Signal Log 和 `/dteam` 展示。
 
 ## 1. 一句话决定
 
-dteam 从「对抗式合议」重定位为：**模型分级路由执行层——主模型（T1）思考/路由/验收，小任务 fan-out 给小模型（T3）批量并行做，思考跟随档位，搞不定走 fresh 验收 → 回退强模型。**
+dteam 从「对抗式合议」重定位为：**模型分级路由执行层——主模型（T1）思考/路由/验收，小任务 fan-out 给小模型（T3）批量并行做，思考跟随档位；同档可用性自动候选，跨档由主代理按 T3→T2→T1 相邻决定。**
 
 ## 2. 背景：为什么放弃对抗式合议，为什么是这个新定位
 
@@ -21,7 +21,7 @@ dteam 从「对抗式合议」重定位为：**模型分级路由执行层——
 
 **dteam = 模型分级路由执行层。**
 
-主模型（T1 思考档）是 owner，负责思考/决策/综合/路由/验收；小任务 fan-out 给 T3 快速档小模型批量并行；思考强度跟随档位；小模型搞不定走 fresh 验收 → 回退强模型。
+主模型（T1 思考档）是 owner，负责思考/决策/综合/路由/验收；小任务 fan-out 给 T3 快速档小模型批量并行；思考强度跟随档位；同档候选由 Manager 自动尝试，硬失败、质量问题或 timeout 回传主模型，由主模型决定 retry、fresh 验收或按 T3→T2→T1 相邻升级。
 
 **vs dgoal（零重叠）**：
 
@@ -49,20 +49,20 @@ dteam 从「对抗式合议」重定位为：**模型分级路由执行层——
 - **思考强度跟随档位**（T1 高 / T2 中 / T3 低），不独立成维——理由：思考收益随档位降低而递减（小模型高思考不划算），且难任务走回退换强模型（自带高思考），不需要让小模型多想。
 - **标准本质是人为划档**（模型能力连续，档位是离散近似），不是客观物理边界。
 
-### 4.2 单工具 dteam_dispatch
+### 4.2 单工具 dteam
 
-dteam 暴露**唯一工具** `dteam_dispatch(task, tier, thinking?, tools?)`：
-- 创建 fresh 进程内 worker session（Logical Isolation，不继承主会话），执行，返回结果。
-- **执行 / 验收 / 回退都是 dispatch 的不同用法**（验收 = T1 fresh + 只读 + 验收 prompt；回退 = T1 重做或主模型自己做）。
-- 主模型并发调用多个 dispatch = 并行 fan-out。
+dteam 暴露**唯一模型工具** `dteam({ type: "dispatch" | "respond", ... })`：
+- `dispatch` 创建 fresh 进程内 worker session（Logical Isolation，不继承主会话），立即返回接收状态，结果通过 parent event/follow-up 通知。
+- `respond` 回应 waiting worker 的结构化请求；timeout recovery 支持 `retry`、相邻 `escalate`、`extend`、`stop`，恢复使用 fresh session 和裁剪摘要。
+- **执行 / 验收 / 恢复都是 dteam 的不同用法**；主代理并发调用多个 dispatch = 并行 fan-out；`/dteam` 展示 Worker Snapshot 实时状态。
 
 单工具够用的关键：dispatch 创建的 worker 都是 fresh session，验收 worker 天然不看主会话/方案出处——所以验收不需要第二个工具。
 
-### 4.3 回退（可用性兜底）
+### 4.3 回退与升级（可用性兜底）
 
-- **硬失败**（小模型报错/超时/工具异常）→ 自动回退。
-- **质量不过** → fresh 验收触发回退。
-- 回退目标是 T1 强模型（重做）或主模型自己接手。
+- **同档候选**：小模型报错、限流或工具异常时，Manager 只自动尝试当前 tier 的后续候选。
+- **硬失败、质量不过或 timeout**：回传主模型；主模型可经结构化 `respond` 选择 recovery，或重新 dispatch 下一轮。
+- **跨档升级**：只能由主代理按 `T3 → T2 → T1` 相邻决定；Manager 不自动从 T3/T2 跳到 T1。
 
 ### 4.4 fresh 验收（对抗主模型倾向）
 
@@ -78,7 +78,7 @@ dispatch 的 fresh 特性保证：主模型想验收时，验收 worker 是独�
 | 0007 对抗回合 + 积分制 + N design 差异化 + summary 不转原文 | 同上；但 **fresh check 零件复活**到验收用法 |
 | 五角色（explore/design/build/check/close 职能分工） | 被 T1/T2/T3 能力分级取代 |
 | Orchestrator Loop（独立编排循环） | 主模型自己路由，不要独立 loop |
-| Signal Store（信号驱动，0005 保留项） | dispatch 是 fan-out + 收结果，不需要信号回流 |
+| 旧 Signal Store（信号驱动编排，0005 保留项） | 不恢复 TTL/编排循环；0.8 仅保留当前会话的 Signal Log、Worker Snapshot 和结构化等待请求 |
 
 ## 6. 保留有效
 
@@ -110,7 +110,7 @@ dispatch 的 fresh 特性保证：主模型想验收时，验收 worker 是独�
 
 已验证的实现：
 
-- dispatch 单次调用同步返回结构化 `DispatchResult`；主模型通过多个并行工具调用 fan-out，并在主对话收集结果。
+- 0.8 `dteam.dispatch` 立即返回结构化接收状态；主模型通过 parent event/follow-up 收到完成或等待通知，并经 `dteam.respond` 恢复阻塞请求。
 
 仍留实施验证的分支：
 
@@ -120,7 +120,7 @@ dispatch 的 fresh 特性保证：主模型想验收时，验收 worker 是独�
 
 - **推翻**：0006、0007
 - **保留**：0001、0002 精神、0004、0005 执行基底（进程内 AgentSession / Multi-Provider Routing / Adaptive Concurrency）
-- **术语**（已同步 `doc/术语表.md`）：Model Tier / Thinking Budget / dteam_dispatch / fresh 验收
+- **术语**（已同步 `doc/术语表.md`）：Model Tier / Thinking Budget / dteam / timeout recovery / fresh 验收
 - **外部依据**：Curio 项目真实开发轨迹（本地调研时核验）、zcode-swarm 插件一手源（`doc/20-能力参考/29`）、ZCode 用户群聊实践
 - **姊妹项目**：[`pi-dgoal`](../../../pi-dgoal)（单模型建检，独立并列）
 - **设计参考**：ant-colony（多态分工 + Multi-Provider Routing + Adaptive Concurrency 的源头）、swarm coordinator 形态（主模型派发 worker）
