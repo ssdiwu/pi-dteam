@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-14
+
 ### Added
 - 实现 0.8 会话级 Worker Manager：`dteam` 立即受理 1–32 个 worker，后台执行并聚合完成结果。
 - 实现 A/B/C 有类型 signal、阻塞 request/respond、受限动态工具、`/dteam` 管理视图和取消二次确认。
