@@ -421,7 +421,8 @@ describe("WorkerManager", () => {
     await vi.waitFor(() => expect(hanging.prompt).toHaveBeenCalled());
     manager.cancel(accepted!.workerId);
     await vi.waitFor(() => expect(limiter.flying).toBe(0));
-    expect(manager.get(accepted!.workerId)?.state).toBe("cancelled");
+    expect(manager.get(accepted!.workerId)).toMatchObject({ state: "cancelled", terminalReason: "user_cancelled" });
+    expect(manager.get(accepted!.workerId)?.endedAt).toEqual(expect.any(Number));
   });
 
   it("shutdown 清理延迟实时刷新 timer", async () => {
@@ -440,7 +441,8 @@ describe("WorkerManager", () => {
     const callsAfterShutdown = onChange.mock.calls.length;
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(onChange.mock.calls.length).toBe(callsAfterShutdown);
-    expect(manager.get(accepted!.workerId)?.state).toBe("shutdown");
+    expect(manager.get(accepted!.workerId)).toMatchObject({ state: "shutdown", terminalReason: "session_shutdown" });
+    expect(manager.get(accepted!.workerId)?.endedAt).toEqual(expect.any(Number));
   });
 
   it("failed error 和 request payload 也经过脱敏", async () => {

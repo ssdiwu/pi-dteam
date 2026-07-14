@@ -156,6 +156,7 @@ export class WorkerManager {
     record.cancelReason = reason;
     record.terminalReason = "user_cancelled";
     record.state = "cancelled";
+    record.endedAt ??= Date.now();
     this.requestState.cancelWorker(workerId, reason);
     record.controller.abort();
     this.clearRenderTimer(record);
@@ -169,6 +170,7 @@ export class WorkerManager {
     record.cancelReason = "session_shutdown";
     record.terminalReason = "session_shutdown";
     record.state = "shutdown";
+    record.endedAt ??= Date.now();
     this.requestState.cancelWorker(record.id, "session_shutdown");
     record.controller.abort();
     this.clearRenderTimer(record);
