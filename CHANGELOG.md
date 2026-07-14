@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### Changed
+- `/dteam` 管理弹窗将运行中 worker 与终态历史拆为可用左右方向键切换的两个视图；历史按最新终态优先显示。列表与详情支持有界键盘滚动，避免大量 worker 堆积后被 Modal 裁切而无法查看。
+
+### Fixed
+- worker 进入 timeout recovery 前会清理旧的阻塞请求，避免过时回应跨 fresh attempt 残留。
+- `/dteam` 详情以 worker ID 保持目标，worker 结束后仍显示原记录；非交互降级输出同时包含运行中与历史记录。
+
 ## [0.8.2] - 2026-07-15
 
 ### Added
