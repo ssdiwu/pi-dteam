@@ -1,6 +1,6 @@
 # 24-harness 团队架构工厂参考
 
-> **0.7 状态注记（2026-07-10）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter、UI 或 `/dteam` 面板，均是调研时用于对照的 0.6 历史形态；当前 dteam 只保留 T1/T2/T3 fresh `dteam_dispatch`，相关源码、命令和 UI 已删除。以下内容只作机制比较，不描述当前实现。
+> **0.8 状态注记（2026-07-14）**：本文中出现的 Orchestrator Loop、Signal Store、五角色、Reporter，均是调研时用于对照的 0.6 历史形态，已删除。当前 dteam 已实现会话级后台 Worker Manager、唯一工具 `dteam`（dispatch/respond）、有类型 signal 和 `/dteam` 实时管理面板；以下内容只作机制比较，不描述当前实现。
 
 > `revfactory/harness`：Claude Code 生态 L3 Meta-Factory 层的 Team-Architecture Factory。一次性生成器：输入领域描述，输出 `.claude/agents/*.md` + `.claude/skills/*/SKILL.md`。Apache 2.0。
 > 仓库：https://github.com/revfactory/harness
