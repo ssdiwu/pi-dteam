@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { TIERS, type Tier, type TierModelRoutes } from "../types/dispatch.js";
+import { TIERS, THINKING_LEVELS, type Tier, type TierModelRoutes } from "../types/dispatch.js";
 
 export const DTEAM_CONFIG_PATH = join(homedir(), ".pi", "agent", "pi-dteam.json");
 
 export interface DteamConfigFile {
-  tiers: Record<Tier, { model: string; fallbackModels?: string[] }>;
+  tiers: Record<Tier, string[]>;
 }
 
 export interface DteamConfigStatus {
@@ -37,21 +37,13 @@ export function loadDteamConfig(path = DTEAM_CONFIG_PATH): DteamConfigStatus {
 
   if (!tiers) errors.push("缺少 tiers 配置对象");
   for (const tier of TIERS) {
-    const entry = tiers?.[tier];
-    const model = isRecord(entry) && typeof entry.model === "string" ? entry.model.trim() : "";
-    if (!model) {
+    const candidates = parseTierCandidates(tiers?.[tier], tier, errors);
+    if (!candidates?.length) {
       missingTiers.push(tier);
-      errors.push(`${tier} 缺少 model`);
+      if (!candidates) errors.push(`${tier} 必须是 provider/model[:thinking] 字符串数组`);
       continue;
     }
-    if (!isModelRef(model)) {
-      errors.push(`${tier}.model 必须是 provider/id 格式：${model}`);
-      continue;
-    }
-    const fallbackModels = isRecord(entry) && entry.fallbackModels !== undefined
-      ? parseFallbacks(entry.fallbackModels, tier, errors)
-      : undefined;
-    routes[tier] = { primary: model, ...(fallbackModels?.length ? { fallbackModels } : {}) };
+    routes[tier] = { primary: candidates[0], ...(candidates.length > 1 ? { fallbackModels: candidates.slice(1) } : {}) };
   }
 
   return { path, exists: true, valid: errors.length === 0 && missingTiers.length === 0, routes, missingTiers, errors };
@@ -63,14 +55,37 @@ export function formatDteamConfigWarning(status: DteamConfigStatus): string {
   return `dteam 未启用：${detail}。T1/T2/T3 必须配置在 ${status.path}`;
 }
 
-function parseFallbacks(value: unknown, tier: Tier, errors: string[]): string[] | undefined {
+function parseTierCandidates(value: unknown, tier: Tier, errors: string[]): string[] | undefined {
+  const values = Array.isArray(value)
+    ? value
+    : isRecord(value) && typeof value.model === "string"
+      ? [value.model, ...(parseLegacyFallbacks(value.fallbackModels, tier, errors) ?? [])]
+      : undefined;
+  if (!values || !values.every((item) => typeof item === "string")) return undefined;
+
+  const models = [...new Set(values.map((item) => item.trim()).filter(Boolean))];
+  for (const [index, candidate] of models.entries()) {
+    const model = modelWithoutThinking(candidate);
+    if (!isModelRef(model)) errors.push(`${Array.isArray(value) ? `${tier}[${index}]` : `${tier}.model`} 必须是 provider/model[:thinking] 格式：${candidate}`);
+  }
+  return models;
+}
+
+function parseLegacyFallbacks(value: unknown, tier: Tier, errors: string[]): string[] | undefined {
+  if (value === undefined) return [];
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
     errors.push(`${tier}.fallbackModels 必须是字符串数组`);
-    return undefined;
+    return [];
   }
-  const models = [...new Set(value.map((item) => item.trim()).filter(Boolean))];
-  for (const model of models) if (!isModelRef(model)) errors.push(`${tier}.fallbackModels 包含无效模型：${model}`);
-  return models;
+  return value.map((item) => item.trim()).filter(Boolean);
+}
+
+function modelWithoutThinking(value: string): string {
+  const separator = value.lastIndexOf(":");
+  const suffix = separator > value.indexOf("/") ? value.slice(separator + 1) : "";
+  return suffix && (THINKING_LEVELS as readonly string[]).includes(suffix)
+    ? value.slice(0, separator)
+    : value;
 }
 
 function isModelRef(value: string): boolean {

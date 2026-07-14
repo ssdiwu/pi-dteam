@@ -52,6 +52,14 @@ describe("WorkerManager", () => {
     manager.shutdown();
   });
 
+  it("模型候选后缀覆盖 worker thinking，回退保持候选顺序", async () => {
+    mockCreateWorkerSession.mockResolvedValue(session("完成"));
+    const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/model:high", fallbackModels: ["ctx/fallback:low"] } } }));
+    const [accepted] = manager.dispatch([{ title: "思考强度", task: "任务", tier: "T3" }]);
+    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+    expect(mockCreateWorkerSession).toHaveBeenCalledWith(expect.objectContaining({ modelStr: "ctx/model", thinkingLevel: "high" }));
+  });
+
   it("立即逐项受理并最终完成，成功结果短窗回传", async () => {
     const events: any[] = [];
     mockCreateWorkerSession.mockResolvedValue(session("完成"));

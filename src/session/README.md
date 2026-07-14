@@ -4,8 +4,8 @@
 
 | 文件 | 职责 |
 |---|---|
-| `tier-config.ts` | T1/T2/T3 默认 prompt、thinking、工具白名单；读取 `DTEAM_T*_MODEL` 与 `_FALLBACK_MODELS` |
+| `tier-config.ts` | T1/T2/T3 默认 prompt、thinking、工具白名单；解析 `provider/model[:thinking]` 候选 |
 | `model-resolver.ts` | 解析 `provider/id` 到 Pi `Model` |
 | `resource-loader.ts` | system prompt 与受控扩展资源加载 |
 
-调用方的 `builtInTools` 覆盖档位默认；`customTools` 名称会自动加入工具白名单。角色 prompt、信号 custom tool 和 worker role 配置已随 0.6 runtime 删除。
+调用方的 `builtInTools` 覆盖档位默认；`customTools` 名称会自动加入工具白名单。模型配置使用 `~/.pi/agent/pi-dteam.json` 的有序候选数组，后续候选作为回退。角色 prompt、信号 custom tool 和 worker role 配置已随 0.6 runtime 删除。

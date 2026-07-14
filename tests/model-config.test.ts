@@ -13,20 +13,20 @@ describe("pi-dteam.json model configuration", () => {
     expect(loadDteamConfig(join(root, "missing.json"))).toMatchObject({ valid: false, exists: false, missingTiers: ["T1", "T2", "T3"] });
   });
 
-  it("读取 primary 与 fallbackModels", () => {
+  it("按 provider/model[:thinking] 顺序读取主模型与回退链", () => {
     mkdirSync(root, { recursive: true });
     const path = join(root, "pi-dteam.json");
     writeFileSync(path, JSON.stringify({ tiers: {
-      T1: { model: "openai-codex/gpt-5.6-terra", fallbackModels: ["openai-codex/gpt-5.6-luna"] },
-      T2: { model: "openai-codex/gpt-5.6-luna" },
-      T3: { model: "openai-codex/gpt-5.3-codex-spark" },
+      T1: ["openai-codex/gpt-5.6-terra:high", "openai-codex/gpt-5.6-sol:high"],
+      T2: ["openai-codex/gpt-5.6-luna:medium"],
+      T3: ["openai-codex/gpt-5.3-codex-spark:low"],
     }}));
     expect(loadDteamConfig(path)).toMatchObject({
       valid: true,
       routes: {
-        T1: { primary: "openai-codex/gpt-5.6-terra", fallbackModels: ["openai-codex/gpt-5.6-luna"] },
-        T2: { primary: "openai-codex/gpt-5.6-luna" },
-        T3: { primary: "openai-codex/gpt-5.3-codex-spark" },
+        T1: { primary: "openai-codex/gpt-5.6-terra:high", fallbackModels: ["openai-codex/gpt-5.6-sol:high"] },
+        T2: { primary: "openai-codex/gpt-5.6-luna:medium" },
+        T3: { primary: "openai-codex/gpt-5.3-codex-spark:low" },
       },
     });
   });

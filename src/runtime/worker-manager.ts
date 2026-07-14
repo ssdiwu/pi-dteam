@@ -1,7 +1,7 @@
 import { DTEAM_CONFIG } from "../config.js";
 import { AdaptiveConcurrency } from "../dispatch/concurrency.js";
 import { isRateLimitError, tierModelCandidates } from "../dispatch/model-routing.js";
-import { getTierThinking, getTierTools, tierModelRoutesFromEnv } from "../session/tier-config.js";
+import { getTierTools, parseTierModelCandidate, tierModelRoutesFromEnv } from "../session/tier-config.js";
 import { createWorkerSession } from "../session.js";
 import { extractLastText } from "../leaf/extract.js";
 import type { Tier, TierModelRoutes } from "../types/dispatch.js";
@@ -202,7 +202,8 @@ export class WorkerManager {
       record.activeTier = tier;
       record.fallbackTrail.push(tier);
       if (tier !== record.requestedTier) this.signal(record, "fallback_started", { tier });
-      for (const modelStr of tierModelCandidates(tier, this.options.model, this.options.tierModelRoutes ?? tierModelRoutesFromEnv())) {
+      for (const candidate of tierModelCandidates(tier, this.options.model, this.options.tierModelRoutes ?? tierModelRoutesFromEnv())) {
+        const { modelStr, thinkingLevel } = parseTierModelCandidate(candidate, tier);
         try {
           const session = await createSessionWithTimeout({
             tier, cwd: this.options.cwd, modelStr, ctx: { modelRegistry: this.options.modelRegistry },
@@ -210,7 +211,7 @@ export class WorkerManager {
             registeredTools: [...new Set([...record.policy.baseTools, ...record.policy.addTools, SIGNAL_TOOL_NAME])],
             initialActiveTools: record.activeTools,
             customTools: [makeSignalTool(record.id, this)],
-            thinkingLevel: getTierThinking(tier),
+            thinkingLevel,
             logicalIsolation: true,
           }, this.options.timeoutMs);
           record.session = session;

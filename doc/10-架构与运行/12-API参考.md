@@ -11,14 +11,14 @@
 ```json
 {
   "tiers": {
-    "T1": { "model": "openai-codex/gpt-5.6-terra" },
-    "T2": { "model": "openai-codex/gpt-5.6-luna" },
-    "T3": { "model": "openai-codex/gpt-5.3-codex-spark" }
+    "T1": ["openai-codex/gpt-5.6-terra:high", "openai-codex/gpt-5.6-sol:high"],
+    "T2": ["openai-codex/gpt-5.6-luna:medium"],
+    "T3": ["openai-codex/gpt-5.3-codex-spark:low"]
   }
 }
 ```
 
-三档 `model` 都必填；可选 `fallbackModels`。文件缺失、JSON 无效、档位缺失或模型不是 `provider/id` 格式时，session 启动会显著提醒，`dteam` 进入 fail-closed，不会使用主会话 `ctx.model`。
+每档是按顺序尝试的 `provider/model[:thinking]` 候选数组；后续项作为回退。`thinking` 可省略并跟随 T1/T2/T3 默认值。文件缺失、JSON 无效、档位缺失或模型不是 `provider/model[:thinking]` 格式时，session 启动会显著提醒，`dteam` 进入 fail-closed，不会使用主会话 `ctx.model`。
 
 ## 1. 模型工具：`dteam`
 

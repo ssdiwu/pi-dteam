@@ -38,14 +38,14 @@ dteam requires a personal configuration file; it never infers tiers from a model
 ```json
 {
   "tiers": {
-    "T1": { "model": "openai-codex/gpt-5.6-terra" },
-    "T2": { "model": "openai-codex/gpt-5.6-luna" },
-    "T3": { "model": "openai-codex/gpt-5.3-codex-spark" }
+    "T1": ["openai-codex/gpt-5.6-terra:high", "openai-codex/gpt-5.6-sol:high"],
+    "T2": ["openai-codex/gpt-5.6-luna:medium"],
+    "T3": ["openai-codex/gpt-5.3-codex-spark:low"]
   }
 }
 ```
 
-`T1`/`T2`/`T3` are all required. Optional `fallbackModels` arrays can be added per tier. If the file is missing or incomplete, dteam warns at session startup and refuses dispatch until fixed. After editing the file, run `/reload` to load it in the current Pi session. `tools` remains the highest permission ceiling across every fallback attempt.
+Each tier is an ordered candidate array: `provider/model[:thinking]`; later entries are tried as fallbacks. `thinking` is optional and defaults to T1 `high`, T2 `medium`, or T3 `low`. Supported suffixes are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. If the file is missing or incomplete, dteam warns at session startup and refuses dispatch until fixed. After editing the file, run `/reload` to load it in the current Pi session. `tools` remains the highest permission ceiling across every fallback attempt.
 
 ## When to use dteam vs dgoal
 

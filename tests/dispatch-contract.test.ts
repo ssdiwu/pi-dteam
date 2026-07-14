@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getTierThinking, getTierTools, tierModelRoutesFromEnv, TIER_DEFAULTS } from "../src/session/tier-config.js";
+import { getTierThinking, getTierTools, parseTierModelCandidate, tierModelRoutesFromEnv, TIER_DEFAULTS } from "../src/session/tier-config.js";
 import { modelCandidates, resolveTierModelWithFallback } from "../src/dispatch/model-routing.js";
 
 describe("T1/T2/T3 dispatch contract", () => {
@@ -16,11 +16,13 @@ describe("T1/T2/T3 dispatch contract", () => {
     expect(getTierTools("T1", [])).toEqual([]);
   });
 
-  it("thinking 缺省跟随档位，调用方可以显式覆盖", () => {
+  it("thinking 缺省跟随档位，模型候选可用后缀覆盖", () => {
     expect(getTierThinking("T1")).toBe("high");
     expect(getTierThinking("T2")).toBe("medium");
     expect(getTierThinking("T3")).toBe("low");
     expect(getTierThinking("T3", "medium")).toBe("medium");
+    expect(parseTierModelCandidate("provider/model:high", "T3")).toEqual({ modelStr: "provider/model", thinkingLevel: "high" });
+    expect(parseTierModelCandidate("provider/model", "T3")).toEqual({ modelStr: "provider/model", thinkingLevel: "low" });
   });
 
   it("只从显式环境变量读取档位主模型与 fallback 链", () => {

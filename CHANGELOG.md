@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+### Changed
+- 模型候选配置改为 dgoal 同款的 `provider/model[:thinking]` 有序数组；数组后续项作为该档位的回退链。
+
 ## [0.8.0] - 2026-07-14
 
 ### Added

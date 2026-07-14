@@ -38,14 +38,14 @@ dteam 必须有个人配置文件，不按模型名称或价格猜档，也不�
 ```json
 {
   "tiers": {
-    "T1": { "model": "openai-codex/gpt-5.6-terra" },
-    "T2": { "model": "openai-codex/gpt-5.6-luna" },
-    "T3": { "model": "openai-codex/gpt-5.3-codex-spark" }
+    "T1": ["openai-codex/gpt-5.6-terra:high", "openai-codex/gpt-5.6-sol:high"],
+    "T2": ["openai-codex/gpt-5.6-luna:medium"],
+    "T3": ["openai-codex/gpt-5.3-codex-spark:low"]
   }
 }
 ```
 
-`T1`/`T2`/`T3` 三档均必填；每档可选 `fallbackModels` 数组。配置文件不存在或不完整时，dteam 会在 session 启动时显著提醒，并拒绝派发，修复配置后需执行 `/reload` 才会在当前 Pi session 生效。`tools` 始终是所有回退尝试的最高权限上限。
+每档是按顺序尝试的候选数组，格式为 `provider/model[:thinking]`；后续项就是回退模型。`thinking` 可省略，默认 T1 为 `high`、T2 为 `medium`、T3 为 `low`；支持 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`。配置文件不存在或不完整时，dteam 会在 session 启动时显著提醒，并拒绝派发，修复配置后需执行 `/reload` 才会在当前 Pi session 生效。`tools` 始终是所有回退尝试的最高权限上限。
 
 ## 什么时候用 dteam vs dgoal
 

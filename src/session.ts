@@ -11,7 +11,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { Tier } from "./types/dispatch.js";
+import type { ThinkingLevel, Tier } from "./types/dispatch.js";
 import { makeResourceLoader, loadConfiguredPackages } from "./session/resource-loader.js";
 import { getTierPrompt, getTierThinking, getTierTools } from "./session/tier-config.js";
 import { resolveModelStr } from "./session/model-resolver.js";
@@ -31,7 +31,7 @@ export interface CreateSessionOptions {
   /** 创建后、首次 prompt 前立即收窄的激活工具集。 */
   initialActiveTools?: string[];
   customTools?: any[];
-  thinkingLevel?: "off" | "low" | "medium" | "high";
+  thinkingLevel?: ThinkingLevel;
   /** 跳过扩展发现，保持 fresh 的最小 ResourceLoader。 */
   logicalIsolation?: boolean;
 }
