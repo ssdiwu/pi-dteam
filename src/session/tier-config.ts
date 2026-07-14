@@ -45,12 +45,9 @@ export const TIER_MODEL_ROUTES: TierModelRoutes = {
 };
 
 /**
- * 从明确声明的环境变量装配档位模型路由。
- *
- * - DTEAM_T1_MODEL / DTEAM_T2_MODEL / DTEAM_T3_MODEL：`provider/id`
- * - DTEAM_T1_FALLBACK_MODELS 等：逗号分隔的 `provider/id` 链
- *
- * 不提供 primary 时保留空配置，由 dispatch 回落当前 ctx.model；不会按名称或价格猜档。
+ * 历史/测试用环境变量路由解析器。
+ * 0.8 生产入口使用 `session/model-config.ts` 的 `~/.pi/agent/pi-dteam.json`，
+ * 并要求 T1/T2/T3 三档都有 primary；不会在生产路径静默回落 ctx.model。
  */
 export function tierModelRoutesFromEnv(env: Record<string, string | undefined> = process.env): TierModelRoutes {
   const routes: TierModelRoutes = {};

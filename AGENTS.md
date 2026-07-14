@@ -10,7 +10,7 @@ dteam 是 **模型分级路由执行层**——主模型（T1 思考档）负责
 
 涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**当前定位权威是 [`doc/决策档案/0008-dteam重定位为模型分级路由执行层.md`](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md)**（推翻 0006 对抗式合议 + 0007 对抗回合积分制）。
 
-> **当前实现**：0008 的 T1/T2/T3、fresh `dispatch()`、档位模型路由、并发、回退与唯一 `dteam_dispatch` 工具均已实现并有测试；0.6 loop/signals/五角色/UI 已删除。
+> **当前实现**：0008 的 T1/T2/T3、fresh dispatch、档位路由、并发与回退已实现；0.8 的会话级 Worker Manager、唯一 `dteam` 工具、A/B/C signal、受限动态工具、`/dteam` 管理和确认取消已实现并有测试；0.6 loop/signals/五角色已删除。
 
 ## 项目结构速查
 
@@ -46,7 +46,7 @@ dteam 是 **模型分级路由执行层**——主模型（T1 思考档）负责
 
 ## 设计收敛纪律
 
-- dteam 的默认方向是收敛到「模型分级路由（T1/T2/T3）+ 单工具 dteam_dispatch + 回退 + fresh 验收」，不是继续扩展成通用多 agent 平台，也不是回到对抗式合议/自发生长。
+- dteam 的默认方向是收敛到「模型分级路由（T1/T2/T3）+ 会话级后台 Worker Manager + 单工具 dteam + 回退 + fresh 验收」，不是继续扩展成通用多 agent 平台，也不是回到对抗式合议/自发生长。
 - 新增概念前先写真实失败样例：哪个现有机制承载不了、会造成什么错误、如何验证新机制降低复杂度；没有证据就不新增。
 - 涉及角色市场、持久化、resume、编排循环、信号系统等扩展型设计时，默认先拒绝或降级为文档观察，除非 ADR 级别拷问通过。
 - 文档也要防术语膨胀：术语表只收稳定、反复使用、会影响实现命名的词；临时想法不要写进术语表。
@@ -63,7 +63,7 @@ npm run build
 # 按 /reload
 
 # 3. 实际调 dteam
-# 调 dteam_dispatch(task="...", tier="T3") 验证分级路由。
+# 调 dteam({ type: "dispatch", workers: [{ title: "...", task: "...", tier: "T3" }] }) 验证后台分级路由。
 ```
 
 **如果 build 失败，必须先修。**
@@ -76,14 +76,14 @@ npm run build
 | 想加什么 | 怎么办 |
 |----------|--------|
 | 改 dispatch 实现 | 改 `leaf.ts` / `session.ts`（进程内 `AgentSession` + Logical Isolation + Multi-Provider Routing 加 tier/thinking） |
-| 改模型档位配置 | 改 `session/tier-config.ts`（T1/T2/T3 默认思考/工具）；用 `DTEAM_T*_MODEL` / `_FALLBACK_MODELS` 显式配置模型链 |
-| 改对外工具 | 改 `./index.ts` + `tools.ts`（单工具 `dteam_dispatch`，取代旧 dteam tool） |
-| 加新工具 | **不推荐**——dteam 故意只暴露 1 个工具（dteam_dispatch） |
+| 改模型档位配置 | 改 `session/model-config.ts` 与 `~/.pi/agent/pi-dteam.json`（T1/T2/T3 模型链）；`tier-config.ts` 中的 `DTEAM_T*_MODEL` 仅作为内部兼容兜底 |
+| 改对外工具 | 改 `./index.ts` + `tools.ts`（唯一模型工具 `dteam`，`type` 区分 dispatch/respond） |
+| 加新工具 | **不推荐**——dteam 故意只暴露 1 个模型工具（dteam） |
 
 
 ## 状态机提醒
 
-> 当前入口没有独立 Orchestrator Loop 状态机：主模型（T1）在对话里直接路由 + 调 dteam_dispatch fan-out + 收结果 + 按需 fresh 验收 + 回退。
+> 当前入口没有独立 Orchestrator Loop 状态机：主模型（T1）在对话里直接路由 + 调 dteam fan-out + 收后台回传 + 按需 fresh 验收 + 回退。
 
 ## 发版流程
 

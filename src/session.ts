@@ -24,8 +24,12 @@ export interface CreateSessionOptions {
   cwd: string;
   modelStr: string;
   ctx: { modelRegistry?: any };
-  /** 覆盖档位默认白名单。 */
+  /** 覆盖档位默认白名单，也是首次 prompt 的基础内置工具集。 */
   builtInTools?: string[];
+  /** 已注册工具全集；用于 0.8 候选工具的后续动态激活。 */
+  registeredTools?: string[];
+  /** 创建后、首次 prompt 前立即收窄的激活工具集。 */
+  initialActiveTools?: string[];
   customTools?: any[];
   thinkingLevel?: "off" | "low" | "medium" | "high";
   /** 跳过扩展发现，保持 fresh 的最小 ResourceLoader。 */
@@ -56,7 +60,8 @@ export async function createWorkerSession(options: CreateSessionOptions) {
     : makeResourceLoader(systemPrompt, await discoverAndLoadExtensions(loadConfiguredPackages(cwd), cwd));
 
   const customToolNames = customTools.map((tool: any) => tool.name);
-  const activeToolNames = [...builtInTools, ...customToolNames.filter((name) => !builtInTools.includes(name))];
+  const registeredTools = options.registeredTools ?? builtInTools;
+  const activeToolNames = [...registeredTools, ...customToolNames.filter((name) => !registeredTools.includes(name))];
   const { session } = await createAgentSession({
     cwd,
     model,
@@ -72,5 +77,11 @@ export async function createWorkerSession(options: CreateSessionOptions) {
       retry: { enabled: true, maxRetries: 1 },
     }),
   });
+
+  // Pi 会在 createAgentSession 时激活 allowlist 中的全部工具；0.8 必须在首次
+  // prompt 前收窄，避免 addTools 被自动视为已经授权。
+  if (options.initialActiveTools) {
+    session.setActiveToolsByName(options.initialActiveTools);
+  }
   return session;
 }

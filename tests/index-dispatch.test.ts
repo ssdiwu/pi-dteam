@@ -1,147 +1,73 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const { mockDispatch } = vi.hoisted(() => ({
-  mockDispatch: vi.fn(),
+const { mockLoadDteamConfig } = vi.hoisted(() => ({ mockLoadDteamConfig: vi.fn() }));
+vi.mock("../src/session/model-config.js", () => ({
+  loadDteamConfig: mockLoadDteamConfig,
+  formatDteamConfigWarning: vi.fn((status: any) => status.errors.join(";")),
 }));
-
-vi.mock("../src/leaf.js", () => ({
-  dispatch: mockDispatch,
-}));
-
-import registerExtension from "../index.js";
+import registerDteam from "../index.js";
 
 function register() {
   const pi = {
+    on: vi.fn(),
     registerTool: vi.fn(),
+    registerCommand: vi.fn(),
+    sendMessage: vi.fn(),
+    getActiveTools: vi.fn(() => ["read", "grep", "find", "ls", "bash", "edit", "write"]),
   };
-  registerExtension(pi as any);
-  return {
-    tool: pi.registerTool.mock.calls[0][0],
-    pi,
-  };
+  registerDteam(pi as any);
+  return { pi, tool: pi.registerTool.mock.calls[0][0], command: pi.registerCommand.mock.calls[0][1] };
 }
 
 function context() {
   return {
     cwd: "/workspace",
     model: { provider: "ctx", id: "model" },
-    modelRegistry: { authStorage: {} },
+    modelRegistry: { authStorage: {}, find: vi.fn(() => ({ provider: "ctx", id: "model" })) },
     ui: { setStatus: vi.fn(), notify: vi.fn() },
   };
 }
 
-beforeEach(() => {
-  mockDispatch.mockReset();
-  delete (globalThis as any).__piDteamDispatchRuntime;
-  delete process.env.DTEAM_T1_MODEL;
-  delete process.env.DTEAM_T1_FALLBACK_MODELS;
-  delete process.env.DTEAM_T2_MODEL;
-  delete process.env.DTEAM_T2_FALLBACK_MODELS;
-  delete process.env.DTEAM_T3_MODEL;
-  delete process.env.DTEAM_T3_FALLBACK_MODELS;
-});
+describe("dteam 0.8 extension entry", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mockLoadDteamConfig.mockReturnValue({ path: "/tmp/pi-dteam.json", exists: true, valid: true, routes: { T1: { primary: "ctx/model" }, T2: { primary: "ctx/model" }, T3: { primary: "ctx/model" } }, missingTiers: [], errors: [] });
+  });
 
-describe("dteam_dispatch extension entry", () => {
-  it("只注册 dteam_dispatch 工具", () => {
+  it("配置缺失时 session 启动显著提醒且工具拒绝派发", async () => {
+    mockLoadDteamConfig.mockReturnValue({ path: "/tmp/pi-dteam.json", exists: false, valid: false, routes: {}, missingTiers: ["T1", "T2", "T3"], errors: ["未找到配置文件"] });
     const { pi, tool } = register();
+    const start = pi.on.mock.calls.find(([event]: any[]) => event === "session_start")?.[1];
+    expect(start).toBeTypeOf("function");
+    const ctx = context();
+    start!({}, ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith("未找到配置文件", "warning");
+    const response = await tool.execute("call", { type: "dispatch", workers: [{ title: "x", task: "x", tier: "T3" }] }, undefined, undefined, ctx);
+    expect(response.isError).toBe(true);
+  });
 
+  it("只注册一个 dteam 工具和同名 /dteam 命令", () => {
+    const { pi, tool } = register();
     expect(pi.registerTool).toHaveBeenCalledTimes(1);
-    expect(tool.name).toBe("dteam_dispatch");
-    expect(tool.parameters.required).toEqual(["task", "tier"]);
+    expect(tool.name).toBe("dteam");
+    expect(pi.registerCommand).toHaveBeenCalledWith("dteam", expect.any(Object));
+    expect(pi.on).toHaveBeenCalledWith("session_start", expect.any(Function));
+    expect(pi.on).toHaveBeenCalledWith("session_shutdown", expect.any(Function));
   });
 
-  it("传递显式 tier、thinking、tools 到 fresh dispatch", async () => {
-    mockDispatch.mockResolvedValue({
-      status: "done",
-      task: "列出文件",
-      requestedTier: "T3",
-      tier: "T3",
-      thinking: "low",
-      tools: ["read", "grep"],
-      result: "完成",
-      fellBack: false,
-      attempts: [],
-      elapsedMs: 1,
-    });
-    process.env.DTEAM_T3_MODEL = "fast/t3";
-    process.env.DTEAM_T3_FALLBACK_MODELS = "fallback/t3";
+  it.each([0, 33])("拒绝 workers 数量 %s", async (count) => {
     const { tool } = register();
-    const ctx = context();
-    const controller = new AbortController();
-
-    const response = await tool.execute(
-      "call-1",
-      { task: "列出文件", tier: "T3", thinking: "low", tools: ["read", "grep"] },
-      controller.signal,
-      undefined,
-      ctx,
-    );
-
-    expect(mockDispatch).toHaveBeenCalledWith(
-      { task: "列出文件", tier: "T3", thinking: "low", tools: ["read", "grep"] },
-      expect.objectContaining({
-        cwd: "/workspace",
-        model: { provider: "ctx", id: "model" },
-        modelRegistry: ctx.modelRegistry,
-        signal: controller.signal,
-        tierModelRoutes: { T3: { primary: "fast/t3", fallbackModels: ["fallback/t3"] } },
-      }),
-    );
-    expect(response.isError).toBe(false);
-    expect(JSON.parse(response.content[0].text)).toMatchObject({ status: "done", tier: "T3" });
-    expect(ctx.ui.setStatus).toHaveBeenNthCalledWith(1, "dteam", "dispatch T3: 列出文件");
-    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined);
-  });
-
-  it("拒绝无效参数，不调用 dispatch", async () => {
-    const { tool } = register();
-    const ctx = context();
-
-    const response = await tool.execute("call-2", { task: "", tier: "T4" }, undefined, undefined, ctx);
-
+    const response = await tool.execute("call", { type: "dispatch", workers: Array.from({ length: count }, (_, i) => ({ title: String(i), task: "x", tier: "T3" })) }, undefined, undefined, context());
     expect(response.isError).toBe(true);
-    expect(response.content[0].text).toContain("task 必须是非空字符串");
-    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(response.content[0].text).toContain("workers 数量必须是 1–32");
   });
 
-  it("并发工具调用共享默认 initial=2 的 limiter", async () => {
-    mockDispatch.mockResolvedValue({
-      status: "done", task: "x", requestedTier: "T3", tier: "T3", thinking: "low",
-      tools: ["read"], result: "完成", fellBack: false, attempts: [], elapsedMs: 1,
-    });
+  it("respond 缺少字段或分支字段时 fail-closed", async () => {
     const { tool } = register();
-    const ctx = context();
-
-    await Promise.all([
-      tool.execute("call-a", { task: "独立一", tier: "T3" }, undefined, undefined, ctx),
-      tool.execute("call-b", { task: "独立二", tier: "T3" }, undefined, undefined, ctx),
-    ]);
-
-    const firstRuntime = mockDispatch.mock.calls[0][1].concurrency;
-    const secondRuntime = mockDispatch.mock.calls[1][1].concurrency;
-    expect(firstRuntime).toBe(secondRuntime);
-    expect(firstRuntime.limit).toBe(2);
-  });
-
-  it("dispatch 返回 failed 时保留结果并标记工具错误", async () => {
-    mockDispatch.mockResolvedValue({
-      status: "failed",
-      task: "失败任务",
-      requestedTier: "T3",
-      tier: "T1",
-      thinking: "high",
-      tools: ["read"],
-      result: "",
-      fellBack: true,
-      attempts: [{ tier: "T3", error: "timeout" }],
-      error: "all failed",
-      elapsedMs: 2,
-    });
-    const { tool } = register();
-
-    const response = await tool.execute("call-3", { task: "失败任务", tier: "T3" }, undefined, undefined, context());
-
-    expect(response.isError).toBe(true);
-    expect(JSON.parse(response.content[0].text)).toMatchObject({ tier: "T1", fellBack: true });
+    const missing = await tool.execute("call", { type: "respond" }, undefined, undefined, context());
+    expect(missing.isError).toBe(true);
+    expect(missing.content[0].text).toContain("respond 需要");
+    const invalid = await tool.execute("call", { type: "respond", workerId: "w", requestId: "r", response: { type: "provide_context" } }, undefined, undefined, context());
+    expect(invalid.isError).toBe(true);
+    expect(invalid.content[0].text).toContain("response 字段不符合");
   });
 });

@@ -3,6 +3,22 @@
 本文件记录 dteam 的用户可感知变更与关键实现收口。  
 格式参考 Keep a Changelog，但保持中文、简洁、面向项目实际。
 
+## [Unreleased]
+
+### Added
+- 实现 0.8 会话级 Worker Manager：`dteam` 立即受理 1–32 个 worker，后台执行并聚合完成结果。
+- 实现 A/B/C 有类型 signal、阻塞 request/respond、受限动态工具、`/dteam` 管理视图和取消二次确认。
+
+### Changed
+- 唯一模型工具从 0.7 的 `dteam_dispatch` 切换为 `dteam({ type: "dispatch" | "respond", ... })`；`/dteam` 保留为用户管理命令。
+- 新增必需的个人模型配置 `~/.pi/agent/pi-dteam.json`：T1/T2/T3 缺一不可；配置缺失或不完整时启动告警并拒绝派发，不再静默回落当前 `ctx.model`。
+- 动态工具采用已注册候选激活并 fail-closed；第三方 extension 候选在无法最小安全加载时降级为 built-in 与 dteam custom 工具。
+- 保留 T1/T2/T3 分级路由、共享并发和 T1 回退；不恢复 workflow、Orchestrator Loop、TTL Signal Store、batch、P2P 或 resume。
+
+### Fixed
+- 修复 worker 取消或 session shutdown 无法立即打断 hanging prompt、并发槽迟迟不释放的问题。
+- 修复 `/dteam` 管理视图不会随 Worker Snapshot 变化自动刷新的问题，并处理 steering / cancel 竞态产生的异步错误。
+
 ## [0.7.0] - 2026-07-10
 
 ### Added

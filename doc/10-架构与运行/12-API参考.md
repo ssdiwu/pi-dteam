@@ -1,109 +1,95 @@
 # dteam API 参考
 
-> dteam 对外只保留 1 个工具：`dteam_dispatch`。
+> 0.8 当前模型侧只注册一个工具：`dteam`。`/dteam` 是用户管理命令，不是第二个模型工具。
 >
-> 0008 重定位后：dteam 是模型分级路由执行层，单工具统一执行/验收/回退。
->
-> **实施状态**：`leaf.ts` / `session.ts` 的 0.7 fresh dispatch 内核、唯一入口与自动化测试均已完成；0.6 loop/signal/UI 已删除。
+> **实施状态**：会话级后台 Worker Manager、星型 signal、受限动态工具和 `/dteam` 管理入口已实现；真实 provider 冒烟仍需在目标环境复核。
 
-## 1. 工具：`dteam_dispatch`
+## 0. 必需的个人模型配置
 
-`dteam_dispatch` 创建 fresh 进程内 worker session，按指定档位模型 + 思考 + 工具白名单执行任务，返回结果。
+配置文件：`~/.pi/agent/pi-dteam.json`。
 
-### 1.1 参数
-
-| 参数 | 类型 | 必填 | 说明 |
-|---|---|:---:|---|
-| `task` | `string` | ✅ | 任务描述（prompt，自包含——worker 看不到主对话） |
-| `tier` | `"T1" \| "T2" \| "T3"` | ✅ | 模型档位（T1 思考 / T2 标准 / T3 快速） |
-| `thinking?` | `"low" \| "medium" \| "high"` | 否 | 思考强度；默认跟随档位（T1高/T2中/T3低） |
-| `tools?` | `string[]` | 否 | 工具白名单；默认回落档位配置 |
-
-### 1.2 三种用法（执行/验收/回退都是它）
-
-```ts
-// 执行小任务（并行 = 主模型并发调用多个）
-dteam_dispatch(task="并行修这 3 个独立 bug", tier="T3")
-dteam_dispatch(task="...", tier="T3")
-dteam_dispatch(task="...", tier="T3")
-
-// fresh 验收（对抗主模型倾向）
-dteam_dispatch(task="验收这个产出是否达标：...", tier="T1", tools=["read","grep","find","ls"])
-// ↑ fresh session，不看主会话/方案出处
-
-// 回退（小模型搞不定）
-dteam_dispatch(task="重做这个任务：...", tier="T1")
-```
-
-**关键**：dispatch 创建的 worker 都是 fresh session（Logical Isolation），所以验收天然 fresh——不需要第二个工具。
-
-## 2. 运行态观察
-
-| 渠道 | 作用 |
-|---|---|
-| 工具结果 | `dteam_dispatch` 将结构化 DispatchResult 返回主对话 |
-| status（状态栏） | 执行期间显示当前 tier 与 task，结束后清理 |
-| notify（通知） | 完成或失败提示；成功回退由返回结果的 `fellBack` 字段表达，不单独通知 |
-
-## 3. 完成判定
-
-dteam 没有独立的"完成判定"——主模型自己决定何时收口（它推进对话）。关键 task 主模型调 fresh 验收确认；不强制（A 形态要轻）。
-
-## 4. 结果结构（dispatch 内核当前契约）
-
-```ts
-interface DispatchResult {
-  status: "done" | "failed"
-  task: string
-  requestedTier: "T1" | "T2" | "T3" // 调用方请求的档位
-  tier: "T1" | "T2" | "T3"          // 实际完成/最终尝试的档位
-  thinking: "low" | "medium" | "high"
-  tools: string[]                      // 实际权限白名单
-  result: string                       // worker 产出；失败时为空
-  model?: string                       // 实际使用的 provider/id
-  fellBack: boolean                    // 是否已尝试更强档位
-  attempts: Array<{ tier: "T1" | "T2" | "T3"; model?: string; error?: string }>
-  error?: string
-  elapsedMs: number
+```json
+{
+  "tiers": {
+    "T1": { "model": "openai-codex/gpt-5.6-terra" },
+    "T2": { "model": "openai-codex/gpt-5.6-luna" },
+    "T3": { "model": "openai-codex/gpt-5.3-codex-spark" }
+  }
 }
 ```
 
-> 旧 `DteamResult6`（summonTrail + signalSnapshot + checkConclusion）随 Orchestrator Loop 一起退场。
+三档 `model` 都必填；可选 `fallbackModels`。文件缺失、JSON 无效、档位缺失或模型不是 `provider/id` 格式时，session 启动会显著提醒，`dteam` 进入 fail-closed，不会使用主会话 `ctx.model`。
 
-## 5. 档位模型配置
+## 1. 模型工具：`dteam`
 
-| 环境变量 | 作用 |
-|---|---|
-| `DTEAM_T1_MODEL` / `T2` / `T3` | 显式指定该档主模型，格式 `provider/id` |
-| `DTEAM_T1_FALLBACK_MODELS` / `T2` / `T3` | 逗号分隔的同档 provider 回退链 |
+`dteam` 用 `type` 区分两种动作：
 
-未配置 primary 时才回落当前 `ctx.model`；不按模型名称或价格猜档。回退到 T1 后默认恢复 T1 高思考。
+### 1.1 派发
 
-## 6. `tools` 契约
+```ts
+dteam({
+  type: "dispatch",
+  workers: [{
+    title: "读取配置",
+    task: "独立完成这个自包含任务，并报告证据",
+    tier: "T3",
+    addTools: [],
+  }],
+})
+```
 
-| 场景 | 行为 |
-|---|---|
-| 主 LLM 传非空 `tools` | dispatch 只允许 worker 用这些工具 |
-| 不传 | 采用**请求档**默认白名单，并作为同档 fallback 与 T1 回退的上限（T3 仍只读） |
-| 工具名不存在 | intersect（取交集）过滤 |
+- `workers` 必须是 1–32 项；每项独立返回 `workerId`。
+- `title`、`task`、`tier` 必填，`tier` 为 `T1` / `T2` / `T3`。
+- `addTools` 是本次 worker 的预授权候选上限，不接受能力标签。
+- dteam 立即返回 queued 接收凭据；完成结果经主会话 follow-up 回传。
+- 多项只是一次调用参数列表，不产生 `batchId`，不表达依赖。
 
-## 7. 内部 API（已完成的 dispatch 内核）
+### 1.2 回应阻塞请求
 
-| 函数 | 位置 | 说明 |
-|---|---|---|
-| `dispatch(request, ctx)` | `src/leaf.ts` | 已实现：进程内 fresh session、Logical Isolation、同档 provider fallback 与非 T1→T1 硬回退 |
-| `createWorkerSession(options)` | `src/session.ts` | 已支持 `tier` + thinking，继续创建进程内 worker session |
-| 档位配置 | `src/session/tier-config.ts` | 已实现：T1/T2/T3 默认模型路由、thinking、工具白名单 |
-| 路由 / 并发 | `src/dispatch/*` | 已迁移：显式模型链与 Adaptive Concurrency；不创建执行 loop |
+```ts
+dteam({
+  type: "respond",
+  workerId: "...",
+  requestId: "...",
+  response: { type: "provide_context", context: "最小必要上下文" },
+})
+```
 
-> 0.6.0 的 `orchestrator-loop.ts` / `signals/*` 已删除（0008 推翻）。
+`response.type` 支持：
 
-## 8. 当前不提供的 API
+- `provide_context`：提供上下文。
+- `grant_tools`：只授予本次 `addTools` 候选。
+- `decision`：提供主代理决定。
+- `deny`：明确拒绝及原因。
 
-| 不提供 | 原因 |
-|---|---|
-| 多个工具名 | 保持单工具哲学（dispatch 统一执行/验收/回退） |
-| `runId` / 后台返回 | dteam 是主模型在对话里直接 dispatch，不后台运行 |
-| 自定义角色/档位注册 | 三档写死（延续 ADR 0002 精神） |
-| workflow 脚本 API | dteam 不做固定编排平台 |
-| Orchestrator Loop / Signal Store | 已被 0008 推翻 |
+回应先更新权限或请求状态，再兑现原 worker 的 `dteam_signal` 阻塞工具调用；不创建新 session，不依赖 `followUp()` 解锁。
+
+## 2. Worker 与 signal
+
+worker 是当前 Pi 进程内的 fresh `AgentSession`。Worker Manager 管理：
+
+- `queued → running → waiting → completed/failed/timed_out/cancelled/shutdown` 生命周期；超时、用户取消和 session shutdown 保持独立终态；
+- T3/T2 到 T1 回退、共享 Adaptive Concurrency；
+- `progress` / `finding` 过程事实；
+- `request_context` / `request_tools` / `request_decision` / `blocked` 阻塞请求。
+
+worker 只能经 `dteam_signal` 向 Manager 发信号，不能 P2P；主代理经 `dteam` 回应。成功结果 500ms 短窗合并，失败、取消和阻塞请求立即回传。
+
+## 3. 工具权限
+
+worker 创建时注册 `baseTools ∪ addTools ∪ dteam_signal`，首次 prompt 前只激活基础工具与 signal。`request_tools` 只能激活已注册且属于本次 `addTools` 的精确名称；未知工具由 dteam fail-closed 拒绝。
+
+当前第三方 extension 候选无法通过公开 API 安全地最小加载，因此 0.8 只开放 built-in 与 dteam custom 工具候选，不全量加载 extension。
+
+## 4. `/dteam` 管理命令
+
+`/dteam` 提供按需 overlay 列表和详情：运行中 worker 可 steering；取消必须二次确认并记录 `user_cancelled`；结束 worker 只读封存。没有活跃 worker 时仍可查看当前进程内历史记录。
+
+Pi session shutdown / reload 会中止活跃 worker，不做 resume 或跨进程恢复。
+
+## 5. 不提供
+
+- `dteam_dispatch`：仅为 0.7 历史工具名。
+- `dteam.dispatch` / `dteam.respond`：仅为文档动作简称，不是注册工具名。
+- batch、依赖图、Task Plan、goal/task 映射、自动续派。
+- workflow 脚本、Orchestrator Loop、TTL Signal Store、五角色、P2P、resume、常驻浮窗。

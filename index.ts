@@ -1,146 +1,158 @@
-/**
- * dteam 0.7 — Pi 扩展入口。
- *
- * 对外只注册 dteam_dispatch：主模型负责路由，dteam 执行一次 fresh worker 派发。
- * 执行、fresh 验收和回退由 tier / task / tools 的不同组合表达，不另建工具。
- */
-
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+/** dteam 0.8 — 唯一模型工具 `dteam` 与用户管理命令 `/dteam`。 */
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "./src/dispatch/concurrency.js";
-import { dispatch } from "./src/leaf.js";
-import { tierModelRoutesFromEnv } from "./src/session/tier-config.js";
-import { THINKING_LEVELS, TIERS, type ThinkingLevel, type Tier } from "./src/types/dispatch.js";
+import { WorkerManager } from "./src/runtime/worker-manager.js";
+import { formatDteamConfigWarning, loadDteamConfig, type DteamConfigStatus } from "./src/session/model-config.js";
+import type { DteamParams, ParentEvent } from "./src/runtime/types.js";
+import { renderWorkerDetail, renderWorkerList } from "./src/tui/dteam-dialog.js";
+import { confirmWorkerCancellation } from "./src/tui/cancel.js";
 
-const RUNTIME_KEY = "__piDteamDispatchRuntime";
-
-type DispatchRuntime = {
-  concurrency: AdaptiveConcurrency;
-};
-
-type DteamGlobal = typeof globalThis & {
-  [RUNTIME_KEY]?: DispatchRuntime;
-};
-
-function dispatchRuntime(): DispatchRuntime {
-  const global = globalThis as DteamGlobal;
-  if (!global[RUNTIME_KEY]) {
-    global[RUNTIME_KEY] = {
-      concurrency: new AdaptiveConcurrency(DEFAULT_CONCURRENCY_CONFIG),
-    };
-  }
-  return global[RUNTIME_KEY]!;
+function errorResult(message: string) {
+  return { content: [{ type: "text" as const, text: `dteam: ${message}` }], isError: true, details: {} };
 }
 
-function isTier(value: unknown): value is Tier {
-  return typeof value === "string" && (TIERS as readonly string[]).includes(value);
+function managerFor(
+  pi: ExtensionAPI,
+  current: { manager?: WorkerManager; render?: () => void },
+  ctx: ExtensionContext,
+  config: DteamConfigStatus,
+): WorkerManager {
+  if (!config.valid) throw new Error(formatDteamConfigWarning(config));
+  if (current.manager) return current.manager;
+  const manager = new WorkerManager({
+    cwd: ctx.cwd || process.cwd(),
+    modelRegistry: ctx.modelRegistry,
+    model: ctx.model,
+    parentActiveTools: typeof pi.getActiveTools === "function" ? pi.getActiveTools() : (ctx as any).getActiveTools?.() ?? [],
+    getParentActiveTools: () => typeof pi.getActiveTools === "function" ? pi.getActiveTools() : (ctx as any).getActiveTools?.() ?? [],
+    tierModelRoutes: config.routes,
+    concurrency: new AdaptiveConcurrency(DEFAULT_CONCURRENCY_CONFIG),
+    onParentEvent: (event) => {
+      sendParentEvent(pi, event, ctx.hasUI);
+      const active = current.manager?.active().length ?? 0;
+      ctx.ui?.setStatus?.("dteam", active > 0 ? `${active} worker active` : undefined);
+    },
+    onChange: () => current.render?.(),
+  });
+  current.manager = manager;
+  return manager;
 }
 
-function isThinkingLevel(value: unknown): value is ThinkingLevel {
-  return typeof value === "string" && (THINKING_LEVELS as readonly string[]).includes(value);
+function sendParentEvent(pi: ExtensionAPI, event: ParentEvent, hasUI = true): void {
+  const text = JSON.stringify({ dteam: event.type, workerId: event.workerId, title: event.title, ...((event.payload && typeof event.payload === "object") ? event.payload : { payload: event.payload }) });
+  pi.sendMessage?.({ customType: "dteam-worker", content: text, display: true, details: event }, { triggerTurn: hasUI, deliverAs: hasUI ? "followUp" : "nextTurn" });
 }
 
-function toolError(message: string) {
-  return {
-    content: [{ type: "text" as const, text: `dteam_dispatch: ${message}` }],
-    isError: true,
-    details: {},
-  };
+function validateResponse(raw: any): { ok: true; value: any } | { ok: false; error: string } {
+  if (raw?.type === "provide_context" && typeof raw.context === "string") return { ok: true, value: { type: raw.type, context: raw.context } };
+  if (raw?.type === "grant_tools" && Array.isArray(raw.tools) && raw.tools.every((tool: unknown) => typeof tool === "string")) return { ok: true, value: { type: raw.type, tools: raw.tools } };
+  if (raw?.type === "decision" && typeof raw.decision === "string") return { ok: true, value: { type: raw.type, decision: raw.decision } };
+  if (raw?.type === "deny" && typeof raw.reason === "string") return { ok: true, value: { type: raw.type, reason: raw.reason } };
+  return { ok: false, error: "respond response 字段不符合 type 对应 schema" };
 }
 
-export default function (pi: ExtensionAPI) {
+function isParams(value: unknown): value is DteamParams {
+  return !!value && typeof value === "object" && ((value as any).type === "dispatch" || (value as any).type === "respond");
+}
+
+export default function registerDteam(pi: ExtensionAPI) {
+  const runtime: { manager?: WorkerManager; config?: DteamConfigStatus; render?: () => void } = {};
+
+  pi.on("session_start", (_event, ctx) => {
+    runtime.manager?.shutdown();
+    runtime.manager = undefined;
+    runtime.config = loadDteamConfig();
+    if (!runtime.config.valid) {
+      ctx.ui?.notify?.(formatDteamConfigWarning(runtime.config), "warning");
+      return;
+    }
+    managerFor(pi, runtime, ctx, runtime.config);
+  });
+  pi.on("session_shutdown", (_event, ctx) => {
+    runtime.manager?.shutdown();
+    runtime.manager = undefined;
+    runtime.config = undefined;
+    ctx.ui?.setStatus?.("dteam", undefined);
+  });
+
   pi.registerTool({
-    name: "dteam_dispatch",
-    label: "dteam dispatch",
-    description:
-      "dteam 的模型分级派发工具。主模型负责判断任务难度和独立性：T1 用于思考、fresh 验收和回退重做；T2 用于常规实现；T3 用于可并行的机械小任务。" +
-      "每次调用创建 fresh、逻辑隔离的进程内 worker。执行、fresh 验收和回退都调用本工具；不要调用不存在的 dteam_check/dteam_plan。" +
-      "T3 默认只读；独立小改必须在 tools 显式授予 edit/write。关键任务的 fresh 验收应使用 tier=T1 和只读 tools。",
+    name: "dteam",
+    label: "dteam",
+    description: "dteam 模型分级后台 worker 工具。用 type=dispatch 派发已就绪 worker，用 type=respond 回应 waiting worker 的结构化请求。主代理负责依赖理解和后续路由；不传依赖图或 batch。",
     parameters: {
       type: "object",
       properties: {
-        task: {
-          type: "string",
-          description: "fresh worker 可独立完成的任务描述；必须带上验收所需上下文。",
-        },
-        tier: {
-          type: "string",
-          enum: [...TIERS],
-          description: "T1=思考/验收/回退，T2=常规实现，T3=机械小任务。",
-        },
-        thinking: {
-          type: "string",
-          enum: [...THINKING_LEVELS],
-          description: "可选覆盖档位默认思考强度：T1 高、T2 中、T3 低。",
-        },
-        tools: {
-          type: "array",
-          items: { type: "string" },
-          description: "可选工具白名单；提供时是所有回退尝试的最高权限上限。",
-        },
+        type: { type: "string", enum: ["dispatch", "respond"] },
+        workers: { type: "array", minItems: 1, maxItems: 32, items: { type: "object", properties: { title: { type: "string" }, task: { type: "string" }, tier: { type: "string", enum: ["T1", "T2", "T3"] }, addTools: { type: "array", items: { type: "string" } } }, required: ["title", "task", "tier"] } },
+        workerId: { type: "string" }, requestId: { type: "string" },
+        response: { type: "object", properties: { type: { type: "string", enum: ["provide_context", "grant_tools", "decision", "deny"] }, context: { type: "string" }, tools: { type: "array", items: { type: "string" } }, decision: { type: "string" }, reason: { type: "string" } }, required: ["type"] },
       },
-      required: ["task", "tier"],
-    } as const,
-    async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
-      const params = rawParams as {
-        task?: unknown;
-        tier?: unknown;
-        thinking?: unknown;
-        tools?: unknown;
-      };
-
-      if (typeof params.task !== "string" || !params.task.trim()) {
-        return toolError("task 必须是非空字符串");
-      }
-      if (!isTier(params.tier)) {
-        return toolError("tier 必须是 T1、T2 或 T3");
-      }
-      if (params.thinking !== undefined && !isThinkingLevel(params.thinking)) {
-        return toolError("thinking 必须是 low、medium 或 high");
-      }
-      if (params.tools !== undefined && (!Array.isArray(params.tools) || !params.tools.every((tool) => typeof tool === "string"))) {
-        return toolError("tools 必须是字符串数组");
-      }
-      if (!ctx.model || !ctx.modelRegistry) {
-        return toolError("当前会话没有可用模型或 modelRegistry");
-      }
-
-      ctx.ui?.setStatus?.("dteam", `dispatch ${params.tier}: ${params.task}`);
+      required: ["type"],
+    } as any,
+    async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+      if (!isParams(rawParams)) return errorResult("type 必须是 dispatch 或 respond");
       try {
-        const result = await dispatch(
-          {
-            task: params.task,
-            tier: params.tier,
-            ...(params.thinking ? { thinking: params.thinking } : {}),
-            ...(params.tools ? { tools: params.tools } : {}),
-          },
-          {
-            cwd: ctx.cwd || process.cwd(),
-            modelRegistry: ctx.modelRegistry,
-            model: ctx.model,
-            tierModelRoutes: tierModelRoutesFromEnv(),
-            signal,
-            concurrency: dispatchRuntime().concurrency,
-          },
-        );
-
-        const succeeded = result.status === "done";
-        ctx.ui?.notify?.(
-          `dteam_dispatch: ${succeeded ? "完成" : "失败"} — ${result.result || result.error || "无结果"}`,
-          succeeded ? "info" : "error",
-        );
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          isError: !succeeded,
-          details: { result },
-        };
+        const config = runtime.config ?? loadDteamConfig();
+        runtime.config = config;
+        const manager = managerFor(pi, runtime, ctx, config);
+        if (rawParams.type === "dispatch") {
+          const accepted = manager.dispatch(rawParams.workers);
+          ctx.ui?.setStatus?.("dteam", `${manager.active().length} worker active`);
+          return { content: [{ type: "text" as const, text: JSON.stringify({ accepted }, null, 2) }], details: { accepted } };
+        }
+        if (typeof rawParams.workerId !== "string" || typeof rawParams.requestId !== "string" || !rawParams.response || typeof rawParams.response.type !== "string") return errorResult("respond 需要 workerId、requestId 和 response");
+        const response = validateResponse(rawParams.response);
+        if (!response.ok) return errorResult(response.error);
+        const result = manager.respond(rawParams.workerId, rawParams.requestId, response.value);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result } };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui?.notify?.(`dteam_dispatch: 异常 — ${message}`, "error");
-        return toolError(message);
-      } finally {
-        ctx.ui?.setStatus?.("dteam", undefined);
+        return errorResult(error instanceof Error ? error.message : String(error));
       }
     },
   });
 
+  pi.registerCommand("dteam", {
+    description: "查看、接管或取消 dteam worker",
+    handler: async (_args: string, ctx: ExtensionCommandContext) => {
+      const config = runtime.config ?? loadDteamConfig();
+      runtime.config = config;
+      if (!config.valid) { ctx.ui.notify(formatDteamConfigWarning(config), "warning"); return; }
+      const manager = managerFor(pi, runtime, ctx, config);
+      if (!ctx.ui?.custom) { ctx.ui.notify(renderWorkerList(manager.list()).join("\n"), "info"); return; }
+      try {
+        await ctx.ui.custom((tui, theme, _kb, done) => {
+          runtime.render = () => tui.requestRender();
+          let selected = 0;
+          let detail = false;
+          const selectedWorker = () => manager.list()[selected];
+          return {
+            render: (width: number) => {
+              const items = manager.list();
+              if (detail && items[selected]) return renderWorkerDetail(items[selected]!, theme, width);
+              return renderWorkerList(items, theme, selected, width);
+            },
+            invalidate: () => {},
+            handleInput: (data: string) => {
+              const items = manager.list();
+              if (data === "\u001b" || data === "q") return detail ? (detail = false) : done(undefined);
+              if (!detail && (data === "\u001b[B" || data === "j")) selected = Math.min(Math.max(0, items.length - 1), selected + 1);
+              if (!detail && (data === "\u001b[A" || data === "k")) selected = Math.max(0, selected - 1);
+              if (!detail && data === "\r" && selectedWorker()) detail = true;
+              if (detail && data === "s" && selectedWorker() && ["queued", "running", "waiting"].includes(selectedWorker()!.state)) {
+                void ctx.ui.input("Steering", "给 worker 的插队指令")
+                  .then((instruction) => { if (instruction) return manager.steer(selectedWorker()!.id, instruction); })
+                  .catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
+              }
+              if (detail && data === "c" && selectedWorker() && ["queued", "running", "waiting"].includes(selectedWorker()!.state)) {
+                void confirmWorkerCancellation(ctx.ui, manager, selectedWorker()!.id, selectedWorker()!.title)
+                  .catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
+              }
+            },
+          };
+        }, { overlay: true, overlayOptions: { maxHeight: "85%" } });
+      } finally {
+        runtime.render = undefined;
+      }
+    },
+  });
 }
