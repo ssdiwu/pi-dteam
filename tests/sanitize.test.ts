@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sanitizeSensitive, sanitizeUnknown, truncate } from "../src/runtime/sanitize.js";
+import { sanitizeUnknown as legacySanitizeUnknown } from "../src/runtime/worker-manager.js";
 
 describe("runtime sanitization", () => {
   it("redacts common secrets and connection passwords", () => {
@@ -11,6 +12,7 @@ describe("runtime sanitization", () => {
 
   it("bounds strings, arrays, objects, and recursive input", () => {
     expect(truncate("abcd", 3)).toBe("ab…");
+    expect(legacySanitizeUnknown("password=hunter2")).toBe(sanitizeUnknown("password=hunter2"));
     expect(sanitizeUnknown(Array.from({ length: 33 }, () => "x"))).toHaveLength(32);
     expect(sanitizeUnknown(Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`key${index}`, index])))).toHaveProperty("key63");
     expect(sanitizeUnknown({ one: { two: { three: { four: { five: { six: "value" } } } } } })).toEqual({ one: { two: { three: { four: { five: "[TRUNCATED]" } } } } });

@@ -684,4 +684,6 @@ function toolBudgetExhaustedMessage(record: WorkerRecord): string {
   return "worker 工具调用额度已耗尽；worker 未在耗尽前请求主代理追加额度";
 }
 
+export { sanitizeSensitive, sanitizeUnknown };
+
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
