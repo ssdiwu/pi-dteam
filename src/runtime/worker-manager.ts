@@ -405,7 +405,7 @@ export class WorkerManager {
   private applyTimeoutRecovery(record: WorkerRecord, response: ParentResponse): void {
     if (isTerminal(record.state) || record.controller.signal.aborted) return;
     if (response.type === "stop" || response.type === "deny") {
-      this.stopTimedOut(record, response.type === "stop" ? response.reason : response.reason);
+      this.stopTimedOut(record, response.reason);
       return;
     }
     if (!["retry", "escalate", "extend"].includes(response.type)) {
