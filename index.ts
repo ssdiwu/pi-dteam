@@ -2,7 +2,8 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey } from "@earendil-works/pi-tui";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "./src/dispatch/concurrency.js";
-import { WorkerManager, sanitizeUnknown } from "./src/runtime/worker-manager.js";
+import { WorkerManager } from "./src/runtime/worker-manager.js";
+import { sanitizeUnknown } from "./src/runtime/sanitize.js";
 import { formatDteamConfigWarning, loadDteamConfig, type DteamConfigStatus } from "./src/session/model-config.js";
 import type { DteamParams, ParentEvent } from "./src/runtime/types.js";
 import { clampSelection, detailLineCount, nextScrollOffset, nextWorkerSelection, renderWorkerDetail, renderWorkerFallback, renderWorkerList, workersForView, type WorkerView } from "./src/tui/dteam-dialog.js";

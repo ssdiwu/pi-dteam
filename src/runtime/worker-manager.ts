@@ -10,6 +10,7 @@ import { createToolPolicy, validateRequestedTools } from "./tool-policy.js";
 import { RequestState } from "./request-state.js";
 import { SignalLog } from "./signal-log.js";
 import { makeSignalTool } from "./signal-tool.js";
+import { sanitizeSensitive, sanitizeUnknown, truncate } from "./sanitize.js";
 import { MAX_WORKERS_PER_DISPATCH, SIGNAL_TOOL_NAME, type DispatchAccepted, type ParentEvent, type ParentResponse, type TimeoutDiagnostic, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
 
 interface WorkerRecord extends WorkerSnapshot {
@@ -681,27 +682,6 @@ function toolBudgetExhaustedMessage(record: WorkerRecord): string {
     return "worker 工具调用额度已追加一次仍耗尽；主代理应重新 dispatch fresh worker";
   }
   return "worker 工具调用额度已耗尽；worker 未在耗尽前请求主代理追加额度";
-}
-
-function truncate(value: string, maxChars: number): string {
-  return value.length <= maxChars ? value : `${value.slice(0, Math.max(0, maxChars - 1))}…`;
-}
-
-export function sanitizeSensitive(value: string): string {
-  return value
-    .replace(/-----BEGIN [^-]+ KEY-----[\s\S]*?-----END [^-]+ KEY-----/gi, "[REDACTED_KEY]")
-    .replace(/\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_\-]{16,}|github_pat_[A-Za-z0-9_\-]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[0-9A-Z]{16})\b/g, "[REDACTED_SECRET]")
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, "Bearer [REDACTED_SECRET]")
-    .replace(/(\b(?:https?|postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^:\s/@]+:)([^@\s]+)(@)/gi, "$1[REDACTED_SECRET]$3")
-    .replace(/((?:api[_-]?key|secret|token|password|authorization|database[_-]?url|connection[_-]?string)\s*[:=]\s*)([\"']?)[^\s,;]+/gi, "$1$2[REDACTED_SECRET]");
-}
-
-export function sanitizeUnknown(value: unknown, depth = 0): unknown {
-  if (depth > 4) return "[TRUNCATED]";
-  if (typeof value === "string") return truncate(sanitizeSensitive(value), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
-  if (Array.isArray(value)) return value.slice(0, 32).map((item) => sanitizeUnknown(item, depth + 1));
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).slice(0, 64).map(([key, item]) => [key, sanitizeUnknown(item, depth + 1)]));
-  return value;
 }
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }

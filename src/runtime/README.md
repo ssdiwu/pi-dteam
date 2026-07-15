@@ -9,6 +9,7 @@
 | `signal-log.ts` | append-only Signal Log 与 Worker Snapshot 投影 |
 | `request-state.ts` | workerId/requestId 作用域的阻塞请求 deferred |
 | `signal-tool.ts` | worker 专用 `dteam_signal` custom tool |
+| `sanitize.ts` | 脱敏、递归边界和字符串截断；供运行时与入口事件序列化共用 |
 | `types.ts` | 0.8 worker、signal 与唯一工具参数类型 |
 
 动态工具必须在首次 worker prompt 前完成候选注册和 active set 收窄。由于当前 Pi 公开 API 无法安全地只加载候选第三方 extension，0.8 先只开放 built-in 与 dteam 自定义工具候选，不全量发现或加载主会话 extension。
