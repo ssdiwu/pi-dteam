@@ -24,12 +24,14 @@
 | `runtime/request-state.ts` | workerId/requestId 作用域的 deferred request |
 | `runtime/signal-tool.ts` | worker 专用 `dteam_signal` |
 | `runtime/tool-policy.ts` | addTools 精确校验和 built-in-only 降级边界 |
+| `runtime/types.ts` | 0.8 `dteam` 工具、worker、signal 与 parent event 的运行时契约 |
 | `tui/dteam-dialog.ts` | `/dteam` 列表、详情和终态只读渲染 |
 | `tui/cancel.ts` | 用户取消二次确认 |
-| `leaf.ts` | 保留 dispatch 的模型路由/执行辅助；同档候选自动尝试，跨档不由执行层自动跳转 |
+| `leaf.ts` | 0.7 同步 `dispatch()` 历史入口；保留模型路由/执行辅助，0.8 生产路径不经此入口 |
 | `session.ts` | fresh worker session、候选注册和首次 active set 收窄 |
+| `session/*` | 模型配置、候选解析、档位默认值和受控资源加载 |
 | `dispatch/*` | 模型路由和 Adaptive Concurrency |
-| `types/dispatch.ts` | T1/T2/T3 与历史 dispatch 类型 |
+| `types/dispatch.ts` | `leaf.ts` 历史 dispatch 的 T1/T2/T3 契约 |
 | `duration.ts` | 内部毫秒值到用户可读秒/分秒的统一格式化 |
 
 ## 不变量
