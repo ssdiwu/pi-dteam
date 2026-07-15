@@ -295,10 +295,7 @@ export class WorkerManager {
           thinkingLevel,
           logicalIsolation: true,
         }, attemptBudgetMs, record.controller.signal);
-        const creationElapsed = Math.max(0, Date.now() - creationStartedAt);
-        record.attemptConsumedMs += creationElapsed;
-        record.consumedMs += creationElapsed;
-        if (record.timeoutRecoveryCount > 0) record.recoveryConsumedMs += creationElapsed;
+        this.chargeAttemptTime(record, creationStartedAt);
         creationAccounted = true;
         if (record.attemptConsumedMs >= record.attemptBudgetMs) throw new WorkerTimeoutError(`worker attempt 预算已用尽（${formatDuration(record.attemptBudgetMs)}）`);
         record.session = session;
@@ -318,12 +315,7 @@ export class WorkerManager {
           unsubscribe();
         }
       } catch (error) {
-        if (!creationAccounted) {
-          const creationElapsed = Math.max(0, Date.now() - creationStartedAt);
-          record.attemptConsumedMs += creationElapsed;
-          record.consumedMs += creationElapsed;
-          if (record.timeoutRecoveryCount > 0) record.recoveryConsumedMs += creationElapsed;
-        }
+        if (!creationAccounted) this.chargeAttemptTime(record, creationStartedAt);
         lastError = error;
         if (record.toolLimitReached) throw new WorkerToolLimitError(toolBudgetExhaustedMessage(record));
         if (record.controller.signal.aborted || error instanceof WorkerTimeoutError) throw error;
@@ -365,14 +357,18 @@ export class WorkerManager {
       if (result === "(no output)") throw new Error("worker 未返回 assistant 文本");
       return truncate(sanitizeSensitive(result), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
     } finally {
-      const promptElapsed = Math.max(0, Date.now() - startedAt);
-      record.attemptConsumedMs += promptElapsed;
-      record.consumedMs += promptElapsed;
-      if (record.timeoutRecoveryCount > 0) record.recoveryConsumedMs += promptElapsed;
+      this.chargeAttemptTime(record, startedAt);
       if (timer) clearTimeout(timer);
       if (onAbort) record.controller.signal.removeEventListener("abort", onAbort);
       if (record.rejectToolLimit === rejectToolLimit) record.rejectToolLimit = undefined;
     }
+  }
+
+  private chargeAttemptTime(record: WorkerRecord, startedAt: number): void {
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    record.attemptConsumedMs += elapsedMs;
+    record.consumedMs += elapsedMs;
+    if (record.timeoutRecoveryCount > 0) record.recoveryConsumedMs += elapsedMs;
   }
 
   private requestTimeoutRecovery(record: WorkerRecord, error: WorkerTimeoutError): void {
