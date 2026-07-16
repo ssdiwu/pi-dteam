@@ -15,6 +15,13 @@ export const DTEAM_CONFIG = {
     maxRecoveryBudgetMs: 600_000,
     /** 传给 fresh recovery attempt 的恢复摘要最大字符数。 */
     maxRecoverySummaryChars: 4_000,
+    /** 有界 handoff 的上限，避免跨档交接膨胀或注入整段会话。 */
+    maxHandoffFacts: 24,
+    maxHandoffItems: 12,
+    maxHandoffFieldChars: 1_000,
+    maxHandoffChars: 4_000,
+    /** dteam_wait 单次等待上限；超时只返回部分状态，不取消 worker。 */
+    maxWaitMs: 300_000,
   },
 } as const;
 

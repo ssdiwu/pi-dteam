@@ -1,6 +1,7 @@
 import type { Tier } from "../types/dispatch.js";
 
 export const SIGNAL_TOOL_NAME = "dteam_signal" as const;
+export const REPORT_TOOL_NAME = "dteam_report" as const;
 export const MAX_WORKERS_PER_DISPATCH = 32;
 
 export type WorkerState = "queued" | "running" | "waiting" | "completed" | "failed" | "timed_out" | "cancelled" | "shutdown";
@@ -9,17 +10,30 @@ export type ParentResponse =
   | { type: "grant_tools"; tools: string[] }
   | { type: "grant_tool_budget"; additionalCalls: number }
   | { type: "decision"; decision: string }
-  | { type: "retry" }
-  | { type: "escalate"; tier: Tier }
-  | { type: "extend"; additionalMs: number }
-  | { type: "stop"; reason?: string }
   | { type: "deny"; reason: string };
+export type RecoveryAction =
+  | { action: "retry" }
+  | { action: "escalate"; tier: Tier }
+  | { action: "extend"; additionalMs: number }
+  | { action: "stop"; reason?: string };
+
+export interface ReportFact { claim: string; evidence: string }
+export interface WorkerReport { summary: string; facts: ReportFact[]; uncertainties?: string[] }
+export interface ReportedFact extends ReportFact { workerId: string }
+export interface Handoff {
+  facts: ReportedFact[];
+  constraints?: string[];
+  uncertainties?: string[];
+}
 
 export interface WorkerRequest {
   title: string;
   task: string;
   tier: Tier;
   addTools?: string[];
+  handoff?: Handoff;
+  /** 获得 edit/write 的 worker 必须声明预期修改的项目相对路径。 */
+  writeScope?: string[];
 }
 
 export interface DispatchAccepted {
@@ -66,6 +80,9 @@ export interface WorkerSnapshot {
   fallbackTrail: Tier[];
   state: WorkerState;
   activeTools: string[];
+  handoff?: Handoff;
+  writeScope?: string[];
+  report?: WorkerReport;
   toolCallCount?: number;
   toolCallBudget?: number;
   toolBudgetExtensionCount?: number;
@@ -80,16 +97,30 @@ export interface WorkerSnapshot {
   result?: string;
   error?: string;
   cancelReason?: string;
-  terminalReason?: "user_cancelled" | "session_shutdown" | "timeout" | "error";
+  terminalReason?: "user_cancelled" | "session_shutdown" | "timeout" | "error" | "missing_report";
 }
 
 export interface ParentEvent {
-  type: "completed" | "failed" | "cancelled" | "request";
+  type: "completed" | "failed" | "cancelled" | "request" | "write_interrupted";
   workerId: string;
   title: string;
   payload: unknown;
 }
 
-export interface DteamDispatchParams { type: "dispatch"; workers: WorkerRequest[] }
-export interface DteamRespondParams { type: "respond"; workerId: string; requestId: string; response: ParentResponse }
-export type DteamParams = DteamDispatchParams | DteamRespondParams;
+export interface WaitRequest {
+  workerId: string;
+  requestId: string;
+  kind: string;
+  payload: unknown;
+}
+export interface DteamWaitResult {
+  reason: "worker_event" | "timeout";
+  ready: WorkerSnapshot[];
+  requests: WaitRequest[];
+  pendingWorkerIds: string[];
+}
+
+export interface DteamDispatchParams { workers: WorkerRequest[] }
+export interface DteamRespondParams { workerId: string; requestId: string; response: ParentResponse }
+export interface DteamRecoverParams { workerId: string; requestId: string; action: RecoveryAction }
+export interface DteamWaitParams { workerIds: string[]; timeoutMs: number }

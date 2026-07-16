@@ -1,24 +1,27 @@
-import type { ParentResponse } from "./types.js";
+import type { ParentResponse, RecoveryAction } from "./types.js";
+
+type RequestResponse = ParentResponse | RecoveryAction;
+export type PendingRequestKind = "request_context" | "request_tools" | "request_tool_budget" | "request_decision" | "blocked" | "timeout_recovery";
 
 export interface PendingRequest {
   workerId: string;
   requestId: string;
-  kind: string;
+  kind: PendingRequestKind;
   payload: unknown;
-  resolve: (response: ParentResponse) => void;
+  resolve: (response: RequestResponse) => void;
   reject: (error: Error) => void;
 }
 
 export class RequestState {
   private readonly pending = new Map<string, PendingRequest>();
 
-  wait(request: Omit<PendingRequest, "resolve" | "reject">): Promise<ParentResponse> {
+  wait(request: Omit<PendingRequest, "resolve" | "reject">): Promise<RequestResponse> {
     const key = requestKey(request.workerId, request.requestId);
     if (this.pending.has(key)) throw new Error(`dteam: requestId 已存在于该 worker ${request.requestId}`);
-    return new Promise<ParentResponse>((resolve, reject) => this.pending.set(key, { ...request, resolve, reject }));
+    return new Promise<RequestResponse>((resolve, reject) => this.pending.set(key, { ...request, resolve, reject }));
   }
   get(workerId: string, requestId: string): PendingRequest | undefined { return this.pending.get(requestKey(workerId, requestId)); }
-  respond(workerId: string, requestId: string, response: ParentResponse): void {
+  respond(workerId: string, requestId: string, response: RequestResponse): void {
     const key = requestKey(workerId, requestId);
     const request = this.pending.get(key);
     if (!request) throw new Error("dteam: request 不存在或不属于该 worker");
