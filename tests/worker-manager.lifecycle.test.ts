@@ -20,7 +20,7 @@ function options(overrides: any = {}) {
 }
 
 function session(output: string) {
-  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }] }] };
+  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }, { type: "toolCall", name: "dteam_report", arguments: { summary: output, facts: [] } }] }] };
 }
 
 beforeEach(() => mockCreateWorkerSession.mockReset());

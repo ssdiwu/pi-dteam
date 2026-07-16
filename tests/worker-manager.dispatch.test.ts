@@ -20,7 +20,7 @@ function options(overrides: any = {}) {
 }
 
 function session(output: string) {
-  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }] }] };
+  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }, { type: "toolCall", name: "dteam_report", arguments: { summary: output, facts: [] } }] }] };
 }
 
 beforeEach(() => mockCreateWorkerSession.mockReset());
@@ -77,9 +77,9 @@ describe("WorkerManager", () => {
   it("每次 dispatch 读取最新主会话 active tools", () => {
     let current = ["read", "grep", "find", "ls", "edit"];
     const manager = new WorkerManager(options({ getParentActiveTools: () => current }));
-    manager.dispatch([{ title: "授权一", task: "任务", tier: "T3", addTools: ["edit"] }]);
+    manager.dispatch([{ title: "授权一", task: "任务", tier: "T3", addTools: ["edit"], writeScope: ["src/"] }]);
     current = ["read", "grep", "find", "ls"];
-    expect(() => manager.dispatch([{ title: "授权二", task: "任务", tier: "T3", addTools: ["edit"] }])).toThrow("未获当前主会话授权");
+    expect(() => manager.dispatch([{ title: "授权二", task: "任务", tier: "T3", addTools: ["edit"], writeScope: ["src/"] }])).toThrow("未获当前主会话授权");
     manager.shutdown();
   });
 

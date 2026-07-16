@@ -20,7 +20,7 @@ function options(overrides: any = {}) {
 }
 
 function session(output: string) {
-  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }] }] };
+  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }, { type: "toolCall", name: "dteam_report", arguments: { summary: output, facts: [] } }] }] };
 }
 
 beforeEach(() => mockCreateWorkerSession.mockReset());
@@ -61,7 +61,7 @@ describe("WorkerManager", () => {
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
     expect(limiter.flying).toBe(0);
     const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
-    manager.respond(accepted!.workerId, requestId, { type: "stop" });
+    manager.recover(accepted!.workerId, requestId, { action: "stop" });
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("timed_out"));
     resolveCreation(session("late"));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -96,7 +96,7 @@ describe("WorkerManager", () => {
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
     const diagnostic = manager.get(accepted!.workerId)?.timeoutDiagnostic!;
     expect(diagnostic.lastActivity).not.toContain("assistant 文本");
-    manager.respond(accepted!.workerId, diagnostic.requestId, { type: "stop" });
+    manager.recover(accepted!.workerId, diagnostic.requestId, { action: "stop" });
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("timed_out"));
   });
 
@@ -109,7 +109,7 @@ describe("WorkerManager", () => {
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
     const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
     expect(manager.get(accepted!.workerId)?.timeoutDiagnostic?.outputSummary).toContain("[REDACTED_SECRET]");
-    manager.respond(accepted!.workerId, requestId, { type: "retry" });
+    manager.recover(accepted!.workerId, requestId, { action: "retry" });
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
     const prompt = second.prompt.mock.calls[0]?.[0] as string;
     expect(prompt).toContain("[REDACTED_SECRET]");
@@ -131,7 +131,7 @@ describe("WorkerManager", () => {
     const [accepted] = manager.dispatch([{ title: "重试", task: "原始任务", tier: "T3" }]);
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
     const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
-    manager.respond(accepted!.workerId, requestId, { type: "retry" });
+    manager.recover(accepted!.workerId, requestId, { action: "retry" });
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(second.prompt).toHaveBeenCalled();
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
@@ -149,7 +149,7 @@ describe("WorkerManager", () => {
     const [accepted] = manager.dispatch([{ title: "升级", task: "任务", tier: "T3" }]);
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
     const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
-    manager.respond(accepted!.workerId, requestId, { type: "escalate", tier: "T2" });
+    manager.recover(accepted!.workerId, requestId, { action: "escalate", tier: "T2" });
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
     expect(mockCreateWorkerSession).toHaveBeenLastCalledWith(expect.objectContaining({ tier: "T2" }));
     expect(manager.get(accepted!.workerId)).toMatchObject({ activeTier: "T2", fallbackTrail: ["T3", "T2"] });
@@ -175,7 +175,7 @@ describe("WorkerManager", () => {
     const [accepted] = manager.dispatch([{ title: "延长", task: "任务", tier: "T2" }]);
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
     const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
-    manager.respond(accepted!.workerId, requestId, { type: "extend", additionalMs: 10 });
+    manager.recover(accepted!.workerId, requestId, { action: "extend", additionalMs: 10 });
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
     expect(mockCreateWorkerSession).toHaveBeenLastCalledWith(expect.objectContaining({ tier: "T2" }));
     expect(second.prompt).toHaveBeenCalledWith(expect.stringContaining("timeout recovery context"));
@@ -188,7 +188,7 @@ describe("WorkerManager", () => {
     const [accepted] = manager.dispatch([{ title: "超额延长", task: "任务", tier: "T3" }]);
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
     const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
-    manager.respond(accepted!.workerId, requestId, { type: "extend", additionalMs: DTEAM_CONFIG.dispatch.maxRecoveryBudgetMs + 1 });
+    manager.recover(accepted!.workerId, requestId, { action: "extend", additionalMs: DTEAM_CONFIG.dispatch.maxRecoveryBudgetMs + 1 });
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("timed_out"));
     expect(manager.get(accepted!.workerId)?.error).toContain("超过总上限");
   });
@@ -202,7 +202,7 @@ describe("WorkerManager", () => {
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
     expect(manager.get(accepted!.workerId)?.timeoutDiagnostic).toMatchObject({ totalBudgetMs: 50, maxRecoveryBudgetMs: 600_000 });
     const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
-    manager.respond(accepted!.workerId, requestId, { type: "retry" });
+    manager.recover(accepted!.workerId, requestId, { action: "retry" });
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
     expect(second.prompt).toHaveBeenCalledWith(expect.stringContaining("timeout recovery context"));
   });
@@ -214,7 +214,7 @@ describe("WorkerManager", () => {
     const [accepted] = manager.dispatch([{ title: "跳档", task: "任务", tier: "T3" }]);
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
     const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
-    manager.respond(accepted!.workerId, requestId, { type: "escalate", tier: "T1" });
+    manager.recover(accepted!.workerId, requestId, { action: "escalate", tier: "T1" });
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("timed_out"));
     expect(manager.get(accepted!.workerId)?.error).toContain("不允许从 T3 升级到 T1");
   });
@@ -228,10 +228,10 @@ describe("WorkerManager", () => {
       await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
       const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
       if (i < DTEAM_CONFIG.dispatch.maxTimeoutRecoveries) {
-        manager.respond(accepted!.workerId, requestId, { type: "retry" });
+        manager.recover(accepted!.workerId, requestId, { action: "retry" });
         await new Promise((resolve) => setTimeout(resolve, 0));
       } else {
-        manager.respond(accepted!.workerId, requestId, { type: "retry" });
+        manager.recover(accepted!.workerId, requestId, { action: "retry" });
       }
     }
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("timed_out"));

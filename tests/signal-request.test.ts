@@ -103,14 +103,17 @@ describe("worker signal protocol", () => {
   it("批准工具额度会恢复同一 AgentSession，不创建 fresh retry", async () => {
     const workerSession: any = { abort: vi.fn().mockResolvedValue(undefined), messages: [] };
     let signalTool: any;
+    let reportTool: any;
     let sessionCalls = 0;
     const instance = manager();
     mockCreateWorkerSession.mockImplementation(async (options: any) => {
       if (!options?.customTools) return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
       sessionCalls += 1;
       signalTool = options.customTools[0];
+      reportTool = options.customTools[1];
       workerSession.prompt = vi.fn(async () => {
         await signalTool.execute("call", { kind: "request_tool_budget", requestId: "budget-session", reason: "需要继续" });
+        await reportTool.execute("call", { summary: "continued", facts: [] });
         workerSession.messages = [{ role: "assistant", content: [{ type: "text", text: "continued" }] }];
       });
       return workerSession;
@@ -129,7 +132,7 @@ describe("worker signal protocol", () => {
     const workerSession: any = { setActiveToolsByName: vi.fn(() => { throw new Error("tool switch failed"); }), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
     mockCreateWorkerSession.mockResolvedValue(workerSession);
     const instance = manager();
-    const accepted = instance.dispatch([{ title: "授权失败", task: "task", tier: "T1", addTools: ["edit"] }])[0]!;
+    const accepted = instance.dispatch([{ title: "授权失败", task: "task", tier: "T1", addTools: ["edit"], writeScope: ["src/"] }])[0]!;
     const waiting = instance.receiveSignal(accepted.workerId, { kind: "request_tools", requestId: "tools-fail", tools: ["edit"], reason: "need" });
     await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
     expect(() => instance.respond(accepted.workerId, "tools-fail", { type: "grant_tools", tools: ["edit"] })).not.toThrow();
@@ -141,20 +144,23 @@ describe("worker signal protocol", () => {
   it("grant_tools 先切换同一 AgentSession 的 active tools 再恢复 signal", async () => {
     const workerSession: any = { setActiveToolsByName: vi.fn(), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
     let signalTool: any;
+    let reportTool: any;
     let lastToolResult: any;
     const order: string[] = [];
     const managerInstance = manager();
     mockCreateWorkerSession.mockImplementation(async (options: any) => {
       if (!options?.customTools) return workerSession;
       signalTool = options.customTools[0];
+      reportTool = options.customTools[1];
       workerSession.prompt = vi.fn(async () => {
         lastToolResult = await signalTool.execute("call", { kind: "request_tools", requestId: "tools-1", tools: ["edit"], reason: "need edit" });
         order.push("resumed");
+        await reportTool.execute("call", { summary: "continued", facts: [] });
         workerSession.messages = [{ role: "assistant", content: [{ type: "text", text: "continued" }] }];
       });
       return workerSession;
     });
-    const accepted = managerInstance.dispatch([{ title: "grant", task: "task", tier: "T1", addTools: ["edit"] }])[0]!;
+    const accepted = managerInstance.dispatch([{ title: "grant", task: "task", tier: "T1", addTools: ["edit"], writeScope: ["src/"] }])[0]!;
     await vi.waitFor(() => expect(managerInstance.get(accepted.workerId)?.state).toBe("waiting"));
     workerSession.setActiveToolsByName.mockImplementation(() => order.push("active"));
     managerInstance.respond(accepted.workerId, "tools-1", { type: "grant_tools", tools: ["edit"] });
