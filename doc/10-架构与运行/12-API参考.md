@@ -79,7 +79,7 @@ dteam_wait({
 - `timeoutMs` 必须是 1–300000 的整数；timeout 只结束本次等待，不取消 worker、不触发 recovery。
 - 被 wait 捕获的事件只作为 wait 结果交付，不重复 follow-up；Signal Log 与 `/dteam` 仍保留记录。
 - 进入 `waiting` 时先用 `dteam_respond` 或 `dteam_recover` 处理，再决定是否继续 wait，避免死锁。
-- 默认仅显示等待摘要；`Ctrl+O` 展开人类可读的 worker、report、request 与 pending 列表。
+- 默认显示目标 worker、已等待时长（`s`/`m+s`）与 timeout 上限，以及就绪/仍等待数量；执行中每秒刷新计时。`Ctrl+O` 再展开 worker、report、request 与 pending 列表。
 
 ## 5. Worker 内部工具
 
