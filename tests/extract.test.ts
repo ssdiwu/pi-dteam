@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractLastText } from "../src/leaf/extract.js";
+import { extractLastText } from "../src/runtime/extract.js";
 
 describe("extractLastText", () => {
   it("合并最后一条 assistant message 的所有文本片段", () => {
