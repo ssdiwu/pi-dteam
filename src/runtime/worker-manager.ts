@@ -4,14 +4,21 @@ import { AdaptiveConcurrency } from "../dispatch/concurrency.js";
 import { isRateLimitError, tierModelCandidates } from "../dispatch/model-routing.js";
 import { getTierPrompt, getTierTools, parseTierModelCandidate, tierModelRoutesFromEnv } from "../session/tier-config.js";
 import { createWorkerSession } from "../session.js";
-import { extractLastText } from "../leaf/extract.js";
+import { extractLastText } from "./extract.js";
 import type { Tier, TierModelRoutes } from "../types/dispatch.js";
 import { createToolPolicy, validateRequestedTools } from "./tool-policy.js";
 import { RequestState } from "./request-state.js";
 import { SignalLog } from "./signal-log.js";
 import { makeSignalTool } from "./signal-tool.js";
+import { makeReportTool } from "./report-tool.js";
 import { sanitizeSensitive, sanitizeUnknown, truncate } from "./sanitize.js";
-import { MAX_WORKERS_PER_DISPATCH, SIGNAL_TOOL_NAME, type DispatchAccepted, type ParentEvent, type ParentResponse, type TimeoutDiagnostic, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
+import { MAX_WORKERS_PER_DISPATCH, REPORT_TOOL_NAME, SIGNAL_TOOL_NAME, type DispatchAccepted, type DteamWaitResult, type ParentEvent, type ParentResponse, type RecoveryAction, type TimeoutDiagnostic, type WaitRequest, type WorkerReport, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
+
+interface Waiter {
+  workerIds: Set<string>;
+  resolve: (result: DteamWaitResult) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 interface WorkerRecord extends WorkerSnapshot {
   controller: AbortController;
@@ -32,6 +39,10 @@ interface WorkerRecord extends WorkerSnapshot {
   toolBudgetExtensionCount: number;
   toolLimitReached: boolean;
   rejectToolLimit?: (error: Error) => void;
+  report?: WorkerReport;
+  handoff?: WorkerRequest["handoff"];
+  writeScope?: string[];
+  writeInterrupted?: boolean;
 }
 
 export interface WorkerManagerOptions {
@@ -57,6 +68,7 @@ export class WorkerManager {
   private readonly options: WorkerManagerOptions;
   private completedBuffer: ParentEvent[] = [];
   private completionTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly waiters = new Set<Waiter>();
   private closed = false;
 
   constructor(options: WorkerManagerOptions) { this.options = options; }
@@ -68,15 +80,18 @@ export class WorkerManager {
     const parentActiveTools = this.options.getParentActiveTools?.() ?? this.options.parentActiveTools;
     const prepared = requests.map((request) => {
       this.validateRequest(request);
-      const baseTools = getTierTools(request.tier);
-      const policy = createToolPolicy({ baseTools, addTools: request.addTools, parentActiveTools, signalToolName: SIGNAL_TOOL_NAME });
-      return { request, policy };
+      const normalizedRequest = request.handoff ? { ...request, handoff: this.sanitizeHandoff(request.handoff) } : request;
+      const baseTools = getTierTools(normalizedRequest.tier);
+      const policy = createToolPolicy({ baseTools, addTools: normalizedRequest.addTools, parentActiveTools, signalToolName: SIGNAL_TOOL_NAME });
+      policy.initialActiveTools = [...new Set([...policy.initialActiveTools, REPORT_TOOL_NAME])];
+      return { request: normalizedRequest, policy };
     });
     for (const { request, policy } of prepared) {
       const id = crypto.randomUUID();
       const record: WorkerRecord = {
         id, title: request.title.trim(), task: request.task.trim(), requestedTier: request.tier, activeTier: request.tier,
         fallbackTrail: [], state: "queued", activeTools: policy.initialActiveTools, controller: new AbortController(), policy,
+        handoff: request.handoff, writeScope: request.writeScope,
         attemptBudgetMs: Math.min(this.options.timeoutMs ?? DTEAM_CONFIG.dispatch.workerTimeoutMs, this.options.totalBudgetMs ?? this.options.timeoutMs ?? DTEAM_CONFIG.dispatch.workerTimeoutMs),
         totalBudgetMs: this.options.totalBudgetMs ?? this.options.timeoutMs ?? DTEAM_CONFIG.dispatch.workerTimeoutMs,
         attemptConsumedMs: 0,
@@ -130,6 +145,26 @@ export class WorkerManager {
     return { workerId, requestId, state: record.state };
   }
 
+  recover(workerId: string, requestId: string, action: RecoveryAction): { workerId: string; requestId: string; state: string } {
+    const record = this.records.get(workerId);
+    if (!record || isTerminal(record.state)) throw new Error("dteam: worker 已结束或不存在");
+    const pending = this.requestState.get(workerId, requestId);
+    if (!pending || pending.kind !== "timeout_recovery") throw new Error("dteam: timeout recovery request 不存在或不属于该 worker");
+    this.signal(record, "timeout_recovery_action", action);
+    this.requestState.respond(workerId, requestId, action);
+    return { workerId, requestId, state: record.state };
+  }
+
+  receiveReport(workerId: string, report: WorkerReport): { ok: true } {
+    const record = this.records.get(workerId);
+    if (!record || isTerminal(record.state)) throw new Error("dteam_report: worker 已结束或不存在");
+    if (record.report) throw new Error("dteam_report: 每个 worker 只能提交一次最终报告");
+    record.report = this.sanitizeReport(report);
+    record.latestFinding = record.report.summary;
+    this.signal(record, "worker_reported", { summary: record.report.summary, facts: record.report.facts.length, uncertainties: record.report.uncertainties?.length ?? 0 });
+    return { ok: true };
+  }
+
   private grantToolBudget(record: WorkerRecord, additionalCalls: number): void {
     const { min, max, step, maxPerWorker } = DTEAM_CONFIG.dispatch.toolCallBudgetExtension;
     if (!Number.isInteger(additionalCalls) || additionalCalls < min || additionalCalls > max || additionalCalls % step !== 0) {
@@ -164,6 +199,7 @@ export class WorkerManager {
     void abortBounded(record.session);
     this.signal(record, "worker_cancelled", { reason });
     this.emit({ type: "cancelled", workerId, title: record.title, payload: { reason, state: record.state } });
+    this.emitWriteInterrupted(record, reason);
   }
 
   private shutdownWorker(record: WorkerRecord): void {
@@ -178,6 +214,7 @@ export class WorkerManager {
     void abortBounded(record.session);
     this.signal(record, "worker_shutdown", { reason: "session_shutdown" });
     this.emit({ type: "cancelled", workerId: record.id, title: record.title, payload: { reason: "session_shutdown", state: record.state } });
+    this.emitWriteInterrupted(record, "session_shutdown");
   }
 
   shutdown(): void {
@@ -187,6 +224,7 @@ export class WorkerManager {
       if (!isTerminal(record.state)) this.shutdownWorker(record);
     }
     this.requestState.clear();
+    for (const waiter of [...this.waiters]) this.settleWaiter(waiter, "worker_event");
     if (this.completionTimer) {
       clearTimeout(this.completionTimer);
       this.completionTimer = undefined;
@@ -197,6 +235,23 @@ export class WorkerManager {
   get(workerId: string): WorkerSnapshot | undefined { return this.snapshot(this.records.get(workerId)); }
   list(): WorkerSnapshot[] { return [...this.records.values()].map((record) => this.snapshot(record)!); }
   active(): WorkerSnapshot[] { return this.list().filter((record) => ["queued", "running", "waiting"].includes(record.state)); }
+
+  wait(workerIds: string[], timeoutMs: number): Promise<DteamWaitResult> {
+    if (!Array.isArray(workerIds) || workerIds.length < 1 || workerIds.length > MAX_WORKERS_PER_DISPATCH || workerIds.some((id) => typeof id !== "string" || !id)) throw new Error("dteam: workerIds 必须是 1–32 个非空字符串");
+    if (new Set(workerIds).size !== workerIds.length) throw new Error("dteam: workerIds 不可重复");
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > DTEAM_CONFIG.dispatch.maxWaitMs) throw new Error(`dteam: timeoutMs 必须是 1–${DTEAM_CONFIG.dispatch.maxWaitMs} 的整数`);
+    for (const workerId of workerIds) if (!this.records.has(workerId)) throw new Error(`dteam: worker 不存在 ${workerId}`);
+    const ids = new Set(workerIds);
+    if (this.readyForWait(ids).length > 0) return Promise.resolve(this.waitResult(ids, "worker_event"));
+    return new Promise<DteamWaitResult>((resolve) => {
+      const waiter: Waiter = {
+        workerIds: ids,
+        resolve,
+        timer: setTimeout(() => this.settleWaiter(waiter, "timeout"), timeoutMs),
+      };
+      this.waiters.add(waiter);
+    });
+  }
 
   async receiveSignal(workerId: string, signal: WorkerSignal): Promise<unknown> {
     const record = this.records.get(workerId);
@@ -254,11 +309,12 @@ export class WorkerManager {
       this.signal(record, "attempt_started", { tier: record.activeTier, budgetMs: record.attemptBudgetMs });
       const result = await this.runTierCandidates(record);
       if (isTerminal(record.state)) return;
+      if (!record.report) throw new Error("worker 未提交必需的 dteam_report");
       record.state = "completed"; record.result = result; record.endedAt = Date.now();
       await abortBounded(record.session);
       record.session = undefined;
       this.signal(record, "worker_completed", { result });
-      this.emitCompleted({ type: "completed", workerId: record.id, title: record.title, payload: { result, tier: record.activeTier, fallbackTrail: record.fallbackTrail } });
+      this.emitCompleted({ type: "completed", workerId: record.id, title: record.title, payload: { result, report: this.reportWithProvenance(record), tier: record.activeTier, fallbackTrail: record.fallbackTrail } });
     } catch (error) {
       if (isTerminal(record.state) || record.controller.signal.aborted) return;
       if (error instanceof WorkerTimeoutError) {
@@ -266,10 +322,11 @@ export class WorkerManager {
         return;
       }
       record.state = "failed";
-      record.terminalReason = "error";
+      record.terminalReason = errorMessage(error).includes("dteam_report") ? "missing_report" : "error";
       record.error = truncate(sanitizeSensitive(errorMessage(error)), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars); record.endedAt = Date.now();
       this.signal(record, "worker_failed", { error: record.error });
       this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state } });
+      this.emitWriteInterrupted(record, record.error);
     } finally {
       if (acquired) this.options.concurrency.release(record.state === "completed");
     }
@@ -290,9 +347,9 @@ export class WorkerManager {
           tier, cwd: this.options.cwd, modelStr, ctx: { modelRegistry: this.options.modelRegistry },
           systemPrompt: workerSystemPrompt(tier, record.toolCallBudget),
           builtInTools: getTierTools(tier),
-          registeredTools: [...new Set([...getTierTools(tier), ...record.policy.addTools, SIGNAL_TOOL_NAME])],
+          registeredTools: [...new Set([...getTierTools(tier), ...record.policy.addTools, SIGNAL_TOOL_NAME, REPORT_TOOL_NAME])],
           initialActiveTools: record.activeTools,
-          customTools: [makeSignalTool(record.id, this)],
+          customTools: [makeSignalTool(record.id, this), makeReportTool(record.id, this)],
           thinkingLevel,
           logicalIsolation: true,
         }, attemptBudgetMs, record.controller.signal);
@@ -354,6 +411,10 @@ export class WorkerManager {
     try {
       await Promise.race([session.prompt(this.promptTask(record)), timeout, cancelled, toolLimit]);
       if (timedOut) throw timeoutError ?? new WorkerTimeoutError(`worker 执行超时（${formatDuration(timeoutMs)}）`);
+      if (!record.report) {
+        const report = reportFromMessages(session.messages as any[]);
+        if (report) this.receiveReport(record.id, report);
+      }
       const result = extractLastText(session.messages as any[]);
       if (result === "(no output)") throw new Error("worker 未返回 assistant 文本");
       return truncate(sanitizeSensitive(result), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
@@ -393,20 +454,17 @@ export class WorkerManager {
     this.signal(record, "worker_timeout_requested", { error: error.message, ...diagnostic, tier: record.activeTier });
     const waiting = this.requestState.wait({ workerId: record.id, requestId, kind: "timeout_recovery", payload: diagnostic });
     this.emit({ type: "request", workerId: record.id, title: record.title, payload: { kind: "timeout_recovery", tier: record.activeTier, ...diagnostic } });
+    this.emitWriteInterrupted(record, error.message);
     void waiting.then(
-      (response) => this.applyTimeoutRecovery(record, response),
+      (response) => this.applyTimeoutRecovery(record, response as RecoveryAction),
       (recoveryError) => this.stopTimedOut(record, errorMessage(recoveryError)),
     );
   }
 
-  private applyTimeoutRecovery(record: WorkerRecord, response: ParentResponse): void {
+  private applyTimeoutRecovery(record: WorkerRecord, response: RecoveryAction): void {
     if (isTerminal(record.state) || record.controller.signal.aborted) return;
-    if (response.type === "stop" || response.type === "deny") {
+    if (response.action === "stop") {
       this.stopTimedOut(record, response.reason);
-      return;
-    }
-    if (!["retry", "escalate", "extend"].includes(response.type)) {
-      this.stopTimedOut(record, "timeout recovery 收到不支持的回应");
       return;
     }
     if (record.recoveryConsumedMs >= DTEAM_CONFIG.dispatch.maxRecoveryBudgetMs) {
@@ -421,15 +479,15 @@ export class WorkerManager {
     const remainingBudget = DTEAM_CONFIG.dispatch.maxRecoveryBudgetMs - record.recoveryConsumedMs;
     let tier = record.activeTier;
     let budgetMs = Math.min(defaultAttemptBudget, remainingBudget);
-    if (response.type === "escalate") {
+    if (response.action === "escalate") {
       if (!isNextTier(tier, response.tier)) {
         this.stopTimedOut(record, `不允许从 ${tier} 升级到 ${response.tier}`);
         return;
       }
       tier = response.tier;
-      record.activeTools = [...new Set([...getTierTools(tier), SIGNAL_TOOL_NAME])];
+      record.activeTools = [...new Set([...getTierTools(tier), SIGNAL_TOOL_NAME, REPORT_TOOL_NAME])];
     }
-    if (response.type === "extend") {
+    if (response.action === "extend") {
       if (!Number.isFinite(response.additionalMs) || response.additionalMs <= 0) {
         this.stopTimedOut(record, "timeout recovery 延长预算无效");
         return;
@@ -442,6 +500,8 @@ export class WorkerManager {
       budgetMs = Math.min(defaultAttemptBudget, remainingAttemptBudget + response.additionalMs);
     }
     record.timeoutRecoveryCount += 1;
+    record.writeInterrupted = false;
+    record.report = undefined;
     record.activeTier = tier;
     record.totalBudgetMs = budgetMs;
     record.attemptBudgetMs = budgetMs;
@@ -451,7 +511,7 @@ export class WorkerManager {
     record.error = undefined;
     record.endedAt = undefined;
     record.state = "queued";
-    this.signal(record, "worker_recovery_started", { action: response.type, tier, budgetMs, recoveryCount: record.timeoutRecoveryCount });
+    this.signal(record, "worker_recovery_started", { action: response.action, tier, budgetMs, recoveryCount: record.timeoutRecoveryCount });
     void this.run(record);
   }
 
@@ -467,6 +527,7 @@ export class WorkerManager {
     void abortBounded(record.session);
     this.signal(record, "worker_tool_budget_exhausted", { reason, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget });
     this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: reason, state: record.state, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget } });
+    this.emitWriteInterrupted(record, reason);
   }
 
   private stopTimedOut(record: WorkerRecord, reason?: string): void {
@@ -477,6 +538,7 @@ export class WorkerManager {
     record.endedAt = Date.now();
     this.signal(record, "worker_timed_out", { error: record.error, diagnostic: record.timeoutDiagnostic });
     this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state, diagnostic: record.timeoutDiagnostic } });
+    this.emitWriteInterrupted(record, record.error, true);
   }
 
   private outputSummary(record: WorkerRecord): string | undefined {
@@ -498,7 +560,9 @@ export class WorkerManager {
 
   private promptTask(record: WorkerRecord): string {
     const task = sanitizeSensitive(record.task);
-    return record.recoverySummary ? `${task}\n\n--- timeout recovery context ---\n${sanitizeSensitive(record.recoverySummary)}` : task;
+    const handoff = record.handoff ? `\n\n--- bounded handoff ---\n${JSON.stringify(record.handoff)}` : "";
+    const recovery = record.recoverySummary ? `\n\n--- timeout recovery context ---\n${sanitizeSensitive(record.recoverySummary)}` : "";
+    return `${task}${handoff}${recovery}`;
   }
 
   private subscribeSession(record: WorkerRecord, session: any): () => void {
@@ -557,6 +621,33 @@ export class WorkerManager {
     try { this.options.onChange?.(); } catch { /* 外部渲染失败不能破坏 worker 生命周期 */ }
   }
 
+  private readyForWait(workerIds: Set<string>): WorkerSnapshot[] {
+    return [...workerIds]
+      .map((workerId) => this.snapshot(this.records.get(workerId)))
+      .filter((worker): worker is WorkerSnapshot => !!worker && (worker.state === "waiting" || isTerminal(worker.state)));
+  }
+
+  private waitResult(workerIds: Set<string>, reason: DteamWaitResult["reason"]): DteamWaitResult {
+    const ready = this.readyForWait(workerIds);
+    const requests: WaitRequest[] = this.requestState.list()
+      .filter((request) => workerIds.has(request.workerId))
+      .map((request) => ({ workerId: request.workerId, requestId: request.requestId, kind: request.kind, payload: sanitizeUnknown(request.payload) }));
+    const pendingWorkerIds = [...workerIds].filter((workerId) => !ready.some((worker) => worker.id === workerId));
+    return { reason, ready, requests, pendingWorkerIds };
+  }
+
+  private consumeWaitersFor(workerId: string): boolean {
+    const matching = [...this.waiters].filter((waiter) => waiter.workerIds.has(workerId));
+    for (const waiter of matching) this.settleWaiter(waiter, "worker_event");
+    return matching.length > 0;
+  }
+
+  private settleWaiter(waiter: Waiter, reason: DteamWaitResult["reason"]): void {
+    if (!this.waiters.delete(waiter)) return;
+    clearTimeout(waiter.timer);
+    waiter.resolve(this.waitResult(waiter.workerIds, reason));
+  }
+
   private clearRenderTimer(record: WorkerRecord): void {
     if (record.renderTimer) clearTimeout(record.renderTimer);
     record.renderTimer = undefined;
@@ -569,6 +660,48 @@ export class WorkerManager {
     if (request.task.length > DTEAM_CONFIG.dispatch.maxRecoverySummaryChars) throw new Error(`dteam: task 超过最大长度 ${DTEAM_CONFIG.dispatch.maxRecoverySummaryChars}`);
     if (!["T1", "T2", "T3"].includes(request.tier)) throw new Error("dteam: tier 必须是 T1、T2 或 T3");
     if (request.addTools !== undefined && (!Array.isArray(request.addTools) || !request.addTools.every((tool) => typeof tool === "string"))) throw new Error("dteam: addTools 必须是字符串数组");
+    const writable = request.addTools?.some((tool) => tool === "edit" || tool === "write") ?? false;
+    if (writable && (!Array.isArray(request.writeScope) || request.writeScope.length === 0)) throw new Error("dteam: 可写 worker 必须提供非空 writeScope");
+    if (request.writeScope !== undefined && (!Array.isArray(request.writeScope) || !request.writeScope.every((item) => isProjectRelativePath(item)))) throw new Error("dteam: writeScope 必须是非空项目相对路径数组");
+    if (request.handoff !== undefined) this.validateHandoff(request.handoff);
+  }
+
+  private validateHandoff(handoff: NonNullable<WorkerRequest["handoff"]>): void {
+    const allowedKeys = new Set(["facts", "constraints", "uncertainties"]);
+    if (Object.keys(handoff).some((key) => !allowedKeys.has(key))) throw new Error("dteam: handoff 只允许 facts、constraints 和 uncertainties");
+    if (JSON.stringify(handoff).length > DTEAM_CONFIG.dispatch.maxHandoffChars) throw new Error(`dteam: handoff 超过最大长度 ${DTEAM_CONFIG.dispatch.maxHandoffChars}`);
+    if (!Array.isArray(handoff.facts) || handoff.facts.length > DTEAM_CONFIG.dispatch.maxHandoffFacts || handoff.facts.some((fact) => !fact || typeof fact.claim !== "string" || !fact.claim.trim() || fact.claim.length > DTEAM_CONFIG.dispatch.maxHandoffFieldChars || typeof fact.evidence !== "string" || !fact.evidence.trim() || fact.evidence.length > DTEAM_CONFIG.dispatch.maxHandoffFieldChars || typeof fact.workerId !== "string" || !fact.workerId.trim() || fact.workerId.length > DTEAM_CONFIG.dispatch.maxHandoffFieldChars)) throw new Error("dteam: handoff.facts 必须是有界的 claim、evidence 和 workerId 数组");
+    for (const key of ["constraints", "uncertainties"] as const) {
+      if (handoff[key] !== undefined && (!Array.isArray(handoff[key]) || handoff[key].length > DTEAM_CONFIG.dispatch.maxHandoffItems || handoff[key].some((item) => typeof item !== "string" || !item.trim() || item.length > DTEAM_CONFIG.dispatch.maxHandoffFieldChars))) throw new Error(`dteam: handoff.${key} 必须是有界的非空字符串数组`);
+    }
+  }
+
+  private sanitizeHandoff(handoff: NonNullable<WorkerRequest["handoff"]>): NonNullable<WorkerRequest["handoff"]> {
+    const safe = (value: string) => truncate(sanitizeSensitive(value), DTEAM_CONFIG.dispatch.maxHandoffFieldChars);
+    return {
+      facts: handoff.facts.map((fact) => ({ claim: safe(fact.claim), evidence: safe(fact.evidence), workerId: safe(fact.workerId) })),
+      ...(handoff.constraints ? { constraints: handoff.constraints.map(safe) } : {}),
+      ...(handoff.uncertainties ? { uncertainties: handoff.uncertainties.map(safe) } : {}),
+    };
+  }
+
+  private sanitizeReport(report: WorkerReport): WorkerReport {
+    const summary = truncate(sanitizeSensitive(report.summary), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
+    const facts = report.facts.map((fact) => ({ claim: truncate(sanitizeSensitive(fact.claim), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars), evidence: truncate(sanitizeSensitive(fact.evidence), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars) }));
+    const uncertainties = report.uncertainties?.map((item) => truncate(sanitizeSensitive(item), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars));
+    return { summary, facts, ...(uncertainties?.length ? { uncertainties } : {}) };
+  }
+
+  private reportWithProvenance(record: WorkerRecord) {
+    const report = record.report!;
+    return { ...report, facts: report.facts.map((fact) => ({ ...fact, workerId: record.id })) };
+  }
+
+  private emitWriteInterrupted(record: WorkerRecord, reason?: string, force = false): void {
+    if (!record.writeScope?.length || record.state === "completed" || (record.writeInterrupted && !force)) return;
+    record.writeInterrupted = true;
+    this.signal(record, "write_interrupted", { reason, writeScope: record.writeScope });
+    this.emit({ type: "write_interrupted", workerId: record.id, title: record.title, payload: { reason, state: record.state, writeScope: record.writeScope } });
   }
 
   private signal(record: WorkerRecord, kind: string, payload: unknown): void {
@@ -581,9 +714,10 @@ export class WorkerManager {
     if (!record) return undefined;
     const safe = (value?: string) => value === undefined ? undefined : truncate(sanitizeSensitive(value), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
     const diagnostic = record.timeoutDiagnostic ? { ...record.timeoutDiagnostic, lastActivity: safe(record.timeoutDiagnostic.lastActivity) ?? "", currentTool: safe(record.timeoutDiagnostic.currentTool) ?? "", outputSummary: safe(record.timeoutDiagnostic.outputSummary) ?? "" } : undefined;
-    return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), terminalReason: record.terminalReason };
+    return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], handoff: record.handoff, writeScope: record.writeScope, report: record.report, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), terminalReason: record.terminalReason };
   }
   private emit(event: ParentEvent): void {
+    if (this.consumeWaitersFor(event.workerId)) return;
     const safeEvent: ParentEvent = {
       ...event,
       title: truncate(sanitizeSensitive(event.title), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars),
@@ -592,6 +726,7 @@ export class WorkerManager {
     try { this.options.onParentEvent?.(safeEvent); } catch { /* 父代理通知失败不能改变 worker 业务状态 */ }
   }
   private emitCompleted(event: ParentEvent): void {
+    if (this.consumeWaitersFor(event.workerId)) return;
     this.completedBuffer.push(event);
     if (this.completionTimer) return;
     this.completionTimer = setTimeout(() => {
@@ -652,12 +787,12 @@ async function abortBounded(session: any): Promise<void> {
 }
 
 function responseAllowed(requestKind: string, responseType: ParentResponse["type"]): boolean {
+  if (requestKind === "timeout_recovery") return false;
   if (responseType === "deny") return true;
   if (requestKind === "request_context") return responseType === "provide_context";
   if (requestKind === "request_tools") return responseType === "grant_tools";
   if (requestKind === "request_tool_budget") return responseType === "grant_tool_budget";
   if (requestKind === "request_decision" || requestKind === "blocked") return responseType === "decision";
-  if (requestKind === "timeout_recovery") return ["retry", "escalate", "extend", "stop"].includes(responseType);
   return false;
 }
 
@@ -674,7 +809,7 @@ function toolCallBudgetForTier(tier: Tier): number {
 }
 
 function workerSystemPrompt(tier: Tier, toolCallBudget: number): string {
-  return `${getTierPrompt(tier)}\n\n本 worker 的工作工具调用额度为 ${toolCallBudget} 次；dteam_signal 不计入。若预计额度不足，必须在耗尽前调用 dteam_signal(kind=\"request_tool_budget\", requestId, reason) 请求主代理决定。主代理最多只会追加一次，且追加后再次不足时会结束本 worker，由主代理重新 dispatch fresh worker。`;
+  return `${getTierPrompt(tier)}\n\n本 worker 的工作工具调用额度为 ${toolCallBudget} 次；dteam_signal 和 dteam_report 不计入。若预计额度不足，必须在耗尽前调用 dteam_signal(kind=\"request_tool_budget\", requestId, reason) 请求主代理决定。主代理最多只会追加一次，且追加后再次不足时会结束本 worker，由主代理重新 dispatch fresh worker。\n\n结束前必须恰好调用一次 dteam_report({ summary, facts, uncertainties? })；每个事实须包含 claim 和可核验 evidence。未提交报告会按失败处理。`;
 }
 
 function toolBudgetExhaustedMessage(record: WorkerRecord): string {
@@ -687,3 +822,29 @@ function toolBudgetExhaustedMessage(record: WorkerRecord): string {
 export { sanitizeSensitive, sanitizeUnknown };
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+
+function isProjectRelativePath(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && !value.startsWith("/") && !value.split(/[\\/]+/).includes("..");
+}
+
+/** 兼容 AgentSession 在 prompt 结束后才落入历史的结构化工具调用；绝不解析自由文本。 */
+function reportFromMessages(messages: any[]): WorkerReport | undefined {
+  for (const message of [...messages].reverse()) {
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+    for (const content of [...message.content].reverse()) {
+      if (content?.type !== "toolCall" || content.name !== REPORT_TOOL_NAME) continue;
+      const raw = typeof content.arguments === "string" ? tryParseJson(content.arguments) : content.arguments;
+      if (!raw || typeof raw !== "object" || typeof (raw as any).summary !== "string" || !(raw as any).summary.trim() || !Array.isArray((raw as any).facts)) continue;
+      const facts = (raw as any).facts;
+      if (facts.some((fact: any) => !fact || typeof fact.claim !== "string" || !fact.claim.trim() || typeof fact.evidence !== "string" || !fact.evidence.trim())) continue;
+      const uncertainties = (raw as any).uncertainties;
+      if (uncertainties !== undefined && (!Array.isArray(uncertainties) || uncertainties.some((item) => typeof item !== "string" || !item.trim()))) continue;
+      return { summary: (raw as any).summary, facts, ...(uncertainties ? { uncertainties } : {}) };
+    }
+  }
+  return undefined;
+}
+
+function tryParseJson(value: string): unknown {
+  try { return JSON.parse(value); } catch { return undefined; }
+}

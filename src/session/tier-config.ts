@@ -1,7 +1,7 @@
 /**
  * dteam 0.7 — T1/T2/T3 档位默认值。
  *
- * T3 只读是安全默认：bash、edit、write 都要由调用方在 tools 显式授予。
+ * 所有档位均只读为安全默认：bash、edit、write 都要由调用方在 addTools 显式最小授予。
  */
 
 import { TIERS, THINKING_LEVELS, type ThinkingLevel, type Tier, type TierModelRoutes } from "../types/dispatch.js";
@@ -19,18 +19,18 @@ export interface TierConfig {
 export const TIER_DEFAULTS: Record<Tier, TierConfig> = {
   T1: {
     thinking: "high",
-    tools: DISPATCH_BUILT_IN_TOOLS,
-    systemPrompt: "你是 dteam 的 T1 思考档 worker。完成自包含任务，严格只使用允许的工具；完成后必须返回一段 assistant 文本总结可核验结果，不要只停留在工具调用。",
+    tools: READ_ONLY_TOOLS,
+    systemPrompt: "你是 dteam 的 T1 思考档 worker。完成自包含任务，严格只使用允许的工具；完成前必须提交结构化工作报告，不要只停留在工具调用。"
   },
   T2: {
     thinking: "medium",
-    tools: DISPATCH_BUILT_IN_TOOLS,
-    systemPrompt: "你是 dteam 的 T2 标准档 worker。完成自包含任务，严格只使用允许的工具；完成后必须返回一段 assistant 文本简洁报告结果，不要只停留在工具调用。",
+    tools: READ_ONLY_TOOLS,
+    systemPrompt: "你是 dteam 的 T2 标准档 worker。完成自包含任务，严格只使用允许的工具；完成前必须提交结构化工作报告，不要只停留在工具调用。"
   },
   T3: {
     thinking: "low",
     tools: READ_ONLY_TOOLS,
-    systemPrompt: "你是 dteam 的 T3 快速档 worker。完成明确、机械的自包含任务，严格只使用允许的工具；除非调用方显式授权，否则不得写入或执行 shell；完成后必须返回一段 assistant 文本报告结果，不要只停留在工具调用。",
+    systemPrompt: "你是 dteam 的 T3 快速档 worker。完成明确、机械的自包含任务，严格只使用允许的工具；除非调用方显式授权，否则不得写入或执行 shell；完成前必须提交结构化工作报告，不要只停留在工具调用。"
   },
 };
 

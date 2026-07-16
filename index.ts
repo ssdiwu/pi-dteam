@@ -1,14 +1,16 @@
-/** dteam 0.8 — 唯一模型工具 `dteam` 与用户管理命令 `/dteam`。 */
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { matchesKey } from "@earendil-works/pi-tui";
+/** dteam — 三个模型工具与用户管理命令 `/dteam`。 */
+import { type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { matchesKey, Text } from "@earendil-works/pi-tui";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "./src/dispatch/concurrency.js";
+import { DTEAM_CONFIG } from "./src/config.js";
 import { WorkerManager } from "./src/runtime/worker-manager.js";
 import { sanitizeUnknown } from "./src/runtime/sanitize.js";
 import { formatDteamConfigWarning, loadDteamConfig, type DteamConfigStatus } from "./src/session/model-config.js";
-import type { DteamParams, ParentEvent } from "./src/runtime/types.js";
+import type { DteamDispatchParams, DteamRecoverParams, DteamRespondParams, DteamWaitParams, ParentEvent, RecoveryAction, WorkerRequest } from "./src/runtime/types.js";
 import { clampSelection, detailLineCount, nextScrollOffset, nextWorkerSelection, renderWorkerDetail, renderWorkerFallback, renderWorkerList, workersForView, type WorkerView } from "./src/tui/dteam-dialog.js";
 import { setupI18n, t } from "./src/tui/i18n.js";
 import { confirmWorkerCancellation } from "./src/tui/cancel.js";
+import { humanizeToolResult } from "./src/tui/tool-result.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: `dteam: ${message}` }], isError: true, details: {} };
@@ -50,21 +52,27 @@ export function sendParentEvent(pi: ExtensionAPI, event: ParentEvent, hasUI = tr
   pi.sendMessage?.({ customType: "dteam-worker", content: text, display: false, details }, { triggerTurn: hasUI, deliverAs: hasUI ? "followUp" : "nextTurn" });
 }
 
-function validateResponse(raw: any): { ok: true; value: any } | { ok: false; error: string } {
+function validateResponse(raw: any): { ok: true; value: DteamRespondParams["response"] } | { ok: false; error: string } {
   if (raw?.type === "provide_context" && typeof raw.context === "string") return { ok: true, value: { type: raw.type, context: raw.context } };
   if (raw?.type === "grant_tools" && Array.isArray(raw.tools) && raw.tools.every((tool: unknown) => typeof tool === "string")) return { ok: true, value: { type: raw.type, tools: raw.tools } };
   if (raw?.type === "grant_tool_budget" && typeof raw.additionalCalls === "number" && Number.isFinite(raw.additionalCalls)) return { ok: true, value: { type: raw.type, additionalCalls: raw.additionalCalls } };
   if (raw?.type === "decision" && typeof raw.decision === "string") return { ok: true, value: { type: raw.type, decision: raw.decision } };
-  if (raw?.type === "retry") return { ok: true, value: { type: raw.type } };
-  if (raw?.type === "escalate" && ["T1", "T2", "T3"].includes(raw.tier)) return { ok: true, value: { type: raw.type, tier: raw.tier } };
-  if (raw?.type === "extend" && typeof raw.additionalMs === "number" && Number.isFinite(raw.additionalMs) && raw.additionalMs > 0) return { ok: true, value: { type: raw.type, additionalMs: raw.additionalMs } };
-  if (raw?.type === "stop" && (raw.reason === undefined || typeof raw.reason === "string")) return { ok: true, value: { type: raw.type, ...(typeof raw.reason === "string" ? { reason: raw.reason } : {}) } };
   if (raw?.type === "deny" && typeof raw.reason === "string") return { ok: true, value: { type: raw.type, reason: raw.reason } };
   return { ok: false, error: "respond response 字段不符合 type 对应 schema" };
 }
 
-function isParams(value: unknown): value is DteamParams {
-  return !!value && typeof value === "object" && ((value as any).type === "dispatch" || (value as any).type === "respond");
+function isRespondParams(value: unknown): value is DteamRespondParams {
+  return !!value && typeof value === "object" && typeof (value as any).workerId === "string" && typeof (value as any).requestId === "string" && !!(value as any).response;
+}
+
+function validateRecovery(raw: unknown): { ok: true; value: RecoveryAction } | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object" || typeof (raw as any).workerId !== "string" || typeof (raw as any).requestId !== "string") return { ok: false, error: "需要 workerId、requestId 和 action" };
+  const value = raw as any;
+  if (value.action === "retry") return { ok: true, value: { action: "retry" } };
+  if (value.action === "escalate" && ["T1", "T2", "T3"].includes(value.tier)) return { ok: true, value: { action: "escalate", tier: value.tier } };
+  if (value.action === "extend" && typeof value.additionalMs === "number" && Number.isFinite(value.additionalMs) && value.additionalMs > 0) return { ok: true, value: { action: "extend", additionalMs: value.additionalMs } };
+  if (value.action === "stop" && (value.reason === undefined || typeof value.reason === "string")) return { ok: true, value: { action: "stop", ...(typeof value.reason === "string" ? { reason: value.reason } : {}) } };
+  return { ok: false, error: "recover action 字段不符合对应 schema" };
 }
 
 export default function registerDteam(pi: ExtensionAPI) {
@@ -88,40 +96,87 @@ export default function registerDteam(pi: ExtensionAPI) {
     ctx.ui?.setStatus?.("dteam", undefined);
   });
 
-  pi.registerTool({
-    name: "dteam",
-    label: "dteam",
-    description: "dteam 模型分级后台 worker 工具，仅支持 type=dispatch 和 type=respond。按推理复杂度选 tier：T3=明确、机械、可独立验证的小任务（默认仅 read/grep/find/ls，需 addTools 才能额外调用）；T2=目标清楚的标准复杂度任务；T1=复杂推理、决策、综合、验收。先并行 T3 收集事实；跨档只能由主代理按 T3→T2→T1 明确决定，同档模型候选才会自动回退。worker 工作工具调用初始额度为 T3=60、T2=120、T1=180；可在耗尽前请求主代理一次性追加 60–120 次（10 的倍数），再次不足时主代理应重新 dispatch fresh worker。worker 每次 attempt 默认五分钟，timeout recovery 独立累计上限十分钟；respond 可选择 retry/escalate/extend/stop。实时文本、thinking、当前工具和 timeout 诊断只投影到 Snapshot，由 /dteam 展示，不原样回显到主对话。dispatch 派发 1–32 个互不依赖的 worker（每项含 title/task/tier，可用 addTools 约束本次权限；立即返回 queued，结果经 follow-up 回传）；respond 回应 waiting worker 或 timeout recovery 的结构化请求，不创建新 worker。主代理负责依赖理解、验收和后续路由；不要传依赖图、batch 或 goal/task 映射。",
-    parameters: {
-      type: "object",
-      properties: {
-        type: { type: "string", enum: ["dispatch", "respond"] },
-        workers: { type: "array", minItems: 1, maxItems: 32, items: { type: "object", properties: { title: { type: "string" }, task: { type: "string" }, tier: { type: "string", enum: ["T1", "T2", "T3"] }, addTools: { type: "array", items: { type: "string" } } }, required: ["title", "task", "tier"] } },
-        workerId: { type: "string" }, requestId: { type: "string" },
-        response: { type: "object", properties: { type: { type: "string", enum: ["provide_context", "grant_tools", "grant_tool_budget", "decision", "retry", "escalate", "extend", "stop", "deny"] }, context: { type: "string" }, tools: { type: "array", items: { type: "string" } }, additionalCalls: { type: "number" }, decision: { type: "string" }, tier: { type: "string", enum: ["T1", "T2", "T3"] }, additionalMs: { type: "number" }, reason: { type: "string" } }, required: ["type"] },
-      },
-      required: ["type"],
-    } as any,
-    async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
-      if (!isParams(rawParams)) return errorResult("type 必须是 dispatch 或 respond");
-      try {
-        const config = runtime.config ?? loadDteamConfig();
-        runtime.config = config;
-        const manager = managerFor(pi, runtime, ctx, config);
-        if (rawParams.type === "dispatch") {
-          const accepted = manager.dispatch(rawParams.workers);
-          ctx.ui?.setStatus?.("dteam", t("status.active", { count: manager.active().length }));
-          return { content: [{ type: "text" as const, text: JSON.stringify({ accepted }, null, 2) }], details: { accepted } };
-        }
-        if (typeof rawParams.workerId !== "string" || typeof rawParams.requestId !== "string" || !rawParams.response || typeof rawParams.response.type !== "string") return errorResult("respond 需要 workerId、requestId 和 response");
-        const response = validateResponse(rawParams.response);
-        if (!response.ok) return errorResult(response.error);
-        const result = manager.respond(rawParams.workerId, rawParams.requestId, response.value);
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result } };
-      } catch (error) {
-        return errorResult(error instanceof Error ? error.message : String(error));
-      }
+  const toolDescription = "dteam 模型分级后台 worker 工具。主 LLM 负责理解、路由、证据筛选、冲突裁决和收口；T3 先做只读事实探测或经显式最小授权的机械小改，T2 处理已定位的常规实现，T1 只处理复杂判断、高风险收敛和验收。worker 必须通过内部 dteam_report 提交结构化报告；跨档仅传有界 handoff，不传完整会话或 worker P2P 消息。可写 worker 必须声明 writeScope；中断时主 LLM 必须派 fresh T3 检查 scope 的 diff、编译或定向测试。";
+  const workerSchema = {
+    type: "object",
+    properties: {
+      title: { type: "string" }, task: { type: "string" }, tier: { type: "string", enum: ["T1", "T2", "T3"] },
+      addTools: { type: "array", items: { type: "string" } },
+      writeScope: { type: "array", items: { type: "string" } },
+      handoff: { type: "object", additionalProperties: false, properties: {
+        facts: { type: "array", items: { type: "object", additionalProperties: false, properties: { claim: { type: "string" }, evidence: { type: "string" }, workerId: { type: "string" } }, required: ["claim", "evidence", "workerId"] } },
+        constraints: { type: "array", items: { type: "string" } }, uncertainties: { type: "array", items: { type: "string" } },
+      }, required: ["facts"] },
     },
+    required: ["title", "task", "tier"],
+  };
+  const renderResult = (kind: "dispatch" | "respond" | "recover" | "wait") => (result: any, { expanded }: { expanded: boolean }) => new Text(humanizeToolResult(kind, result, expanded), 0, 0);
+
+  pi.registerTool({
+    name: "dteam_dispatch", label: "dteam dispatch", description: toolDescription,
+    parameters: { type: "object", properties: { workers: { type: "array", minItems: 1, maxItems: 32, items: workerSchema } }, required: ["workers"] } as any,
+    async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+      if (!rawParams || typeof rawParams !== "object" || !Array.isArray((rawParams as any).workers)) return errorResult("workers 必须是 1–32 项数组");
+      try {
+        const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
+        const manager = managerFor(pi, runtime, ctx, config);
+        const accepted = manager.dispatch((rawParams as DteamDispatchParams).workers as WorkerRequest[]);
+        ctx.ui?.setStatus?.("dteam", t("status.active", { count: manager.active().length }));
+        return { content: [{ type: "text" as const, text: JSON.stringify({ accepted }, null, 2) }], details: { accepted } };
+      } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
+    },
+    renderResult: renderResult("dispatch"),
+  });
+
+  pi.registerTool({
+    name: "dteam_respond", label: "dteam respond", description: "回应 worker 的普通阻塞 request：提供上下文、授予本次预授权工具、追加一次工具额度、作出业务决策或拒绝。timeout recovery 请使用 dteam_recover。",
+    parameters: { type: "object", properties: {
+      workerId: { type: "string" }, requestId: { type: "string" },
+      response: { type: "object", properties: { type: { type: "string", enum: ["provide_context", "grant_tools", "grant_tool_budget", "decision", "deny"] }, context: { type: "string" }, tools: { type: "array", items: { type: "string" } }, additionalCalls: { type: "number" }, decision: { type: "string" }, reason: { type: "string" } }, required: ["type"] },
+    }, required: ["workerId", "requestId", "response"] } as any,
+    async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+      if (!isRespondParams(rawParams)) return errorResult("需要 workerId、requestId 和 response");
+      const response = validateResponse(rawParams.response);
+      if (!response.ok) return errorResult(response.error);
+      try {
+        const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
+        const result = managerFor(pi, runtime, ctx, config).respond(rawParams.workerId, rawParams.requestId, response.value);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result } };
+      } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
+    },
+    renderResult: renderResult("respond"),
+  });
+
+  pi.registerTool({
+    name: "dteam_recover", label: "dteam recover", description: "只回应 worker 的 timeout recovery：选择 fresh retry、相邻 escalate、有限 extend 或 stop。Worker Manager 强制 fresh session、相邻升级和恢复预算上限。",
+    parameters: { type: "object", properties: {
+      workerId: { type: "string" }, requestId: { type: "string" },
+      action: { type: "string", enum: ["retry", "escalate", "extend", "stop"] }, tier: { type: "string", enum: ["T1", "T2", "T3"] }, additionalMs: { type: "number" }, reason: { type: "string" },
+    }, required: ["workerId", "requestId", "action"] } as any,
+    async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+      const action = validateRecovery(rawParams);
+      if (!action.ok) return errorResult(action.error);
+      try {
+        const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
+        const result = managerFor(pi, runtime, ctx, config).recover((rawParams as any).workerId, (rawParams as any).requestId, action.value);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result } };
+      } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
+    },
+    renderResult: renderResult("recover"),
+  });
+
+  pi.registerTool({
+    name: "dteam_wait", label: "dteam wait", description: "仅在后续工作依赖指定 worker 时等待其下一可消费事件。任一目标 worker 完成、失败、终态或进入 waiting 时立即返回；timeout 仅结束本次等待，不取消 worker。匹配事件只通过本工具结果交付，不重复 follow-up。",
+    parameters: { type: "object", properties: { workerIds: { type: "array", minItems: 1, maxItems: 32, items: { type: "string" } }, timeoutMs: { type: "integer", minimum: 1, maximum: DTEAM_CONFIG.dispatch.maxWaitMs } }, required: ["workerIds", "timeoutMs"] } as any,
+    async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+      if (!rawParams || typeof rawParams !== "object" || !Array.isArray((rawParams as any).workerIds) || typeof (rawParams as any).timeoutMs !== "number") return errorResult("需要 workerIds 和 timeoutMs");
+      try {
+        const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
+        const result = await managerFor(pi, runtime, ctx, config).wait((rawParams as DteamWaitParams).workerIds, (rawParams as DteamWaitParams).timeoutMs);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: { result } };
+      } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
+    },
+    renderResult: renderResult("wait"),
   });
 
   pi.registerCommand("dteam", {
