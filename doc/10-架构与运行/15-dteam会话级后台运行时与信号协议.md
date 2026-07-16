@@ -1,6 +1,6 @@
-# dteam 会话级后台运行时与信号协议（0.8 目标）
+# dteam 会话级后台运行时与信号协议（0.8 历史蓝图）
 
-> **状态：✅ 已实现（0.8）。** 本文是会话级后台运行时与信号协议的实现蓝图；当前唯一模型工具为 `dteam`。
+> **状态：仅追溯，不是当前 API。** 本文保留 0.8 单工具 `dteam({ type })` 的历史运行时设计；Worker Manager 与会话 signal 的内部边界仍有效，但当前公开工具、报告、交接、验证与可写中断规则必须以 [12-API参考](./12-API参考.md) 和 ADR 0013–0017 为准。
 >
 > 目标不是复活 Orchestrator Loop（编排循环）或 Signal Store（信号存储），而是让主代理可以把**一个或多个已明确档位、已由它判断现在应派的 worker 请求**交给后台 dteam，继续主对话，并在需要时用有类型的双向 signal（信号）协作。一次调用的多 worker 列表只是派发参数，不引入 dteam batch（批次）运行态。
 >
@@ -91,9 +91,11 @@ interface WorkerRecord {
 - Extension shutdown（扩展关闭）/ Pi process exit（进程退出）/ reload（重载）：Manager abort（中止）所有 `queued`、`running`、`waiting` worker，并将活跃内存态清空；不重启、不恢复。
 - 结束记录可在同一宿主会话中供 `/dteam` 回看；跨进程持久化与 resume 不在 0.8 范围。
 
-## 4. 唯一公开工具与回传
+## 4. 历史 0.8 单工具与回传（非当前实现）
 
-0.8 只有 `dteam` 这一个模型工具；`/dteam` 是用户管理命令。用 `type`（类型）区分两种模型动作——文档中可简称 `dteam.dispatch` / `dteam.respond`，但 Pi 实际只注册一个名为 `dteam` 的工具。
+> **历史记录**：以下 `dteam({ type })` 仅描述 0.8；当前公开 API 是 `dteam_dispatch`、`dteam_respond`、`dteam_recover`，见 [12-API参考](./12-API参考.md)。
+
+历史 0.8 只有 `dteam` 这一个模型工具；`/dteam` 是用户管理命令。用 `type`（类型）区分两种模型动作——文档中可简称 `dteam.dispatch` / `dteam.respond`，但 Pi 实际只注册一个名为 `dteam` 的工具。
 
 ```ts
 // dteam.dispatch：主代理已经判断这些 worker 现在可启动

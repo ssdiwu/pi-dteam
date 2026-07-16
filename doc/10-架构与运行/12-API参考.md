@@ -1,98 +1,112 @@
 # dteam API 参考
 
-> 0.8 当前模型侧只注册一个工具：`dteam`。`/dteam` 是用户管理命令，不是第二个模型工具。
+> 下一主版本模型侧注册四个工具：`dteam_dispatch`、`dteam_respond`、`dteam_recover`、`dteam_wait`；`/dteam` 仍是用户查看、steering（插队指令）与确认取消的管理命令。
 >
-> **实施状态**：会话级后台 Worker Manager、星型 signal、受限动态工具和 `/dteam` 管理入口已实现；真实 provider 冒烟仍需在目标环境复核。
+> **实施状态**：派发、回应、恢复、显式等待、结构化报告、有限 handoff（交接）及可写中断守卫已实现；真实 provider 冒烟仍需在目标 Pi 环境复核。
 
-## 0. 必需的个人模型配置
+## 0. 必需配置
 
-配置文件：`~/.pi/agent/pi-dteam.json`。
+模型档位配置位于 `~/.pi/agent/pi-dteam.json`，T1/T2/T3 都必须是有序的 `provider/model[:thinking]` 候选数组。配置无效时 dteam 工具 fail-closed，不回落主会话模型。
 
-```json
-{
-  "tiers": {
-    "T1": ["openai-codex/gpt-5.6-terra:high", "openai-codex/gpt-5.6-sol:high"],
-    "T2": ["openai-codex/gpt-5.6-luna:medium"],
-    "T3": ["openai-codex/gpt-5.3-codex-spark:low"]
-  }
-}
-```
-
-每档是按顺序尝试的 `provider/model[:thinking]` 候选数组；后续项作为回退。`thinking` 可省略并跟随 T1/T2/T3 默认值。文件缺失、JSON 无效、档位缺失或模型不是 `provider/model[:thinking]` 格式时，session 启动会显著提醒，`dteam` 进入 fail-closed，不会使用主会话 `ctx.model`。
-
-## 1. 模型工具：`dteam`
-
-`dteam` 用 `type` 区分两种动作：
-
-### 1.1 派发
+## 1. `dteam_dispatch`
 
 ```ts
-dteam({
-  type: "dispatch",
+dteam_dispatch({
   workers: [{
     title: "读取配置",
-    task: "独立完成这个自包含任务，并报告证据",
+    task: "核对配置文件格式，并提交结构化证据。",
     tier: "T3",
-    addTools: [],
+    handoff: {
+      facts: [{ claim: "已有事实", evidence: "path:line", workerId: "前序-worker-id" }],
+      constraints: ["只读"],
+    },
   }],
 })
 ```
 
-- `workers` 必须是 1–32 项；每项独立返回 `workerId`。
-- `title`、`task`、`tier` 必填，`tier` 为 `T1` / `T2` / `T3`。
-- `addTools` 是本次 worker 的预授权候选上限，不接受能力标签。
-- dteam 立即返回 queued 接收凭据；完成结果经主会话 follow-up 回传。
-- 多项只是一次调用参数列表，不产生 `batchId`，不表达依赖。
+- 原子受理 1–32 个相互独立的 worker；不表达 batch、依赖、Plan 或 goal/task 映射。
+- T3→T2→T1 由主 LLM 决策；同档候选才自动回退。
+- 所有档位默认只读。需要 `edit` 或 `write` 时，必须在 `addTools` 显式授权，并声明项目相对 `writeScope`。
+- 可选 `handoff` 只传带 `workerId` 来源的事实、约束和不确定性；禁止主会话 / transcript（逐字记录） / P2P（点对点）消息。
+- 默认只显示紧凑受理摘要；按 `Ctrl+O` 展开完整但仍为人类可读的 worker 列表，不显示原始 JSON（JavaScript 对象表示法）。
 
-### 1.2 回应阻塞请求
+## 2. `dteam_respond`
 
 ```ts
-dteam({
-  type: "respond",
+dteam_respond({
   workerId: "...",
   requestId: "...",
   response: { type: "provide_context", context: "最小必要上下文" },
 })
 ```
 
-`response.type` 支持：
+只回应普通阻塞请求：
 
-- `provide_context`：提供上下文。
-- `grant_tools`：只授予本次 `addTools` 候选。
-- `grant_tool_budget`：仅回应 `request_tool_budget`；`additionalCalls` 必须为 60–120 且为 10 的倍数。每个 worker 只能批准一次，追加后仍耗尽时主代理重新 dispatch fresh worker。
-- `decision`：提供主代理决定。
-- `retry` / `escalate` / `extend` / `stop`：仅回应 timeout recovery，请求同档 fresh 重试、相邻档位升级、有限延长预算或终止。
-- `deny`：明确拒绝及原因。
+- `provide_context`
+- `grant_tools`（只能激活本次 `addTools` 预授权候选）
+- `grant_tool_budget`（60–120，且为 10 的倍数；每个 worker 一次）
+- `decision`
+- `deny`
 
-回应先更新权限或请求状态，再兑现原 worker 的 `dteam_signal` 阻塞工具调用；timeout recovery 会创建 fresh worker attempt，不恢复旧 session；不依赖 `followUp()` 解锁。
+不能回应 timeout recovery（超时恢复）；该情形必须使用 `dteam_recover`。
 
-## 2. Worker 与 signal
+## 3. `dteam_recover`
 
-worker 是当前 Pi 进程内的 fresh `AgentSession`。Worker Manager 管理：
+```ts
+dteam_recover({ workerId: "...", requestId: "...", action: "retry" })
+```
 
-- `queued → running → waiting → completed/failed/timed_out/cancelled/shutdown` 生命周期；timeout 先进入等待主代理恢复决策的状态，stop 后才成为 `timed_out` 终态；用户取消和 session shutdown 保持独立终态；
-- 同档模型候选回退、共享 Adaptive Concurrency；跨档由主代理按 T3→T2→T1 决定；
-- `progress` / `finding` 过程事实；
-- `request_context` / `request_tools` / `request_tool_budget` / `request_decision` / `blocked` 阻塞请求。
-- 工作工具额度按初始档位为 T3=60、T2=120、T1=180；`dteam_signal` 不计入额度。
+只回应 timeout recovery：
 
-worker 只能经 `dteam_signal` 向 Manager 发信号，不能 P2P；主代理经 `dteam` 回应。成功结果 500ms 短窗合并，失败、取消、阻塞请求和 timeout recovery 立即回传。
+- `retry`：同档 fresh worker；
+- `escalate`：只允许相邻的 T3→T2 或 T2→T1；
+- `extend`：在累计恢复预算内延长；
+- `stop`：终止为 `timed_out`。
 
-## 3. 工具权限
+Manager 强制 fresh session、相邻升级、次数与预算上限；不做 resume（恢复）。可写 worker 超时即会回传 `write_interrupted`，主 LLM 必须先派 fresh T3 完整性检查，再决定修复或恢复。
 
-worker 创建时注册 `baseTools ∪ addTools ∪ dteam_signal`，首次 prompt 前只激活基础工具与 signal。`request_tools` 只能激活已注册且属于本次 `addTools` 的精确名称；未知工具由 dteam fail-closed 拒绝。
+## 4. `dteam_wait`
 
-当前第三方 extension 候选无法通过公开 API 安全地最小加载，因此 0.8 只开放 built-in 与 dteam custom 工具候选，不全量加载 extension。
+```ts
+dteam_wait({
+  workerIds: ["...", "..."],
+  timeoutMs: 300_000,
+})
+```
 
-## 4. `/dteam` 管理命令
+仅当后续工作依赖指定 worker 时调用。它不等待全部 worker 结束：任一指定 worker 完成、失败、进入终态或进入 `waiting` 时立即返回已就绪结果、需要回应的 request 与剩余 `pendingWorkerIds`。若仍需其余结果，主模型只对剩余 ID 再次 wait。
 
-`/dteam` 提供按需 overlay 列表和详情：运行中 worker 可 steering；取消必须二次确认并记录 `user_cancelled`；结束 worker 只读封存。没有活跃 worker 时仍可查看当前进程内历史记录。
+- `timeoutMs` 必须是 1–300000 的整数；timeout 只结束本次等待，不取消 worker、不触发 recovery。
+- 被 wait 捕获的事件只作为 wait 结果交付，不重复 follow-up；Signal Log 与 `/dteam` 仍保留记录。
+- 进入 `waiting` 时先用 `dteam_respond` 或 `dteam_recover` 处理，再决定是否继续 wait，避免死锁。
+- 默认仅显示等待摘要；`Ctrl+O` 展开人类可读的 worker、report、request 与 pending 列表。
 
-Pi session shutdown / reload 会中止活跃 worker，不做 resume 或跨进程恢复。
+## 5. Worker 内部工具
 
-## 5. 不提供
+`dteam_signal` 仍处理 progress、finding 和阻塞 request。每个 worker 结束前必须调用一次：
 
-- `dteam_dispatch`：仅为 0.7 历史工具名。
-- `dteam.dispatch` / `dteam.respond`：仅为文档动作简称，不是注册工具名。
-- batch、依赖图、Task Plan、goal/task 映射、自动续派。
-- workflow 脚本、Orchestrator Loop、TTL Signal Store、五角色、P2P、resume、常驻浮窗。
+```ts
+dteam_report({
+  summary: "完成的简要结论",
+  facts: [{ claim: "可核验结论", evidence: "文件:行号或测试命令" }],
+  uncertainties: ["可选边界"],
+})
+```
+
+缺报告按失败处理；Manager 为完成事件中的 facts 自动附加实际 `workerId` provenance（来源）。不接受最终自由文本作为交接回退。
+
+## 6. 可写中断守卫
+
+worker 因 failed、cancelled、shutdown、timed_out 或缺报告而未确认完成，且有 `writeScope` 时，Manager 回传 `write_interrupted`，其中包含 worker、原因和 scope。主 LLM 不得将该结果当可信证据，必须派 fresh T3 检查 scope 的 diff、编译或定向测试。
+
+reload（重载）或新会话前，若工作区存在未解释的 dirty diff（未提交差异），主 LLM 也必须先作 T3 完整性检查，才能再派可写 worker。守卫不自动回滚、不创建持久标记、不自动派发检查 worker。
+
+## 7. 工具结果投影与不提供
+
+所有用户可见工具默认显示紧凑摘要；`Ctrl+O` 展开完整但仍为人类可读的文字、列表和诊断。完整结构只保留在模型上下文、内部 `details` 与测试，不直接进入 UI。
+
+不提供：
+
+- 旧 `dteam({ type })`，无兼容层；升级后执行 `/reload`。
+- `dteam_status`、模型侧 cancel / steer；用户管理仍经 `/dteam`。`dteam_wait` 是显式事件等待，不是状态查询或轮询。
+- batch、依赖图、自动升级、Orchestrator Loop、TTL Signal Store、P2P、resume、worktree 或文件锁。

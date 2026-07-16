@@ -4,7 +4,7 @@
 > 用途：dteam v2 任何"拦截 / UI 增强 / 持久化"改动的参考索引。
 > 与 `../90-归档/版本实施方案/41-工具动态加载方案.md` 配套：那份是设计稿，这份是参考表。
 >
-> **0.8 状态注记（2026-07-14）**：当前 `index.ts` 使用 `pi.registerTool` 注册唯一模型工具 `dteam`（`dispatch` / `respond`），并注册 `/dteam` 管理命令。Worker Snapshot 的实时文本、thinking、当前工具和 timeout 诊断由 `/dteam` Modal 展示；不做跨 session 持久化或 resume。本文仍只记录 Pi 扩展 API 表面，不替代 `doc/10-架构与运行/12-API参考.md` 的 dteam 契约。
+> **当前状态注记**：`index.ts` 使用 `pi.registerTool` 注册 `dteam_dispatch`、`dteam_respond`、`dteam_recover`，并注册 `/dteam` 管理命令。Worker Snapshot 的实时文本、thinking、当前工具和 timeout 诊断由 `/dteam` Modal 展示；不做跨 session 持久化或 resume。本文仍只记录 Pi 扩展 API 表面，不替代 `doc/10-架构与运行/12-API参考.md` 的 dteam 契约。
 
 ## 全量 API 表面
 
@@ -28,7 +28,7 @@
 
 | 能力 | dteam 是否在用 | 备注 |
 |------|:---:|------|
-| `registerTool` | ✅ | `index.ts` 注册唯一模型工具 `dteam`，由 `type=dispatch/respond` 区分派发与恢复回应 |
+| `registerTool` | ✅ | `index.ts` 注册派发、普通回应、超时恢复与显式等待四个工具 |
 | `registerCommand` / `ctx.ui.custom` | ✅ | 注册 `/dteam` 管理命令和有包边的 worker 列表/详情 Modal |
 | `ctx.ui.setStatus` / `notify` | ✅ | 显示后台 worker 的单次状态反馈 |
 | tool_call 拦截 | ❌ | 工具白名单已在 fresh worker 边界收敛；不为旧 explore 角色加拦截 |
