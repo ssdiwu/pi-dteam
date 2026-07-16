@@ -88,6 +88,18 @@ describe("dteam next-major extension entry", () => {
     await expect(tools.dteam_wait.execute("call", { workerIds: ["w"] }, undefined, undefined, context())).resolves.toMatchObject({ isError: true });
   });
 
+  it("wait 执行中推送包含目标与 elapsed 的进度", async () => {
+    const hanging = { prompt: vi.fn(() => new Promise<void>(() => {})), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(hanging);
+    const { tools } = register();
+    const ctx = context();
+    const dispatched = await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "等待检查", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
+    const workerId = dispatched.details.accepted[0].workerId;
+    const onUpdate = vi.fn();
+    await expect(tools.dteam_wait.execute("wait", { workerIds: [workerId], timeoutMs: 10 }, undefined, onUpdate, ctx)).resolves.toMatchObject({ details: { result: { reason: "timeout", targetWorkers: [{ id: workerId, title: "等待检查" }], timeoutMs: 10 } } });
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ details: { waiting: expect.objectContaining({ targetWorkers: [{ id: workerId, title: "等待检查" }], timeoutMs: 10 }) } }));
+  });
+
   it("worker 内部事件不直接展示到主对话且会脱敏", () => {
     const pi = { sendMessage: vi.fn() };
     sendParentEvent(pi as any, { type: "failed", workerId: "w", title: "api_key=sk-title-secret", payload: { result: "api_key=sk-12345678901234567890 DATABASE_URL=postgresql://u:pw@example.test/db" } } as any);
