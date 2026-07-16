@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### Added
+- 新增 `dteam_dispatch`、`dteam_respond`、`dteam_recover`、`dteam_wait` 四个公开模型工具；worker 完成前必须提交结构化 `dteam_report`，主模型可通过有界 `handoff` 传递带来源事实。
+- 新增显式依赖等待：可等待指定 worker 的下一可消费事件，返回部分结果或 timeout，不取消后台 worker，也不重复 follow-up。
+- 新增可写 worker 的 `writeScope` 与 `write_interrupted` 守卫：中断、超时、失败、取消、shutdown 或缺报告时回传受影响范围，供 fresh T3 完整性检查。
+
+### Changed
+- T1/T2/T3 统一改为默认只读；`edit` / `write` 必须按每次派发显式最小授权。
+- timeout recovery 从普通回应中拆出，改由 `dteam_recover` 专门处理；所有工具结果默认紧凑显示，`Ctrl+O` 展开完整但人类可读的详情，不展示原始结构。
+
+### Fixed
+- 修复升档 recovery 遗漏 `dteam_report`、复用前一 attempt 报告，以及 timeout 终态遗漏写入范围的问题。
+- 限制并脱敏 handoff，拒绝未定义交接字段，避免把超长或敏感上下文传给 fresh worker。
+
+
 ## [0.8.4] - 2026-07-15
 
 ### Changed

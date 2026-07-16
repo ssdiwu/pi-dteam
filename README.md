@@ -6,13 +6,13 @@ The main model (T1 frontier tier) acts as owner: it thinks / decides / routes / 
 
 **Sister project**: [`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) — independent and parallel. **dteam = multi-model tier routing; dgoal = single-model build-check loop.** The main LLM chooses which to use; they are not merged, not auto-switched. Chinese version: [`README-zh.md`](./README-zh.md).
 
-> **0.8.0 implementation**: [ADR 0009](./doc/决策档案/0009-dteam重构为会话级后台运行时与星型信号协议.md) is implemented: session-scoped background workers, typed signals, constrained tool activation, `/dteam`, and the single public `dteam` model tool. ADR 0008 remains the tier-routing authority.
+> **Next-major implementation**: ADR 0013–0019 are implemented: four public tools, structured worker reports and bounded handoff, incremental-cost routing/verification, interrupted-write integrity guards, and human-readable tool result projection. `/dteam` remains the user management entry.
 
 ## TL;DR
 
 dteam exists because **using a strong model for small tasks is a double waste** (expensive + slow). Its value is tier routing — something dgoal (single-model throughout) structurally cannot do.
 
-- **Single tool `dteam({ type: "dispatch" | "respond", ... })`** — dispatch and typed worker responses share one model tool; `/dteam` is the user management command.
+- **Four tools** — `dteam_dispatch`, `dteam_respond`, `dteam_recover`, and explicit dependency wait `dteam_wait`; `/dteam` remains the user management command.
 - **T1 / T2 / T3 model tiers** (replace the old five roles) — anchored to vendor product lines (flagship / standard / fast).
 - **Thinking follows tier** — T1 high / T2 medium / T3 low; the main model escalates only after it synthesizes lower-tier evidence, rather than making a small model think longer.
 - **Fresh review (optional)** — dispatch creates isolated in-process `AgentSession` workers; the main model explicitly requests a T1 read-only review only for critical work, countering its "grade your own homework" bias.
@@ -23,11 +23,11 @@ dteam exists because **using a strong model for small tasks is a double waste** 
 
 | Tier | Model | Thinking | Default tools | Initial work-tool budget | Use |
 |---|---|---|---|---:|---|
-| **T1 frontier** | flagship | high | full (rw + review) | 180 | thinking / decisions / review / fallback redo |
-| **T2 standard** | standard | medium | writable (rw) | 120 | regular implementation |
-| **T3 fast** | fast / local | low | read-only by default; explicitly limited write | 60 | mechanical small tasks |
+| **T1 frontier** | flagship | high | read-only by default; explicitly authorized write | 180 | thinking / decisions / review / fallback redo |
+| **T2 standard** | standard | medium | read-only by default; explicitly authorized write | 120 | regular implementation |
+| **T3 fast** | fast / local | low | read-only by default; explicitly authorized write | 60 | mechanical small tasks |
 
-Standard anchored to **vendor product-line tiers** (every vendor already ships flagship/standard/fast). dispatch can override defaults (e.g. temporarily grant write to T3 for an isolated module change). A worker may request one extra 60–120 work-tool calls (a multiple of 10) through `dteam_signal`; the main agent explicitly grants or denies it. If that allocation is exhausted again, the main agent must dispatch a fresh worker rather than extending it again. `dteam_signal` itself is not counted.
+Standard anchored to **vendor product-line tiers** (every vendor already ships flagship/standard/fast). Every write capability requires explicit `addTools` authorization and a project-relative `writeScope`. A worker may request one extra 60–120 work-tool calls (a multiple of 10) through `dteam_signal`; the main agent explicitly grants or denies it. If that allocation is exhausted again, the main agent must dispatch a fresh worker rather than extending it again. `dteam_signal` itself is not counted.
 
 ## Tier model configuration
 
@@ -85,7 +85,7 @@ pi install "$(pwd)"
 # 5. /reload in Pi
 
 # 6. Smoke-test the 0.8 runtime
-# Ask the main LLM to call dteam({ type: "dispatch", workers: [{ title: "...", task: "...", tier: "T3" }] }).
+# Ask the main LLM to call dteam_dispatch({ workers: [{ title: "...", task: "...", tier: "T3" }] }).
 ```
 
 ## Documentation
@@ -107,7 +107,7 @@ pi install "$(pwd)"
 ## Design philosophy (0008)
 
 - **Tier routing, not orchestration engine**: dteam is not a summon pool, not adversarial deliberation, not a workflow platform — it's model-tier routing. The main model thinks; small models do mechanical work in batches.
-- **Single tool `dteam`**: dispatch/respond share one tool; there are no dotted suffix tools and no Orchestrator Loop.
+- **Four explicit tools**: dispatch, ordinary responses, timeout recovery, and explicit dependency wait have separate schemas; there is no Orchestrator Loop.
 - **Fresh isolation**: dispatch workers are in-process `AgentSession` + Logical Isolation, naturally fresh — so review counters the main model's bias.
 - **Thinking follows tier**: small models with high thinking have diminishing returns; hard tasks fall back to the strong model rather than over-thinking on a small model.
 - **Parallel to dgoal**: tier routing (dteam) vs single-model build-check (dgoal), independent, not merged.
