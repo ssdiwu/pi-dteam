@@ -1,3 +1,4 @@
+import { formatDuration } from "../duration.js";
 import type { DteamWaitResult, WorkerSnapshot } from "../runtime/types.js";
 
 export type DteamToolResultKind = "dispatch" | "respond" | "recover" | "wait";
@@ -6,8 +7,8 @@ export type DteamToolResultKind = "dispatch" | "respond" | "recover" | "wait";
 export function humanizeToolResult(kind: DteamToolResultKind, result: any, expanded: boolean): string {
   if (result?.isError) return humanError(result);
   if (kind === "dispatch") return dispatchText(result?.details?.accepted, expanded);
-  if (kind === "wait") return waitText(result?.details?.result, expanded);
-  return actionText(kind, result?.details?.result, expanded);
+  if (kind === "wait") return result?.details?.result ? waitText(result.details.result, expanded) : waitProgressText(result?.details?.waiting);
+  return actionText(kind, result?.details, expanded);
 }
 
 function dispatchText(accepted: any, expanded: boolean): string {
@@ -18,24 +19,66 @@ function dispatchText(accepted: any, expanded: boolean): string {
   return [summary, ...workers.map((worker: any) => `- ${text(worker?.title) || "未命名"} · ${text(worker?.workerId) || "无 ID"} · ${text(worker?.tier) || "未知档位"} · ${text(worker?.state) || "queued"}`)].join("\n");
 }
 
-function actionText(kind: "respond" | "recover", value: any, expanded: boolean): string {
+function actionText(kind: "respond" | "recover", details: any, expanded: boolean): string {
+  const value = details?.result;
   const action = kind === "respond" ? "已回应 worker 请求" : "已处理超时恢复";
   const summary = `${action} · ${text(value?.state) || "已受理"}`;
   if (!expanded) return `${summary}（Ctrl+O 展开）`;
-  return [summary, `- worker：${text(value?.workerId) || "无"}`, `- request：${text(value?.requestId) || "无"}`, `- 当前状态：${text(value?.state) || "未知"}`].join("\n");
+  const detail = kind === "respond" ? responseText(details?.response) : recoveryText(details?.action);
+  return [summary, `- worker：${text(value?.workerId) || "无"}`, `- request：${text(value?.requestId) || "无"}`, `- ${detail}`, `- 当前状态：${text(value?.state) || "未知"}`].join("\n");
+}
+
+function responseText(response: any): string {
+  const type = text(response?.type) || "未知回应";
+  if (type === "provide_context") return `回应：provide_context（${text(response?.context).length} 字符上下文）`;
+  if (type === "grant_tools") return `回应：grant_tools（${arrayText(response?.tools) || "无"}）`;
+  if (type === "grant_tool_budget") return `回应：grant_tool_budget（+${typeof response?.additionalCalls === "number" ? response.additionalCalls : "?"} 次）`;
+  if (type === "decision") return `回应：decision（${text(response?.decision) || "无内容"}）`;
+  if (type === "deny") return `回应：deny（${text(response?.reason) || "未说明"}）`;
+  return `回应：${type}`;
+}
+
+function recoveryText(action: any): string {
+  const type = text(action?.action) || "未知恢复";
+  if (type === "retry") return "恢复：retry（fresh worker）";
+  if (type === "escalate") return `恢复：escalate → ${text(action?.tier) || "未知档位"}`;
+  if (type === "extend") return `恢复：extend（+${typeof action?.additionalMs === "number" ? formatDuration(action.additionalMs) : "?"}）`;
+  if (type === "stop") return `恢复：stop（${text(action?.reason) || "未说明"}）`;
+  return `恢复：${type}`;
+}
+
+function waitProgressText(value: Pick<DteamWaitResult, "targetWorkers" | "waitedMs" | "timeoutMs"> | undefined): string {
+  if (!value) return "正在等待 worker…";
+  return `正在等待 ${waitTargetText(value.targetWorkers)} · 已等 ${formatDuration(value.waitedMs)} / 最多 ${formatDuration(value.timeoutMs)}`;
 }
 
 function waitText(value: DteamWaitResult | undefined, expanded: boolean): string {
   const ready = Array.isArray(value?.ready) ? value.ready : [];
   const pending = Array.isArray(value?.pendingWorkerIds) ? value.pendingWorkerIds : [];
   const reason = value?.reason === "timeout" ? "等待超时" : "worker 有新事件";
-  const summary = `${reason} · 已就绪 ${ready.length} · 仍等待 ${pending.length}`;
+  const targets = waitTargetText(value?.targetWorkers);
+  const timing = value ? `已等 ${formatDuration(value.waitedMs)} / 最多 ${formatDuration(value.timeoutMs)}` : "无等待数据";
+  const summary = `等待 ${targets} · ${timing} · ${reason} · 已就绪 ${ready.length} · 仍等待 ${pending.length}`;
   if (!expanded) return `${summary}（Ctrl+O 展开）`;
   const lines = [summary];
   for (const worker of ready) lines.push(...workerLines(worker));
-  for (const request of value?.requests ?? []) lines.push(`- 需要回应 · ${text(request.workerId)} · ${text(request.kind)} · request ${text(request.requestId)}`);
+  for (const request of value?.requests ?? []) lines.push(`- 需要回应 · ${text(request.workerId)} · ${text(request.kind)} · request ${text(request.requestId)}${requestDetail(request.payload)}`);
   if (pending.length) lines.push(`- 仍等待：${pending.map(text).join(", ")}`);
   return lines.join("\n");
+}
+
+function requestDetail(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const value = payload as Record<string, unknown>;
+  if (typeof value.question === "string") return ` · 请提供：${text(value.question)}`;
+  if (typeof value.reason === "string") return ` · 原因：${text(value.reason)}`;
+  if (Array.isArray(value.tools)) return ` · 工具：${arrayText(value.tools) || "无"}`;
+  return "";
+}
+
+function waitTargetText(targets: DteamWaitResult["targetWorkers"] | undefined): string {
+  if (!targets?.length) return "未知 worker";
+  return targets.map((worker) => `${text(worker.title) || "未命名"} (${text(worker.id) || "无 ID"})`).join("、");
 }
 
 function workerLines(worker: WorkerSnapshot): string[] {
@@ -49,6 +92,10 @@ function workerLines(worker: WorkerSnapshot): string[] {
 function humanError(result: any): string {
   const raw = result?.content?.find?.((item: any) => item?.type === "text")?.text;
   return text(raw) || "dteam 操作失败";
+}
+
+function arrayText(value: unknown): string {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map(text).filter(Boolean).join("、") : "";
 }
 
 function text(value: unknown): string {

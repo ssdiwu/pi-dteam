@@ -113,8 +113,15 @@ export interface WaitRequest {
   kind: string;
   payload: unknown;
 }
+export interface WaitTarget {
+  id: string;
+  title: string;
+}
 export interface DteamWaitResult {
   reason: "worker_event" | "timeout";
+  targetWorkers: WaitTarget[];
+  waitedMs: number;
+  timeoutMs: number;
   ready: WorkerSnapshot[];
   requests: WaitRequest[];
   pendingWorkerIds: string[];

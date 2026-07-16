@@ -141,7 +141,7 @@ export default function registerDteam(pi: ExtensionAPI) {
       try {
         const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
         const result = managerFor(pi, runtime, ctx, config).respond(rawParams.workerId, rawParams.requestId, response.value);
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result } };
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result, response: response.value } };
       } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
     },
     renderResult: renderResult("respond"),
@@ -159,7 +159,7 @@ export default function registerDteam(pi: ExtensionAPI) {
       try {
         const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
         const result = managerFor(pi, runtime, ctx, config).recover((rawParams as any).workerId, (rawParams as any).requestId, action.value);
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result } };
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result, action: action.value } };
       } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
     },
     renderResult: renderResult("recover"),
@@ -168,12 +168,28 @@ export default function registerDteam(pi: ExtensionAPI) {
   pi.registerTool({
     name: "dteam_wait", label: "dteam wait", description: "仅在后续工作依赖指定 worker 时等待其下一可消费事件。任一目标 worker 完成、失败、终态或进入 waiting 时立即返回；timeout 仅结束本次等待，不取消 worker。匹配事件只通过本工具结果交付，不重复 follow-up。",
     parameters: { type: "object", properties: { workerIds: { type: "array", minItems: 1, maxItems: 32, items: { type: "string" } }, timeoutMs: { type: "integer", minimum: 1, maximum: DTEAM_CONFIG.dispatch.maxWaitMs } }, required: ["workerIds", "timeoutMs"] } as any,
-    async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, rawParams, _signal, onUpdate, ctx) {
       if (!rawParams || typeof rawParams !== "object" || !Array.isArray((rawParams as any).workerIds) || typeof (rawParams as any).timeoutMs !== "number") return errorResult("需要 workerIds 和 timeoutMs");
       try {
         const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
-        const result = await managerFor(pi, runtime, ctx, config).wait((rawParams as DteamWaitParams).workerIds, (rawParams as DteamWaitParams).timeoutMs);
-        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: { result } };
+        const manager = managerFor(pi, runtime, ctx, config);
+        const params = rawParams as DteamWaitParams;
+        const startedAt = Date.now();
+        const waiting = manager.wait(params.workerIds, params.timeoutMs);
+        const targetWorkers = params.workerIds.map((workerId) => {
+          const worker = manager.get(workerId)!;
+          return { id: worker.id, title: worker.title };
+        });
+        const publishProgress = () => onUpdate?.({
+          content: [{ type: "text" as const, text: "正在等待 dteam worker" }],
+          details: { waiting: { targetWorkers, waitedMs: Date.now() - startedAt, timeoutMs: params.timeoutMs } },
+        });
+        publishProgress();
+        const progressTimer = setInterval(publishProgress, 1_000);
+        try {
+          const result = await waiting;
+          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: { result } };
+        } finally { clearInterval(progressTimer); }
       } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
     },
     renderResult: renderResult("wait"),

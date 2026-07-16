@@ -16,6 +16,8 @@ import { MAX_WORKERS_PER_DISPATCH, REPORT_TOOL_NAME, SIGNAL_TOOL_NAME, type Disp
 
 interface Waiter {
   workerIds: Set<string>;
+  startedAt: number;
+  timeoutMs: number;
   resolve: (result: DteamWaitResult) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -242,10 +244,13 @@ export class WorkerManager {
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > DTEAM_CONFIG.dispatch.maxWaitMs) throw new Error(`dteam: timeoutMs 必须是 1–${DTEAM_CONFIG.dispatch.maxWaitMs} 的整数`);
     for (const workerId of workerIds) if (!this.records.has(workerId)) throw new Error(`dteam: worker 不存在 ${workerId}`);
     const ids = new Set(workerIds);
-    if (this.readyForWait(ids).length > 0) return Promise.resolve(this.waitResult(ids, "worker_event"));
+    const startedAt = Date.now();
+    if (this.readyForWait(ids).length > 0) return Promise.resolve(this.waitResult(ids, "worker_event", startedAt, timeoutMs));
     return new Promise<DteamWaitResult>((resolve) => {
       const waiter: Waiter = {
         workerIds: ids,
+        startedAt,
+        timeoutMs,
         resolve,
         timer: setTimeout(() => this.settleWaiter(waiter, "timeout"), timeoutMs),
       };
@@ -627,13 +632,17 @@ export class WorkerManager {
       .filter((worker): worker is WorkerSnapshot => !!worker && (worker.state === "waiting" || isTerminal(worker.state)));
   }
 
-  private waitResult(workerIds: Set<string>, reason: DteamWaitResult["reason"]): DteamWaitResult {
+  private waitResult(workerIds: Set<string>, reason: DteamWaitResult["reason"], startedAt: number, timeoutMs: number): DteamWaitResult {
+    const targetWorkers = [...workerIds].map((workerId) => {
+      const worker = this.records.get(workerId)!;
+      return { id: worker.id, title: worker.title };
+    });
     const ready = this.readyForWait(workerIds);
     const requests: WaitRequest[] = this.requestState.list()
       .filter((request) => workerIds.has(request.workerId))
       .map((request) => ({ workerId: request.workerId, requestId: request.requestId, kind: request.kind, payload: sanitizeUnknown(request.payload) }));
     const pendingWorkerIds = [...workerIds].filter((workerId) => !ready.some((worker) => worker.id === workerId));
-    return { reason, ready, requests, pendingWorkerIds };
+    return { reason, targetWorkers, waitedMs: Math.max(0, Date.now() - startedAt), timeoutMs, ready, requests, pendingWorkerIds };
   }
 
   private consumeWaitersFor(workerId: string): boolean {
@@ -645,7 +654,7 @@ export class WorkerManager {
   private settleWaiter(waiter: Waiter, reason: DteamWaitResult["reason"]): void {
     if (!this.waiters.delete(waiter)) return;
     clearTimeout(waiter.timer);
-    waiter.resolve(this.waitResult(waiter.workerIds, reason));
+    waiter.resolve(this.waitResult(waiter.workerIds, reason, waiter.startedAt, waiter.timeoutMs));
   }
 
   private clearRenderTimer(record: WorkerRecord): void {
