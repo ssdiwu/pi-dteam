@@ -5,6 +5,7 @@ vi.mock("../src/session.js", () => ({ createWorkerSession: mockCreateWorkerSessi
 
 import { AdaptiveConcurrency } from "../src/dispatch/concurrency.js";
 import { WorkerManager } from "../src/runtime/worker-manager.js";
+import { workerReport } from "./worker-report.fixture.js";
 
 function options(overrides: any = {}) {
   return {
@@ -26,15 +27,35 @@ describe("next-major worker protocol", () => {
     expect(manager.get(accepted!.workerId)).toMatchObject({ terminalReason: "missing_report", error: expect.stringContaining("dteam_report") });
   });
 
+  it("Manager 报告边界也拒绝旧形状，不能绕过统一 parser", async () => {
+    const hanging = { prompt: vi.fn(() => new Promise<void>(() => {})), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(hanging);
+    const manager = new WorkerManager(options());
+    const [accepted] = manager.dispatch([{ title: "旧报告", task: "任务", tier: "T3" }]);
+    await vi.waitFor(() => expect(hanging.prompt).toHaveBeenCalled());
+    expect(() => manager.receiveReport(accepted!.workerId, { summary: "旧形状", facts: [{ claim: "事实", evidence: "证据" }] })).toThrow("dteam_report");
+    manager.cancel(accepted!.workerId);
+  });
+
   it("报告带 worker provenance，handoff 会注入 fresh worker prompt", async () => {
     let prompt = "";
     let workerId = "";
     const events: any[] = [];
     const manager = new WorkerManager(options({ onParentEvent: (event: any) => events.push(event) }));
-    mockCreateWorkerSession.mockImplementation(async () => ({
-      abort: vi.fn().mockResolvedValue(undefined), messages: [{ role: "assistant", content: [{ type: "text", text: "完成" }] }],
-      prompt: vi.fn(async (input: string) => { prompt = input; manager.receiveReport(workerId, { summary: "完成", facts: [{ claim: "实现存在", evidence: "src/runtime/worker-manager.ts" }] }); }),
-    }));
+    mockCreateWorkerSession.mockImplementation(async () => {
+      return {
+        abort: vi.fn().mockResolvedValue(undefined), messages: [{ role: "assistant", content: [{ type: "text", text: "完成" }] }],
+        prompt: vi.fn(async (input: string) => {
+          prompt = input;
+          manager.receiveReport(workerId, workerReport({
+            summary: "完成",
+            facts: [{ claim: "实现存在", evidence: "src/runtime/worker-manager.ts" }],
+            verification: { depth: "inspection", status: "passed", evidence: ["DATABASE_URL=postgresql://u:pw@example.test/db"], remaining: ["api_key=sk-remaining-secret-123456789"] },
+            uncertainties: ["api_key=sk-uncertain-secret-123456789"],
+          }));
+        }),
+      };
+    });
     const [accepted] = manager.dispatch([{ title: "带交接", task: "任务", tier: "T3", handoff: { facts: [{ claim: "前序事实", evidence: "api_key=sk-12345678901234567890", workerId: "previous" }], constraints: ["只读"], uncertainties: ["无"] } }]);
     workerId = accepted!.workerId;
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
@@ -44,7 +65,13 @@ describe("next-major worker protocol", () => {
     expect(prompt).toContain("[REDACTED_SECRET]");
     expect(prompt).not.toContain("sk-12345678901234567890");
     const report = events.find((event) => event.type === "completed").payload.report;
+    expect(report).toMatchObject({ outcome: "completed", activities: ["inspected"], verification: { depth: "inspection", status: "passed" } });
     expect(report.facts[0]).toMatchObject({ claim: "实现存在", workerId: accepted!.workerId });
+    expect(report.verification).not.toHaveProperty("workerId");
+    expect(JSON.stringify(report)).toContain("[REDACTED_SECRET]");
+    expect(JSON.stringify(report)).not.toContain("postgresql://u:pw@example.test/db");
+    expect(JSON.stringify(report)).not.toContain("sk-remaining-secret");
+    expect(JSON.stringify(report)).not.toContain("sk-uncertain-secret");
   });
 
   it("可写 worker 缺 writeScope 被拒绝，取消后回传 write_interrupted", async () => {
@@ -64,7 +91,7 @@ describe("next-major worker protocol", () => {
   it("handoff 拒绝额外字段和超出边界的事实", () => {
     const manager = new WorkerManager(options());
     const fact = { claim: "事实", evidence: "tests/protocol", workerId: "previous" };
-    expect(() => manager.dispatch([{ title: "额外交接", task: "任务", tier: "T3", handoff: { facts: [fact], transcript: "不允许" } as any }])).toThrow("handoff");
+    expect(() => manager.dispatch([{ title: "额外交接", task: "任务", tier: "T3", handoff: { facts: [fact], verification: { depth: "inspection" } } as any }])).toThrow("handoff");
     expect(() => manager.dispatch([{ title: "过多事实", task: "任务", tier: "T3", handoff: { facts: Array.from({ length: 25 }, () => fact) } }])).toThrow("handoff.facts");
   });
 
@@ -96,7 +123,7 @@ describe("next-major worker protocol", () => {
     const [accepted] = manager.dispatch([{ title: "恢复", task: "任务", tier: "T3" }]);
     firstWorkerId = accepted!.workerId;
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.timeoutDiagnostic).toBeDefined());
-    manager.receiveReport(accepted!.workerId, { summary: "first report", facts: [] });
+    manager.receiveReport(accepted!.workerId, workerReport({ summary: "first report" }));
     const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
     manager.recover(accepted!.workerId, requestId, { action: "escalate", tier: "T2" });
     await vi.waitFor(() => expect(secondOptions).toBeDefined());
