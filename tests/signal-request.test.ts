@@ -5,6 +5,7 @@ import { RequestState } from "../src/runtime/request-state.js";
 import { SignalLog } from "../src/runtime/signal-log.js";
 import { WorkerManager } from "../src/runtime/worker-manager.js";
 import { AdaptiveConcurrency } from "../src/dispatch/concurrency.js";
+import { workerReport } from "./worker-report.fixture.js";
 
 beforeEach(() => mockCreateWorkerSession.mockReset());
 
@@ -113,7 +114,7 @@ describe("worker signal protocol", () => {
       reportTool = options.customTools[1];
       workerSession.prompt = vi.fn(async () => {
         await signalTool.execute("call", { kind: "request_tool_budget", requestId: "budget-session", reason: "需要继续" });
-        await reportTool.execute("call", { summary: "continued", facts: [] });
+        await reportTool.execute("call", workerReport({ summary: "continued" }));
         workerSession.messages = [{ role: "assistant", content: [{ type: "text", text: "continued" }] }];
       });
       return workerSession;
@@ -155,7 +156,7 @@ describe("worker signal protocol", () => {
       workerSession.prompt = vi.fn(async () => {
         lastToolResult = await signalTool.execute("call", { kind: "request_tools", requestId: "tools-1", tools: ["edit"], reason: "need edit" });
         order.push("resumed");
-        await reportTool.execute("call", { summary: "continued", facts: [] });
+        await reportTool.execute("call", workerReport({ summary: "continued" }));
         workerSession.messages = [{ role: "assistant", content: [{ type: "text", text: "continued" }] }];
       });
       return workerSession;

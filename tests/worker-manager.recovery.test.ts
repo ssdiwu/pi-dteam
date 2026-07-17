@@ -6,6 +6,7 @@ vi.mock("../src/session.js", () => ({ createWorkerSession: mockCreateWorkerSessi
 import { AdaptiveConcurrency } from "../src/dispatch/concurrency.js";
 import { DTEAM_CONFIG } from "../src/config.js";
 import { WorkerManager } from "../src/runtime/worker-manager.js";
+import { workerReport } from "./worker-report.fixture.js";
 
 function options(overrides: any = {}) {
   return {
@@ -20,7 +21,7 @@ function options(overrides: any = {}) {
 }
 
 function session(output: string) {
-  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }, { type: "toolCall", name: "dteam_report", arguments: { summary: output, facts: [] } }] }] };
+  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }, { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: output }) }] }] };
 }
 
 beforeEach(() => mockCreateWorkerSession.mockReset());

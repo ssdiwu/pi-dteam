@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { humanizeToolResult } from "../src/tui/tool-result.js";
+import { workerReport } from "./worker-report.fixture.js";
 
 describe("human-readable tool result projection", () => {
   it("respond 和 recover 展开时显示动作详情且不泄露原始结构", () => {
@@ -23,7 +24,13 @@ describe("human-readable tool result projection", () => {
         targetWorkers: [{ id: "w1", title: "检查" }, { id: "w2", title: "等待上下文" }],
         waitedMs: 1_250,
         timeoutMs: 60_000,
-        ready: [{ id: "w1", title: "检查", state: "completed", requestedTier: "T3", activeTier: "T3", fallbackTrail: [], activeTools: [], report: { summary: "发现入口", facts: [] } }],
+        ready: [{ id: "w1", title: "检查", state: "completed", requestedTier: "T3", activeTier: "T3", fallbackTrail: [], activeTools: [], report: workerReport({
+          summary: "发现入口",
+          activities: ["inspected", "tested"],
+          facts: [{ claim: "入口存在", evidence: "src/index.ts:1" }],
+          verification: { depth: "automated", status: "partial", evidence: ["npm test 通过"], remaining: ["未做运行时复测"] },
+          uncertainties: ["真实 provider \u001b[31m未验证"],
+        }) }],
         requests: [{ workerId: "w2", requestId: "r2", kind: "request_context", payload: { question: "ignored" } }],
         pendingWorkerIds: ["w3"],
       } },
@@ -34,7 +41,14 @@ describe("human-readable tool result projection", () => {
     expect(compact).toContain("已就绪 1 · 仍等待 1");
     const expanded = humanizeToolResult("wait", result, true);
     expect(expanded).toContain("检查 · w1 · completed");
-    expect(expanded).toContain("报告：发现入口");
+    expect(expanded).toContain("报告：completed · 发现入口");
+    expect(expanded).toContain("动作：inspected、tested");
+    expect(expanded).toContain("验证：automated / partial");
+    expect(expanded).toContain("证据：npm test 通过");
+    expect(expanded).toContain("剩余：未做运行时复测");
+    expect(expanded).toContain("事实：入口存在 ← src/index.ts:1");
+    expect(expanded).toContain("不确定：真实 provider �[31m未验证");
+    expect(expanded).not.toContain("\u001b");
     expect(expanded).toContain("需要回应 · w2 · request_context · request r2 · 请提供：ignored");
     expect(expanded).toContain("仍等待：w3");
     expect(expanded).not.toContain("{");

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { clampSelection, nextScrollOffset, nextWorkerSelection, renderWorkerDetail, renderWorkerFallback, renderWorkerList, workersForView } from "../src/tui/dteam-dialog.js";
 import type { WorkerSnapshot } from "../src/runtime/types.js";
+import { workerReport } from "./worker-report.fixture.js";
 
 const base: WorkerSnapshot = {
   id: "worker-1", title: "检查文件", task: "读取文件", requestedTier: "T3", activeTier: "T3", fallbackTrail: [], state: "running", activeTools: ["read"],
@@ -104,6 +105,28 @@ describe("/dteam dialog rendering", () => {
     expect(text).toContain("5m0s");
     expect(text).toContain("1m30s");
     expect(text).not.toContain("90000ms");
+  });
+
+  it("终态详情显示报告完成度、动作、验证证据与剩余项", () => {
+    const text = renderWorkerDetail({
+      ...base,
+      state: "completed",
+      report: workerReport({
+        summary: "完成检查",
+        activities: ["inspected", "tested"],
+        facts: [{ claim: "入口存在", evidence: "src/index.ts:1" }],
+        verification: { depth: "automated", status: "partial", evidence: ["npm test 通过"], remaining: ["未做真实 provider 冒烟"] },
+        uncertainties: ["外部环境未知"],
+      }),
+    }).join("\n");
+    expect(text).toContain("报告：completed · 完成检查");
+    expect(text).toContain("动作：inspected, tested");
+    expect(text).toContain("验证：automated / partial");
+    expect(text).toContain("验证证据：npm test 通过");
+    expect(text).toContain("剩余验证：未做真实 provider 冒烟");
+    expect(text).toContain("事实：入口存在 ← src/index.ts:1");
+    expect(text).toContain("不确定：外部环境未知");
+    expect(text).not.toContain("{\"");
   });
 
   it("窄宽度下两个视图和详情都不越界", () => {

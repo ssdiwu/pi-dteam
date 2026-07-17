@@ -7,6 +7,7 @@ vi.mock("../src/session/model-config.js", () => ({
   formatDteamConfigWarning: vi.fn((status: any) => status.errors.join(";")),
 }));
 import registerDteam, { sendParentEvent } from "../index.js";
+import { workerReport } from "./worker-report.fixture.js";
 
 function register() {
   const pi = {
@@ -52,6 +53,9 @@ describe("dteam next-major extension entry", () => {
   it("工具描述表达分级、报告、交接、写入守卫和显式等待", () => {
     const { tools } = register();
     expect(tools.dteam_dispatch.description).toContain("dteam_report");
+    expect(tools.dteam_dispatch.description).toContain("activities");
+    expect(tools.dteam_dispatch.description).toContain("verification");
+    expect(tools.dteam_dispatch.description).toContain("多轮");
     expect(tools.dteam_dispatch.description).toContain("writeScope");
     expect(tools.dteam_respond.description).toContain("普通阻塞");
     expect(tools.dteam_recover.description).toContain("timeout recovery");
@@ -107,7 +111,7 @@ describe("dteam next-major extension entry", () => {
       abort: vi.fn().mockResolvedValue(undefined),
       messages: [{ role: "assistant", content: [
         { type: "text", text: "完成" },
-        { type: "toolCall", name: "dteam_report", arguments: { summary: "完成", facts: [] } },
+        { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "完成" }) },
       ] }],
     };
     mockCreateWorkerSession.mockResolvedValue(session);
