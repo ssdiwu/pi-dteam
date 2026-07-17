@@ -77,7 +77,7 @@ dteam_wait({
 仅当后续工作依赖指定 worker 时调用。它不等待全部 worker 结束：任一指定 worker 完成、失败、进入终态或进入 `waiting` 时立即返回已就绪结果、需要回应的 request 与剩余 `pendingWorkerIds`。若仍需其余结果，主模型只对剩余 ID 再次 wait。
 
 - `timeoutMs` 必须是 1–300000 的整数；timeout 只结束本次等待，不取消 worker、不触发 recovery。
-- 被 wait 捕获的事件只作为 wait 结果交付，不重复 follow-up；Signal Log 与 `/dteam` 仍保留记录。
+- parent event 先进入 Manager 待消费队列。被 wait 捕获后立即从待回放队列删除，即使 wait 晚于事件发生也不会重复 follow-up；只有主代理 idle / settled 后仍未消费的事件才异步回放。`events` 明确列出本次实际消费的 `completed / failed / cancelled / request / write_interrupted`；终态 Snapshot 本身不冒充新事件。Signal Log 与 `/dteam` 仍保留记录。
 - 进入 `waiting` 时先用 `dteam_respond` 或 `dteam_recover` 处理，再决定是否继续 wait，避免死锁。
 - 默认显示目标 worker、已等待时长（`s`/`m+s`）与 timeout 上限，以及就绪/仍等待数量；执行中每秒刷新计时。`Ctrl+O` 再展开 worker、report、request 与 pending 列表。
 
@@ -116,7 +116,17 @@ worker 因 failed、cancelled、shutdown、timed_out 或缺报告而未确认完
 
 reload（重载）或新会话前，若工作区存在未解释的 dirty diff（未提交差异），主 LLM 也必须先作 T3 完整性检查，才能再派可写 worker。守卫不自动回滚、不创建持久标记、不自动派发检查 worker。
 
-## 7. 工具结果投影与不提供
+## 7. Worker 用量账本
+
+worker session 仍使用 `SessionManager.inMemory()`，不会写入 Pi session JSONL。每条 worker assistant message 的纯数字 usage / cost 追加到：
+
+```text
+~/.pi/agent/dteam-usage.jsonl
+```
+
+记录包含 v1、时间、父会话、项目、worker、请求/实际档位、candidate、模型、usage 与 `dedupKey`；不包含 task、prompt、输出、工具参数或 WorkerReport。失败、超时、fallback 与恢复 attempt 的实际模型回复同样计入。账本写入失败不改变 worker 业务状态；`pi-session-insights` 作为独立只读消费者聚合展示。
+
+## 8. 工具结果投影与不提供
 
 所有用户可见工具默认显示紧凑摘要；`Ctrl+O` 展开完整但仍为人类可读的文字、列表和诊断。完成 worker 的展开详情显示 outcome、activities、verification、facts、remaining 与 uncertainties，不显示原始 JSON。完整结构只保留在模型上下文、内部 `details` 与测试。
 
