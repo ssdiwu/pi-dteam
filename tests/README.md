@@ -1,6 +1,6 @@
 # tests/
 
-测试通过四工具公开 API、Worker Manager、signal/report/wait、动态工具策略和 `/dteam` 管理状态验证下一主版本行为。
+测试通过四工具公开 API、Worker Manager、统一 WorkerReport、signal/wait、动态工具策略和 `/dteam` 管理状态验证当前行为。
 
 ## 运行
 
@@ -19,13 +19,15 @@ npm run typecheck:test
 | `worker-manager.recovery.test.ts` | timeout recovery、重试、升级、延长和恢复预算边界 |
 | `worker-manager.lifecycle.test.ts` | 快照投影、事件与脱敏、取消、shutdown 和创建竞态 |
 | `signal-request.test.ts` | A/B/C signal、阻塞 request、原 session 恢复和 requestId 作用域 |
-| `worker-manager.protocol.test.ts` | `dteam_report`、handoff provenance、writeScope/write_interrupted 与 respond/recover 边界 |
+| `worker-manager.protocol.test.ts` | Manager 报告回收、handoff provenance、verification 不进入 handoff、writeScope/write_interrupted 与 respond/recover 边界 |
+| `worker-manager.report.test.ts` | WorkerReport 枚举、字段与交叉不变量、旧形状 fail-closed 及统一 parser/tool 契约 |
+| `worker-report.fixture.ts` | 跨测试复用的最小合法 WorkerReport 工厂；不是测试入口 |
 | `worker-manager.wait.test.ts` | 指定 worker 的事件等待、事件消费与 timeout 部分结果 |
 | `tool-result.test.ts` | 默认摘要与 Ctrl+O 人类可读展开，不展示 JSON |
-| `tui-dialog.test.ts` | `/dteam` 列表、详情、实时文本/thinking/工具、timeout 诊断、包边、i18n 文案和运行/历史只读状态 |
+| `tui-dialog.test.ts` | `/dteam` 列表、详情、实时文本/thinking/工具、timeout 诊断、WorkerReport 人类可读投影、包边、i18n 文案和运行/历史只读状态 |
 | `i18n.test.ts` | `pi.i18n.v1` bundle 注册与多通道 API 去重 |
 | `cancel.test.ts` | 用户取消二次确认与 `user_cancelled` |
-| `dispatch-contract.test.ts` / `dispatch-execute.test.ts` / `phase3-concurrency-routing.test.ts` | 0.7 保留的档位契约、模型路由、自适应并发和底层 dispatch 执行回归 |
+| `dispatch-contract.test.ts` / `phase3-concurrency-routing.test.ts` | 0.7 保留的档位契约、模型路由和自适应并发回归 |
 | `extract.test.ts` | fresh worker 最后一条 assistant 文本提取 |
 | `model-config.test.ts` | `~/.pi/agent/pi-dteam.json` 的三档模型配置校验与候选链解析 |
 | `session.test.ts` | fresh `AgentSession` 与 Logical Isolation（逻辑隔离）创建边界 |

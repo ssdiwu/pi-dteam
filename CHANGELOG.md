@@ -5,7 +5,20 @@
 
 ## [Unreleased]
 
+### Added
+- 新增主代理证据驱动多轮路由协议：非极小代码任务默认按互补证据面派 T3，汇总后只为具体缺口追加下一轮；外部信息由主代理选源后交 T3 有界提取，长期目标继续由 dgoal / issue / spec 等外部地图持有。
+- `dteam_report` 新增任务 `outcome`、实际 `activities` 与必填 `verification`，明确区分 Manager 完成、任务完成、执行动作、验证结果和剩余未验证项。
+
+### Changed
+- worker 报告旧形状不再兼容；reload 后必须提交 `outcome / summary / activities / facts / verification / uncertainties?`。completed event 仍只为 facts 注入真实 `workerId`，verification 不进入 handoff。
+- `dteam_wait` 展开结果与 `/dteam` 终态详情现在以人类可读方式显示报告完成度、动作、验证深度、证据、remaining 和 uncertainties，不暴露原始 JSON。
+- 同步系统架构、触发协议、API、源码地图、路线图、术语表与 Wayfinder / Ponytail 调研结论；routing benchmark 改为后续证伪与收窄机制。
+
 ### Fixed
+- 同档模型候选失败切换时使前一 candidate 的报告 token 失效并清除其 WorkerReport，防止 fallback 未报告却复用旧 facts / activities / verification，或接收旧 session 迟到报告后被误判为 completed。
+- `dteam_report` 不再消耗工作工具额度；其公开 schema 现在与 parser 一致约束 `none + not_run + []` 及非空验证证据。
+- `WorkerManager.receiveReport` 现在也复用统一 parser，防止非工具回收路径绕过 WorkerReport 枚举、必填字段与交叉不变量。
+- `dteam_wait` 的人类可读报告投影会过滤 ESC 等 C0/C1 控制字符，与 `/dteam` 详情保持相同终端安全边界。
 - 修复 `dteam_wait` 消费 worker 终态事件后状态栏仍残留运行中数量的问题；状态栏现在跟随 Worker Manager 生命周期变化同步清理。
 
 ## [0.8.5] - 2026-07-16
