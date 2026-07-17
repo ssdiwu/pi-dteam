@@ -1,7 +1,7 @@
 {
   "name": "pi-dteam",
   "version": "0.8.5",
-  "description": "dteam - model-tier routing execution layer for Pi; fresh T1/T2/T3 dispatch with explicit model fallback, optional fresh review, and bounded parallel fan-out",
+  "description": "dteam - model-tier routing execution layer and evidence-driven main-agent protocol for Pi; fresh T1/T2/T3 workers, structured verification, and bounded fan-out",
   "type": "module",
   "keywords": [
     "pi-package",
