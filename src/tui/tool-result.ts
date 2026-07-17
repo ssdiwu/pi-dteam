@@ -61,10 +61,20 @@ function waitText(value: DteamWaitResult | undefined, expanded: boolean): string
   const summary = `等待 ${targets} · ${timing} · ${reason} · 已就绪 ${ready.length} · 仍等待 ${pending.length}`;
   if (!expanded) return `${summary}（Ctrl+O 展开）`;
   const lines = [summary];
+  for (const event of value?.events ?? []) lines.push(`- 事件 · ${text(event.workerId)} · ${text(event.type)}${parentEventDetail(event.payload)}`);
   for (const worker of ready) lines.push(...workerLines(worker));
   for (const request of value?.requests ?? []) lines.push(`- 需要回应 · ${text(request.workerId)} · ${text(request.kind)} · request ${text(request.requestId)}${requestDetail(request.payload)}`);
   if (pending.length) lines.push(`- 仍等待：${pending.map(text).join(", ")}`);
   return lines.join("\n");
+}
+
+function parentEventDetail(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const value = payload as Record<string, unknown>;
+  if (Array.isArray(value.writeScope)) return ` · 写入范围：${arrayText(value.writeScope) || "无"}${typeof value.reason === "string" ? ` · 原因：${text(value.reason)}` : ""}`;
+  if (typeof value.reason === "string") return ` · 原因：${text(value.reason)}`;
+  if (typeof value.error === "string") return ` · 错误：${text(value.error)}`;
+  return "";
 }
 
 function requestDetail(payload: unknown): string {

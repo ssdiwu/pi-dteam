@@ -24,6 +24,7 @@ describe("human-readable tool result projection", () => {
         targetWorkers: [{ id: "w1", title: "检查" }, { id: "w2", title: "等待上下文" }],
         waitedMs: 1_250,
         timeoutMs: 60_000,
+        events: [{ type: "write_interrupted", workerId: "w1", title: "检查", payload: { reason: "worker failed", writeScope: ["src/runtime/"] } }],
         ready: [{ id: "w1", title: "检查", state: "completed", requestedTier: "T3", activeTier: "T3", fallbackTrail: [], activeTools: [], report: workerReport({
           summary: "发现入口",
           activities: ["inspected", "tested"],
@@ -40,6 +41,7 @@ describe("human-readable tool result projection", () => {
     expect(compact).toContain("已等 1.3s / 最多 1m0s");
     expect(compact).toContain("已就绪 1 · 仍等待 1");
     const expanded = humanizeToolResult("wait", result, true);
+    expect(expanded).toContain("事件 · w1 · write_interrupted · 写入范围：src/runtime/ · 原因：worker failed");
     expect(expanded).toContain("检查 · w1 · completed");
     expect(expanded).toContain("报告：completed · 发现入口");
     expect(expanded).toContain("动作：inspected、tested");
