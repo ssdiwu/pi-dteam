@@ -1,6 +1,6 @@
 {
   "name": "pi-dteam",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "dteam - model-tier routing execution layer and evidence-driven main-agent protocol for Pi; fresh T1/T2/T3 workers, structured verification, and bounded fan-out",
   "type": "module",
   "keywords": [
