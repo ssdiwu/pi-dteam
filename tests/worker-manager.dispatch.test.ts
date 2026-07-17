@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockCreateWorkerSession } = vi.hoisted(() => ({ mockCreateWorkerSession: vi.fn() }));
@@ -21,7 +24,7 @@ function options(overrides: any = {}) {
 }
 
 function session(output: string) {
-  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }, { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: output }) }] }] };
+  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), dispose: vi.fn(), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }, { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: output }) }] }] };
 }
 
 beforeEach(() => mockCreateWorkerSession.mockReset());
@@ -77,6 +80,79 @@ describe("WorkerManager", () => {
     expect(manager.get(accepted!.workerId)?.error).toContain("工具调用额度");
   });
 
+  it("把每条 assistant message 的纯数字 usage 写入独立账本", async () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-dteam-worker-usage-"));
+    try {
+      let listener!: (event: any) => void;
+      const live: any = session("完成");
+      live.subscribe = vi.fn((callback: (event: any) => void) => { listener = callback; return () => {}; });
+      live.prompt = vi.fn(async () => {
+        listener({
+          type: "message_end",
+          message: {
+            role: "assistant", provider: "ctx", model: "worker-model", timestamp: 1_700_000_000_000,
+            usage: { input: 10, output: 5, cacheRead: 2, totalTokens: 17, cost: { total: 0.01 }, prompt: "password=hunter2" },
+          },
+        });
+      });
+      mockCreateWorkerSession.mockResolvedValue(live);
+      const manager = new WorkerManager(options({ usageLedger: { agentDir, parentSessionId: "parent-session" } }));
+      const [accepted] = manager.dispatch([{ title: "usage", task: "任务", tier: "T3" }]);
+      await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+      const path = join(agentDir, "dteam-usage.jsonl");
+      await vi.waitFor(() => expect(() => readFileSync(path, "utf8")).not.toThrow());
+      const record = JSON.parse(readFileSync(path, "utf8").trim());
+      expect(record).toMatchObject({
+        version: 1, parentSessionId: "parent-session", project: "/workspace", workerId: accepted!.workerId,
+        requestedTier: "T3", activeTier: "T3", model: "ctx/worker-model",
+        usage: { input: 10, output: 5, cacheRead: 2, totalTokens: 17, cost: { total: 0.01 } },
+      });
+      expect(record.candidateId).toBeTypeOf("string");
+      expect(JSON.stringify(record)).not.toContain("hunter2");
+    } finally {
+      rmSync(agentDir, { recursive: true, force: true });
+    }
+  });
+
+  it("取消后的迟到 assistant usage 仍会落账", async () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "pi-dteam-late-usage-"));
+    try {
+      let listener!: (event: any) => void;
+      const live: any = session("不应完成");
+      live.subscribe = vi.fn((callback: (event: any) => void) => { listener = callback; return () => {}; });
+      live.prompt = vi.fn(() => new Promise<void>(() => {}));
+      mockCreateWorkerSession.mockResolvedValue(live);
+      const manager = new WorkerManager(options({ usageLedger: { agentDir, parentSessionId: "parent-session" } }));
+      const [accepted] = manager.dispatch([{ title: "late usage", task: "任务", tier: "T3" }]);
+      await vi.waitFor(() => expect(listener).toBeTypeOf("function"));
+      manager.cancel(accepted!.workerId);
+      listener({
+        type: "message_end",
+        message: { role: "assistant", provider: "ctx", model: "late-model", timestamp: 1_700_000_000_100, usage: { input: 2, output: 1, totalTokens: 3 } },
+      });
+
+      const path = join(agentDir, "dteam-usage.jsonl");
+      await vi.waitFor(() => expect(() => readFileSync(path, "utf8")).not.toThrow());
+      expect(JSON.parse(readFileSync(path, "utf8").trim())).toMatchObject({ workerId: accepted!.workerId, model: "ctx/late-model", usage: { totalTokens: 3 } });
+    } finally {
+      rmSync(agentDir, { recursive: true, force: true });
+    }
+  });
+
+  it("用量账本写入失败不改变 worker 完成状态", async () => {
+    let listener!: (event: any) => void;
+    const live: any = session("完成");
+    live.subscribe = vi.fn((callback: (event: any) => void) => { listener = callback; return () => {}; });
+    live.prompt = vi.fn(async () => {
+      listener({ type: "message_end", message: { role: "assistant", provider: "ctx", model: "model", timestamp: Date.now(), usage: { totalTokens: 3 } } });
+    });
+    mockCreateWorkerSession.mockResolvedValue(live);
+    const manager = new WorkerManager(options({ usageLedger: { agentDir: "/dev/null/not-a-directory", parentSessionId: "parent-session" } }));
+    const [accepted] = manager.dispatch([{ title: "ledger failure", task: "任务", tier: "T3" }]);
+    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+    expect(manager.get(accepted!.workerId)?.error).toBeUndefined();
+  });
+
   it("每次 dispatch 读取最新主会话 active tools", () => {
     let current = ["read", "grep", "find", "ls", "edit"];
     const manager = new WorkerManager(options({ getParentActiveTools: () => current }));
@@ -84,6 +160,16 @@ describe("WorkerManager", () => {
     current = ["read", "grep", "find", "ls"];
     expect(() => manager.dispatch([{ title: "授权二", task: "任务", tier: "T3", addTools: ["edit"], writeScope: ["src/"] }])).toThrow("未获当前主会话授权");
     manager.shutdown();
+  });
+
+  it("worker 完成后释放 fresh AgentSession", async () => {
+    const live = session("完成");
+    mockCreateWorkerSession.mockResolvedValue(live);
+    const manager = new WorkerManager(options());
+    const [accepted] = manager.dispatch([{ title: "释放 session", task: "任务", tier: "T3" }]);
+    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+    expect(live.abort).toHaveBeenCalled();
+    expect(live.dispose).toHaveBeenCalledTimes(1);
   });
 
   it("无 assistant 文本不会自动跨档到 T1", async () => {

@@ -23,6 +23,8 @@ function context() {
   return {
     cwd: "/workspace", model: { provider: "ctx", id: "model" },
     modelRegistry: { authStorage: {}, find: vi.fn(() => ({ provider: "ctx", id: "model" })) },
+    sessionManager: { getSessionId: vi.fn(() => "parent-session") },
+    isIdle: vi.fn(() => false),
     ui: { setStatus: vi.fn(), notify: vi.fn() },
   };
 }
@@ -48,6 +50,7 @@ describe("dteam next-major extension entry", () => {
     expect(pi.registerCommand).toHaveBeenCalledWith("dteam", expect.any(Object));
     expect(pi.on).toHaveBeenCalledWith("session_start", expect.any(Function));
     expect(pi.on).toHaveBeenCalledWith("session_shutdown", expect.any(Function));
+    expect(pi.on).toHaveBeenCalledWith("agent_settled", expect.any(Function));
   });
 
   it("工具描述表达分级、报告、交接、写入守卫和显式等待", () => {
@@ -127,6 +130,93 @@ describe("dteam next-major extension entry", () => {
 
     await expect(waiting).resolves.toMatchObject({ details: { result: { reason: "worker_event", ready: [expect.objectContaining({ id: workerId, state: "completed" })] } } });
     expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined);
+  });
+
+  it("wait 在完成后消费事件，agent_settled 不再回放", async () => {
+    const session = {
+      prompt: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn().mockResolvedValue(undefined),
+      messages: [{ role: "assistant", content: [
+        { type: "text", text: "完成" },
+        { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "完成" }) },
+      ] }],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const { pi, tools } = register();
+    const ctx = context();
+    const start = pi.on.mock.calls.find(([event]: any[]) => event === "session_start")?.[1];
+    const settled = pi.on.mock.calls.find(([event]: any[]) => event === "agent_settled")?.[1];
+    start!({}, ctx);
+    const dispatched = await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "单次消费", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
+    const workerId = dispatched.details.accepted[0].workerId;
+    await vi.waitFor(() => expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined));
+
+    await expect(tools.dteam_wait.execute("wait", { workerIds: [workerId], timeoutMs: 1_000 }, undefined, undefined, ctx)).resolves.toMatchObject({
+      details: { result: { reason: "worker_event", ready: [expect.objectContaining({ id: workerId, state: "completed" })] } },
+    });
+    settled!({}, ctx);
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("未被 wait 消费的事件在 agent_settled 后只回放一次", async () => {
+    const session = {
+      prompt: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn().mockResolvedValue(undefined),
+      messages: [{ role: "assistant", content: [
+        { type: "text", text: "完成" },
+        { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "完成" }) },
+      ] }],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const { pi, tools } = register();
+    const ctx = context();
+    const start = pi.on.mock.calls.find(([event]: any[]) => event === "session_start")?.[1];
+    const settled = pi.on.mock.calls.find(([event]: any[]) => event === "agent_settled")?.[1];
+    start!({}, ctx);
+    await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "后台回放", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
+    await vi.waitFor(() => expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined));
+
+    settled!({}, ctx);
+    settled!({}, ctx);
+    expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(pi.sendMessage.mock.calls[0]?.[1]).toMatchObject({ deliverAs: "followUp", triggerTurn: true });
+  });
+
+  it("Pi 0.78 agent_end idle fallback 只回放一次", async () => {
+    const session = {
+      prompt: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn().mockResolvedValue(undefined),
+      messages: [{ role: "assistant", content: [
+        { type: "text", text: "完成" },
+        { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "完成" }) },
+      ] }],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const { pi, tools } = register();
+    const ctx = context();
+    const start = pi.on.mock.calls.find(([event]: any[]) => event === "session_start")?.[1];
+    const ended = pi.on.mock.calls.find(([event]: any[]) => event === "agent_end")?.[1];
+    start!({}, ctx);
+    await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "旧版 settled", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
+    await vi.waitFor(() => expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined));
+    ctx.isIdle.mockReturnValue(true);
+
+    ended!({ messages: [] }, ctx);
+    await vi.waitFor(() => expect(pi.sendMessage).toHaveBeenCalledTimes(1));
+    ended!({ messages: [] }, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("agent_end 兼容 tick 忽略 session shutdown 后的 stale ctx", async () => {
+    const { pi } = register();
+    const ctx = context();
+    ctx.isIdle.mockImplementation(() => { throw new Error("stale ctx"); });
+    const ended = pi.on.mock.calls.find(([event]: any[]) => event === "agent_end")?.[1];
+
+    ended!({ messages: [] }, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(pi.sendMessage).not.toHaveBeenCalled();
   });
 
   it("worker 内部事件不直接展示到主对话且会脱敏", () => {

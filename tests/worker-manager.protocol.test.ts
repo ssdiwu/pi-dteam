@@ -19,12 +19,14 @@ function options(overrides: any = {}) {
 beforeEach(() => mockCreateWorkerSession.mockReset());
 
 describe("next-major worker protocol", () => {
-  it("自由文本完成但缺 dteam_report 时失败", async () => {
-    mockCreateWorkerSession.mockResolvedValue({ prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), messages: [{ role: "assistant", content: [{ type: "text", text: "看似完成" }] }] });
+  it("自由文本完成但缺 dteam_report 时失败并释放 session", async () => {
+    const session = { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), dispose: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: "看似完成" }] }] };
+    mockCreateWorkerSession.mockResolvedValue(session);
     const manager = new WorkerManager(options());
     const [accepted] = manager.dispatch([{ title: "缺报告", task: "任务", tier: "T3" }]);
     await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
     expect(manager.get(accepted!.workerId)).toMatchObject({ terminalReason: "missing_report", error: expect.stringContaining("dteam_report") });
+    expect(session.dispose).toHaveBeenCalledTimes(1);
   });
 
   it("Manager 报告边界也拒绝旧形状，不能绕过统一 parser", async () => {
