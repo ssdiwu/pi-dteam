@@ -4,13 +4,13 @@
 
 The main model acts as owner: it defines the current evidence question, dispatches complementary T3 probes in bounded rounds, synthesizes reports, and decides whether to close, fetch more, implement, verify, or explicitly escalate T3 → T2 → T1. Worker Manager executes already-dispatched workers; it does not own rounds, dependencies, or the next task.
 
-**Sister project**: [`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) — independent and parallel. **dteam = multi-model tier routing; dgoal = single-model build-check loop.** The main LLM chooses which to use; they are not merged, not auto-switched. Chinese version: [`README-zh.md`](./README-zh.md).
+**Sister project**: [`pi-dgoal`](https://github.com/ssdiwu/pi-dgoal) — independent and parallel. **dteam = model-tier routing and fresh-context execution; dgoal = three-Plan planning assurance and build-check loops.** The two mechanisms are orthogonal and composable; they are not merged or auto-switched. Chinese version: [`README-zh.md`](./README-zh.md).
 
 > **Current implementation**: ADR 0013–0021 are implemented: four public tools, bounded handoff, incremental-cost execution, interrupted-write integrity guards, human-readable projections, the evidence-driven main-agent protocol, and a unified WorkerReport that separates task outcome, actual activities, facts, and verification. `/dteam` remains the user management entry.
 
 ## TL;DR
 
-dteam exists because **using a strong model for small tasks is a double waste** (expensive + slow). Its value is tier routing — something dgoal (single-model throughout) structurally cannot do.
+dteam exists because **using a strong model for small tasks is a double waste** (expensive + slow). Its value is model-tier routing plus fresh context isolation — execution concerns that dgoal's Plan and independent-audit model does not provide.
 
 - **Evidence-driven rounds** — for non-trivial repository work, the main agent starts with bounded, complementary T3 probes and dispatches another round only for concrete gaps exposed by synthesis.
 - **Four tools** — `dteam_dispatch`, `dteam_respond`, `dteam_recover`, and explicit dependency wait `dteam_wait`; `/dteam` remains the user management command.
@@ -51,15 +51,19 @@ Each tier is an ordered candidate array: `provider/model[:thinking]`; later entr
 
 ## When to use dteam vs dgoal
 
-One-line rule: **do tiny tasks directly; use dteam when non-trivial work still needs repository facts, bounded external-source extraction, mechanical implementation, or fresh verification; use dgoal to own long serial goals and independent final audit; respect explicit user overrides.**
+One-line rule: **decide planning assurance and worker execution separately: use the appropriate dgoal Plan when visible progress or independent audit adds value, and use dteam when fresh, model-tiered workers add value; combine them when both apply.**
 
 | Judgment | Use |
 |---|---|
 | Existing context is sufficient and the task is tiny | Main LLM directly |
-| Non-trivial task still needs repository evidence or complementary probes | **dteam** (T3-first bounded rounds) |
-| A batch of independent small tasks to parallelize | **dteam** |
-| Long serial progression, frozen acceptance contract, or independent final audit | **dgoal**, with dteam inside a phase when useful |
+| Clear ordinary multi-step execution needs visible progress, without independent audit | **Task Plan** |
+| Non-trivial repository work still needs facts, bounded external-source extraction, mechanical implementation, or fresh verification | **dteam** (bounded, read-only T3-first evidence rounds by default; parallelism is optional) |
+| The goal needs a frozen acceptance contract and one final independent audit | Explicit `/dgoal` with a **Phase Plan** |
+| Each delivery stage and the final goal both need independent audit | Explicit `/dgoal` with a **Goal Plan** |
+| Planning assurance and isolated tiered execution both add value | Use the selected Plan to own progress and checks; use **dteam** inside the current slice as needed |
 | User explicitly chooses an entry | Respect the user |
+
+The main agent retains goal understanding, source selection, evidence synthesis, conflict resolution, tier escalation, and closure. dteam does not own or update a Plan, resolve user-only decisions, replace `/dgoal` confirmation, run `phase_check` / `goal_check`, or perform the final `plan_update` closure.
 
 Full protocol: see [`doc/10-架构与运行/14-dteam触发协议.md`](./doc/10-架构与运行/14-dteam触发协议.md).
 
@@ -117,7 +121,7 @@ pi install "$(pwd)"
 - **Four explicit tools**: dispatch, ordinary responses, timeout recovery, and explicit dependency wait have separate schemas; there is no Orchestrator Loop.
 - **Fresh isolation**: dispatch workers are in-process `AgentSession` + Logical Isolation, naturally fresh — so review counters the main model's bias.
 - **Thinking follows tier**: small models with high thinking have diminishing returns; hard tasks fall back to the strong model rather than over-thinking on a small model.
-- **Parallel to dgoal**: tier routing (dteam) vs single-model build-check (dgoal), independent, not merged.
+- **Orthogonal to dgoal**: dteam provides model-tier routing and fresh-context execution; dgoal provides Task / Phase / Goal Plans with increasing planning and independent-audit assurance. They can be composed, but dteam never takes ownership of Plan state or checks.
 
 ## Superseded history (traceability)
 
