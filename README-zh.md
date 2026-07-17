@@ -73,7 +73,7 @@ dteam 必须有个人配置文件，不按模型名称或价格猜档，也不�
 - ✅ **0.8.0 runtime**：会话级 Worker Manager、多 worker 受理、有类型 signal、阻塞回应、受限动态工具、`/dteam` 管理和确认取消均已实现。
 - ✅ **ADR 0020/0021 演进**：主代理多轮证据路由已成为规范性默认；WorkerReport、prompt、Manager 聚合、handoff 来源与 TUI 投影已使用新的 outcome / activity / verification 合同。
 - ✅ 0.6 Orchestrator Loop / Signal Store / 五角色源码及 UI 已删除；ADR 0005–0007 只保留为历史决策。
-- ✅ `npm run build` 与 `npm test` 覆盖 0.7 dispatch 契约、factory、执行、路由、并发和入口。
+- ✅ `npm test`（Bun）覆盖 0.7 dispatch 契约、factory、执行、路由、并发和入口。
 
 ## 快速开始
 
@@ -81,11 +81,11 @@ dteam 必须有个人配置文件，不按模型名称或价格猜档，也不�
 # 1. 安装依赖
 npm install
 
-# 2. 编译
-npm run build
-
-# 3. 跑测试
+# 2. 跑测试
 npm test
+
+# 3. 检查 diff 格式
+git diff --check
 
 # 4. 安装到 Pi
 pi install "$(pwd)"

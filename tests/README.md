@@ -6,8 +6,9 @@
 
 ```bash
 npm test
-npm run typecheck:test
 ```
+
+`bun test`（Bun 测试）直接执行 TypeScript（TypeScript 代码）。部分测试使用进程级 `mock.module`（模块 mock），因此脚本固定 `--max-concurrency=1`，避免并行文件互相污染 mock。
 
 ## 测试组织
 
@@ -22,6 +23,7 @@ npm run typecheck:test
 | `worker-manager.protocol.test.ts` | Manager 报告回收、handoff provenance、verification 不进入 handoff、writeScope/write_interrupted 与 respond/recover 边界 |
 | `worker-manager.report.test.ts` | WorkerReport 枚举、字段与交叉不变量、旧形状 fail-closed 及统一 parser/tool 契约 |
 | `worker-report.fixture.ts` | 跨测试复用的最小合法 WorkerReport 工厂；不是测试入口 |
+| `test-helpers.ts` / `mock-modules.ts` | Bun 原生 `waitFor`（等待断言）和跨文件模块 mock；不是测试入口 |
 | `worker-manager.wait.test.ts` | 指定 worker 的事件等待、事件后置消费、未消费 flush 与 timeout 部分结果 |
 | `worker-usage-ledger.test.ts` | 独立 dteam usage 的数字白名单、稳定去重键、JSONL 追加与 `0600` 权限 |
 | `tool-result.test.ts` | 默认摘要与 Ctrl+O 人类可读展开，不展示 JSON |

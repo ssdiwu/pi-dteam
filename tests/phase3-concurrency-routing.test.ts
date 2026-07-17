@@ -2,7 +2,7 @@
  * Phase 3 测试：Adaptive Concurrency + Multi-Provider Routing
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "../src/dispatch/concurrency.js";
 import { resolveModelWithFallback, isRateLimitError } from "../src/dispatch/model-routing.js";
 import type { Tier } from "../src/types/dispatch.js";

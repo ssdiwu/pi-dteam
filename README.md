@@ -73,7 +73,7 @@ Full protocol: see [`doc/10-架构与运行/14-dteam触发协议.md`](./doc/10-�
 - ✅ **0.8.0 runtime**: session-scoped Worker Manager, multi-worker acceptance, typed signals, deferred response, restricted dynamic tools, `/dteam` management and confirmed cancellation are implemented.
 - ✅ **ADR 0020/0021 evolution**: multi-round evidence routing is documented as the normative main-agent default; WorkerReport, prompts, Manager aggregation, handoff provenance, and TUI projections use the new outcome/activity/verification contract.
 - ✅ 0.6 Orchestrator Loop / Signal Store / five-role source and UI have been removed; ADR 0005–0007 remain as historical decisions only.
-- ✅ `npm run build` and `npm test` cover the 0.7 routing base and 0.8 manager, signals, dynamic tools, cancellation, UI state, and entry.
+- ✅ `npm test` (Bun) covers the 0.7 routing base and 0.8 manager, signals, dynamic tools, cancellation, UI state, and entry.
 
 ## Quick start
 
@@ -81,11 +81,11 @@ Full protocol: see [`doc/10-架构与运行/14-dteam触发协议.md`](./doc/10-�
 # 1. Install dependencies
 npm install
 
-# 2. Build
-npm run build
-
-# 3. Run tests
+# 2. Run tests
 npm test
+
+# 3. Check diff formatting
+git diff --check
 
 # 4. Install into Pi
 pi install "$(pwd)"

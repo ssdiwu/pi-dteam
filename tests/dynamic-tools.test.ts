@@ -1,21 +1,8 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { mockCreateAgentSession, mockSessionManager, mockSetActiveToolsByName } from "./mock-modules.js";
+import { describe, expect, it, mock, beforeEach } from "bun:test";
 import { createToolPolicy, validateRequestedTools } from "../src/runtime/tool-policy.js";
 
-const { mockCreateAgentSession, mockSessionManager } = vi.hoisted(() => ({
-  mockCreateAgentSession: vi.fn(),
-  mockSessionManager: vi.fn(),
-}));
-
-vi.mock("@earendil-works/pi-coding-agent", () => ({
-  createAgentSession: mockCreateAgentSession,
-  createExtensionRuntime: vi.fn(() => ({})),
-  SessionManager: { inMemory: mockSessionManager },
-  SettingsManager: { inMemory: vi.fn(() => ({})) },
-}));
-
-vi.mock("@earendil-works/pi-ai", () => ({ getModel: vi.fn() }));
-
-import { createWorkerSession } from "../src/session.js";
+const { createWorkerSession } = await import("../src/session.js?dynamic-tools");
 
 function policy(addTools: string[] = []) {
   return createToolPolicy({
@@ -58,19 +45,16 @@ describe("0.8 dynamic tool policy", () => {
 
 describe("createWorkerSession dynamic active tools", () => {
   beforeEach(() => {
-    mockCreateAgentSession.mockReset();
-    mockSessionManager.mockReset();
+    mockSetActiveToolsByName.mockClear();
+    mockSessionManager.mockClear();
     mockSessionManager.mockReturnValue({ kind: "in-memory" });
   });
 
   it("先注册候选工具，再在首次 prompt 前收窄 active set", async () => {
-    const setActiveToolsByName = vi.fn();
-    mockCreateAgentSession.mockResolvedValue({ session: { setActiveToolsByName } });
-
     await createWorkerSession({
       cwd: "/workspace",
       modelStr: "provider/model",
-      ctx: { modelRegistry: { authStorage: {}, find: vi.fn(() => ({ provider: "provider", id: "model" })) } },
+      ctx: { modelRegistry: { authStorage: {}, find: mock(() => ({ provider: "provider", id: "model" })) } },
       builtInTools: ["read"],
       registeredTools: ["read", "edit", "dteam_signal"],
       initialActiveTools: ["read", "dteam_signal"],
@@ -81,6 +65,6 @@ describe("createWorkerSession dynamic active tools", () => {
     expect(mockCreateAgentSession).toHaveBeenCalledWith(expect.objectContaining({
       tools: ["read", "edit", "dteam_signal"],
     }));
-    expect(setActiveToolsByName).toHaveBeenCalledWith(["read", "dteam_signal"]);
+    expect(mockSetActiveToolsByName).toHaveBeenCalledWith(["read", "dteam_signal"]);
   });
 });

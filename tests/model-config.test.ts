@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadDteamConfig } from "../src/session/model-config.js";
+const { loadDteamConfig } = await import("../src/session/model-config.ts?model-config-test");
 
 const root = join(tmpdir(), `pi-dteam-config-${process.pid}`);
 

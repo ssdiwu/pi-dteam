@@ -1,35 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mockCreateAgentSession, mockDiscoverAndLoadExtensions, mockSessionManager } from "./mock-modules.js";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 
-const {
-  mockCreateAgentSession,
-  mockDiscoverAndLoadExtensions,
-  mockSessionManager,
-} = vi.hoisted(() => ({
-  mockCreateAgentSession: vi.fn(),
-  mockDiscoverAndLoadExtensions: vi.fn(),
-  mockSessionManager: vi.fn(),
-}));
-
-vi.mock("@earendil-works/pi-coding-agent", () => ({
-  createAgentSession: mockCreateAgentSession,
-  createExtensionRuntime: vi.fn(() => ({})),
-  discoverAndLoadExtensions: mockDiscoverAndLoadExtensions,
-  SessionManager: { inMemory: mockSessionManager },
-  SettingsManager: { inMemory: vi.fn(() => ({})) },
-}));
-
-vi.mock("@earendil-works/pi-ai", () => ({
-  getModel: vi.fn(),
-}));
-
-import { createWorkerSession } from "../src/session.js";
+const { createWorkerSession } = await import("../src/session.js?session-test");
 
 describe("createWorkerSession", () => {
   beforeEach(() => {
-    mockCreateAgentSession.mockReset();
-    mockDiscoverAndLoadExtensions.mockReset();
-    mockSessionManager.mockReset();
-    mockCreateAgentSession.mockResolvedValue({ session: { id: "fresh-worker" } });
+    mockDiscoverAndLoadExtensions.mockClear();
+    mockSessionManager.mockClear();
     mockSessionManager.mockReturnValue({ kind: "in-memory" });
   });
 
@@ -39,7 +16,7 @@ describe("createWorkerSession", () => {
       tier: "T3",
       cwd: "/workspace",
       modelStr: "provider/fast",
-      ctx: { modelRegistry: { find: vi.fn(() => model), authStorage: {} } },
+      ctx: { modelRegistry: { find: mock(() => model), authStorage: {} } },
       logicalIsolation: true,
     });
 

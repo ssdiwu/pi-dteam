@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { clampSelection, nextScrollOffset, nextWorkerSelection, renderWorkerDetail, renderWorkerFallback, renderWorkerList, workersForView } from "../src/tui/dteam-dialog.js";
 import type { WorkerSnapshot } from "../src/runtime/types.js";

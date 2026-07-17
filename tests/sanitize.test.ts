@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { sanitizeSensitive, sanitizeUnknown, truncate } from "../src/runtime/sanitize.js";
 import { sanitizeUnknown as legacySanitizeUnknown } from "../src/runtime/worker-manager.js";
 

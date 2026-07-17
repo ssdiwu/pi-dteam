@@ -1,18 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { waitFor } from "./test-helpers.js";
+import { mockCreateWorkerSession } from "./mock-modules.js";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 
-const { mockCreateWorkerSession, mockLoadDteamConfig } = vi.hoisted(() => ({ mockCreateWorkerSession: vi.fn(), mockLoadDteamConfig: vi.fn() }));
-vi.mock("../src/session.js", () => ({ createWorkerSession: mockCreateWorkerSession }));
-vi.mock("../src/session/model-config.js", () => ({
+const { mockLoadDteamConfig } = { mockLoadDteamConfig: mock() };
+mock.module("../src/session/model-config.js", () => ({
   loadDteamConfig: mockLoadDteamConfig,
-  formatDteamConfigWarning: vi.fn((status: any) => status.errors.join(";")),
+  formatDteamConfigWarning: mock((status: any) => status.errors.join(";")),
 }));
+
 import registerDteam, { sendParentEvent } from "../index.js";
 import { workerReport } from "./worker-report.fixture.js";
 
 function register() {
   const pi = {
-    on: vi.fn(), registerTool: vi.fn(), registerCommand: vi.fn(), sendMessage: vi.fn(),
-    getActiveTools: vi.fn(() => ["read", "grep", "find", "ls", "bash", "edit", "write"]),
+    on: mock(), registerTool: mock(), registerCommand: mock(), sendMessage: mock(),
+    getActiveTools: mock(() => ["read", "grep", "find", "ls", "bash", "edit", "write"]),
   };
   registerDteam(pi as any);
   const tools = Object.fromEntries(pi.registerTool.mock.calls.map(([tool]: any[]) => [tool.name, tool]));
@@ -22,16 +24,16 @@ function register() {
 function context() {
   return {
     cwd: "/workspace", model: { provider: "ctx", id: "model" },
-    modelRegistry: { authStorage: {}, find: vi.fn(() => ({ provider: "ctx", id: "model" })) },
-    sessionManager: { getSessionId: vi.fn(() => "parent-session") },
-    isIdle: vi.fn(() => false),
-    ui: { setStatus: vi.fn(), notify: vi.fn() },
+    modelRegistry: { authStorage: {}, find: mock(() => ({ provider: "ctx", id: "model" })) },
+    sessionManager: { getSessionId: mock(() => "parent-session") },
+    isIdle: mock(() => false),
+    ui: { setStatus: mock(), notify: mock() },
   };
 }
 
 describe("dteam next-major extension entry", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    mock.clearAllMocks();
     mockLoadDteamConfig.mockReturnValue({ path: "/tmp/pi-dteam.json", exists: true, valid: true, routes: { T1: { primary: "ctx/model" }, T2: { primary: "ctx/model" }, T3: { primary: "ctx/model" } }, missingTiers: [], errors: [] });
   });
 
@@ -96,13 +98,13 @@ describe("dteam next-major extension entry", () => {
   });
 
   it("wait 执行中推送包含目标与 elapsed 的进度", async () => {
-    const hanging = { prompt: vi.fn(() => new Promise<void>(() => {})), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    const hanging = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
     mockCreateWorkerSession.mockResolvedValue(hanging);
     const { tools } = register();
     const ctx = context();
     const dispatched = await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "等待检查", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
     const workerId = dispatched.details.accepted[0].workerId;
-    const onUpdate = vi.fn();
+    const onUpdate = mock();
     await expect(tools.dteam_wait.execute("wait", { workerIds: [workerId], timeoutMs: 10 }, undefined, onUpdate, ctx)).resolves.toMatchObject({ details: { result: { reason: "timeout", targetWorkers: [{ id: workerId, title: "等待检查" }], timeoutMs: 10 } } });
     expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ details: { waiting: expect.objectContaining({ targetWorkers: [{ id: workerId, title: "等待检查" }], timeoutMs: 10 }) } }));
   });
@@ -110,8 +112,8 @@ describe("dteam next-major extension entry", () => {
   it("wait 消费完成事件后仍清理状态栏", async () => {
     let finish!: () => void;
     const session = {
-      prompt: vi.fn(() => new Promise<void>((resolve) => { finish = resolve; })),
-      abort: vi.fn().mockResolvedValue(undefined),
+      prompt: mock(() => new Promise<void>((resolve) => { finish = resolve; })),
+      abort: mock().mockResolvedValue(undefined),
       messages: [{ role: "assistant", content: [
         { type: "text", text: "完成" },
         { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "完成" }) },
@@ -122,7 +124,7 @@ describe("dteam next-major extension entry", () => {
     const ctx = context();
     const dispatched = await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "状态栏检查", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
     const workerId = dispatched.details.accepted[0].workerId;
-    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+    await waitFor(() => expect(session.prompt).toHaveBeenCalled());
     expect(ctx.ui.setStatus).toHaveBeenCalledWith("dteam", "1 个 worker 运行中");
 
     const waiting = tools.dteam_wait.execute("wait", { workerIds: [workerId], timeoutMs: 1_000 }, undefined, undefined, ctx);
@@ -134,8 +136,8 @@ describe("dteam next-major extension entry", () => {
 
   it("wait 在完成后消费事件，agent_settled 不再回放", async () => {
     const session = {
-      prompt: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn().mockResolvedValue(undefined),
+      prompt: mock().mockResolvedValue(undefined),
+      abort: mock().mockResolvedValue(undefined),
       messages: [{ role: "assistant", content: [
         { type: "text", text: "完成" },
         { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "完成" }) },
@@ -149,7 +151,7 @@ describe("dteam next-major extension entry", () => {
     start!({}, ctx);
     const dispatched = await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "单次消费", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
     const workerId = dispatched.details.accepted[0].workerId;
-    await vi.waitFor(() => expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined));
+    await waitFor(() => expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined));
 
     await expect(tools.dteam_wait.execute("wait", { workerIds: [workerId], timeoutMs: 1_000 }, undefined, undefined, ctx)).resolves.toMatchObject({
       details: { result: { reason: "worker_event", ready: [expect.objectContaining({ id: workerId, state: "completed" })] } },
@@ -160,8 +162,8 @@ describe("dteam next-major extension entry", () => {
 
   it("未被 wait 消费的事件在 agent_settled 后只回放一次", async () => {
     const session = {
-      prompt: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn().mockResolvedValue(undefined),
+      prompt: mock().mockResolvedValue(undefined),
+      abort: mock().mockResolvedValue(undefined),
       messages: [{ role: "assistant", content: [
         { type: "text", text: "完成" },
         { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "完成" }) },
@@ -174,7 +176,7 @@ describe("dteam next-major extension entry", () => {
     const settled = pi.on.mock.calls.find(([event]: any[]) => event === "agent_settled")?.[1];
     start!({}, ctx);
     await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "后台回放", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
-    await vi.waitFor(() => expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined));
+    await waitFor(() => expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined));
 
     settled!({}, ctx);
     settled!({}, ctx);
@@ -184,8 +186,8 @@ describe("dteam next-major extension entry", () => {
 
   it("Pi 0.78 agent_end idle fallback 只回放一次", async () => {
     const session = {
-      prompt: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn().mockResolvedValue(undefined),
+      prompt: mock().mockResolvedValue(undefined),
+      abort: mock().mockResolvedValue(undefined),
       messages: [{ role: "assistant", content: [
         { type: "text", text: "完成" },
         { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "完成" }) },
@@ -198,11 +200,11 @@ describe("dteam next-major extension entry", () => {
     const ended = pi.on.mock.calls.find(([event]: any[]) => event === "agent_end")?.[1];
     start!({}, ctx);
     await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "旧版 settled", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
-    await vi.waitFor(() => expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined));
+    await waitFor(() => expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined));
     ctx.isIdle.mockReturnValue(true);
 
     ended!({ messages: [] }, ctx);
-    await vi.waitFor(() => expect(pi.sendMessage).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(pi.sendMessage).toHaveBeenCalledTimes(1));
     ended!({ messages: [] }, ctx);
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(pi.sendMessage).toHaveBeenCalledTimes(1);
@@ -220,7 +222,7 @@ describe("dteam next-major extension entry", () => {
   });
 
   it("worker 内部事件不直接展示到主对话且会脱敏", () => {
-    const pi = { sendMessage: vi.fn() };
+    const pi = { sendMessage: mock() };
     sendParentEvent(pi as any, { type: "failed", workerId: "w", title: "api_key=sk-title-secret", payload: { result: "api_key=sk-12345678901234567890 DATABASE_URL=postgresql://u:pw@example.test/db" } } as any);
     const message = pi.sendMessage.mock.calls[0]?.[0];
     expect(message).toMatchObject({ customType: "dteam-worker", display: false });

@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-07-18
+
+### Changed
+- 开发与测试链路改为 Bun（直接执行 TypeScript）：移除 `tsc`（TypeScript 编译器）、Vitest（测试框架）和预编译配置，`npm test` 直接运行 `bun test`。
+- 测试改用 `bun:test`（Bun 测试 API）；因 Bun 模块 mock（模拟）在进程内共享，测试以单并发运行以确保隔离稳定。
+
+### Verification
+- `npm test`（20 files / 150 tests）与 `git diff --check` 通过。
+
 ## [0.8.6] - 2026-07-17
 
 ### Added

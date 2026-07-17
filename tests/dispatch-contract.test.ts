@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { getTierThinking, getTierTools, parseTierModelCandidate, tierModelRoutesFromEnv, TIER_DEFAULTS } from "../src/session/tier-config.js";
 import { modelCandidates, resolveTierModelWithFallback } from "../src/dispatch/model-routing.js";
 

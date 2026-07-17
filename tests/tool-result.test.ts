@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { humanizeToolResult } from "../src/tui/tool-result.js";
 import { workerReport } from "./worker-report.fixture.js";
 

@@ -1,6 +1,6 @@
 {
   "name": "pi-dteam",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "description": "dteam - model-tier routing execution layer and evidence-driven main-agent protocol for Pi; fresh T1/T2/T3 workers, structured verification, and bounded fan-out",
   "type": "module",
   "keywords": [
@@ -34,16 +34,10 @@
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.78.0",
-    "@types/node": "^25.9.1",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "@earendil-works/pi-ai": "^0.78.0"
   },
   "scripts": {
-    "build": "tsc",
-    "typecheck:test": "tsc -p tsconfig.test.json",
-    "pretest": "npm run build && npm run typecheck:test",
-    "test": "vitest run --exclude 'archive/**'",
-    "test:watch": "vitest --exclude 'archive/**'"
+    "test": "bun test --max-concurrency=1",
+    "test:watch": "bun test --watch --max-concurrency=1"
   }
 }

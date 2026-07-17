@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it , mock } from "bun:test";
 import { makeReportSchema, makeReportTool, parseWorkerReport } from "../src/runtime/report-tool.js";
 import { workerReport } from "./worker-report.fixture.js";
 
@@ -59,7 +59,7 @@ describe("WorkerReport contract", () => {
   });
 
   it("内部工具把原始参数交给 Manager 校验边界", async () => {
-    const receiveReport = vi.fn(() => ({ ok: true }));
+    const receiveReport = mock(() => ({ ok: true }));
     const tool = makeReportTool("worker-1", "candidate-1", { receiveReport });
     const report = workerReport({ activities: ["tested"], verification: { depth: "automated", status: "passed", evidence: ["npm test: passed"] } });
     await expect(tool.execute("call", report)).resolves.toMatchObject({ details: { report: { ok: true } } });

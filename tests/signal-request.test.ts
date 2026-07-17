@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-const { mockCreateWorkerSession } = vi.hoisted(() => ({ mockCreateWorkerSession: vi.fn() }));
-vi.mock("../src/session.js", () => ({ createWorkerSession: mockCreateWorkerSession }));
+import { waitFor } from "./test-helpers.js";
+import { mockCreateWorkerSession } from "./mock-modules.js";
+import { beforeEach, describe, expect, it , mock } from "bun:test";
+
 import { RequestState } from "../src/runtime/request-state.js";
 import { SignalLog } from "../src/runtime/signal-log.js";
 import { WorkerManager } from "../src/runtime/worker-manager.js";
@@ -10,10 +11,10 @@ import { workerReport } from "./worker-report.fixture.js";
 beforeEach(() => mockCreateWorkerSession.mockReset());
 
 function manager(onParentEvent: (event: any) => void = () => {}) {
-  mockCreateWorkerSession.mockResolvedValue({ prompt: vi.fn(() => new Promise<void>(() => {})), abort: vi.fn().mockResolvedValue(undefined), setActiveToolsByName: vi.fn(), messages: [] });
+  mockCreateWorkerSession.mockResolvedValue({ prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), setActiveToolsByName: mock(), messages: [] });
   return new WorkerManager({
     cwd: "/workspace",
-    modelRegistry: { find: vi.fn() },
+    modelRegistry: { find: mock() },
     model: { provider: "ctx", id: "model" },
     parentActiveTools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
     concurrency: new AdaptiveConcurrency({ min: 1, max: 1, initial: 1, cooldownMs: 1000, successStreakToRise: 99 }),
@@ -59,7 +60,7 @@ describe("worker signal protocol", () => {
     expect(managerInstance.signalLog.snapshot(accepted.workerId)?.latestFinding).toBe("found password=[REDACTED_SECRET]");
 
     const waiting = managerInstance.receiveSignal(accepted.workerId, { kind: "request_context", requestId: "r1", question: "need" });
-    await vi.waitFor(() => expect(managerInstance.get(accepted.workerId)?.state).toBe("waiting"));
+    await waitFor(() => expect(managerInstance.get(accepted.workerId)?.state).toBe("waiting"));
     expect(events).toContainEqual(expect.objectContaining({ type: "request", workerId: accepted.workerId }));
     managerInstance.respond(accepted.workerId, "r1", { type: "provide_context", context: "provided" });
     await expect(waiting).resolves.toEqual({ type: "provide_context", context: "provided" });
@@ -70,7 +71,7 @@ describe("worker signal protocol", () => {
     const instance = manager();
     const accepted = instance.dispatch([{ title: "重复", task: "task", tier: "T1" }])[0]!;
     const first = instance.receiveSignal(accepted.workerId, { kind: "request_context", requestId: "same", question: "one" });
-    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
     await expect(instance.receiveSignal(accepted.workerId, { kind: "request_context", requestId: "same", question: "duplicate" })).resolves.toMatchObject({ type: "deny" });
     expect(instance.requestState.list()).toHaveLength(1);
     instance.respond(accepted.workerId, "same", { type: "provide_context", context: "ctx" });
@@ -83,7 +84,7 @@ describe("worker signal protocol", () => {
     const instance = manager((event) => events.push(event));
     const accepted = instance.dispatch([{ title: "额度", task: "task", tier: "T3" }])[0]!;
     const waiting = instance.receiveSignal(accepted.workerId, { kind: "request_tool_budget", requestId: "budget-1", reason: "还需读取相关文件" });
-    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
     expect(events).toContainEqual(expect.objectContaining({
       type: "request",
       workerId: accepted.workerId,
@@ -96,23 +97,23 @@ describe("worker signal protocol", () => {
     expect(instance.get(accepted.workerId)).toMatchObject({ state: "running", toolCallBudget: 120, toolBudgetExtensionCount: 1 });
 
     await expect(instance.receiveSignal(accepted.workerId, { kind: "request_tool_budget", requestId: "budget-2", reason: "仍不足" })).resolves.toEqual(expect.objectContaining({ type: "deny" }));
-    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("failed"));
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("failed"));
     expect(instance.get(accepted.workerId)?.error).toContain("重新 dispatch fresh worker");
     instance.shutdown();
   });
 
   it("批准工具额度会恢复同一 AgentSession，不创建 fresh retry", async () => {
-    const workerSession: any = { abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    const workerSession: any = { abort: mock().mockResolvedValue(undefined), messages: [] };
     let signalTool: any;
     let reportTool: any;
     let sessionCalls = 0;
     const instance = manager();
     mockCreateWorkerSession.mockImplementation(async (options: any) => {
-      if (!options?.customTools) return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+      if (!options?.customTools) return { prompt: mock().mockResolvedValue(undefined), abort: mock().mockResolvedValue(undefined), messages: [] };
       sessionCalls += 1;
       signalTool = options.customTools[0];
       reportTool = options.customTools[1];
-      workerSession.prompt = vi.fn(async () => {
+      workerSession.prompt = mock(async () => {
         await signalTool.execute("call", { kind: "request_tool_budget", requestId: "budget-session", reason: "需要继续" });
         await reportTool.execute("call", workerReport({ summary: "continued" }));
         workerSession.messages = [{ role: "assistant", content: [{ type: "text", text: "continued" }] }];
@@ -120,9 +121,9 @@ describe("worker signal protocol", () => {
       return workerSession;
     });
     const accepted = instance.dispatch([{ title: "恢复额度", task: "task", tier: "T3" }])[0]!;
-    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
     instance.respond(accepted.workerId, "budget-session", { type: "grant_tool_budget", additionalCalls: 60 });
-    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("completed"));
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("completed"));
     expect(sessionCalls).toBe(1);
     expect(workerSession.prompt).toHaveBeenCalledTimes(1);
     expect(instance.get(accepted.workerId)).toMatchObject({ result: "continued", toolCallBudget: 120, toolBudgetExtensionCount: 1 });
@@ -130,12 +131,12 @@ describe("worker signal protocol", () => {
   });
 
   it("grant_tools 的 session API 失败时清理 pending 并返回 deny", async () => {
-    const workerSession: any = { setActiveToolsByName: vi.fn(() => { throw new Error("tool switch failed"); }), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    const workerSession: any = { setActiveToolsByName: mock(() => { throw new Error("tool switch failed"); }), abort: mock().mockResolvedValue(undefined), messages: [] };
     mockCreateWorkerSession.mockResolvedValue(workerSession);
     const instance = manager();
     const accepted = instance.dispatch([{ title: "授权失败", task: "task", tier: "T1", addTools: ["edit"], writeScope: ["src/"] }])[0]!;
     const waiting = instance.receiveSignal(accepted.workerId, { kind: "request_tools", requestId: "tools-fail", tools: ["edit"], reason: "need" });
-    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
     expect(() => instance.respond(accepted.workerId, "tools-fail", { type: "grant_tools", tools: ["edit"] })).not.toThrow();
     await expect(waiting).resolves.toMatchObject({ type: "deny" });
     expect(instance.requestState.list()).toHaveLength(0);
@@ -143,7 +144,7 @@ describe("worker signal protocol", () => {
   });
 
   it("grant_tools 先切换同一 AgentSession 的 active tools 再恢复 signal", async () => {
-    const workerSession: any = { setActiveToolsByName: vi.fn(), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    const workerSession: any = { setActiveToolsByName: mock(), abort: mock().mockResolvedValue(undefined), messages: [] };
     let signalTool: any;
     let reportTool: any;
     let lastToolResult: any;
@@ -153,7 +154,7 @@ describe("worker signal protocol", () => {
       if (!options?.customTools) return workerSession;
       signalTool = options.customTools[0];
       reportTool = options.customTools[1];
-      workerSession.prompt = vi.fn(async () => {
+      workerSession.prompt = mock(async () => {
         lastToolResult = await signalTool.execute("call", { kind: "request_tools", requestId: "tools-1", tools: ["edit"], reason: "need edit" });
         order.push("resumed");
         await reportTool.execute("call", workerReport({ summary: "continued" }));
@@ -162,10 +163,10 @@ describe("worker signal protocol", () => {
       return workerSession;
     });
     const accepted = managerInstance.dispatch([{ title: "grant", task: "task", tier: "T1", addTools: ["edit"], writeScope: ["src/"] }])[0]!;
-    await vi.waitFor(() => expect(managerInstance.get(accepted.workerId)?.state).toBe("waiting"));
+    await waitFor(() => expect(managerInstance.get(accepted.workerId)?.state).toBe("waiting"));
     workerSession.setActiveToolsByName.mockImplementation(() => order.push("active"));
     managerInstance.respond(accepted.workerId, "tools-1", { type: "grant_tools", tools: ["edit"] });
-    await vi.waitFor(() => expect(managerInstance.get(accepted.workerId)?.state).toBe("completed"));
+    await waitFor(() => expect(managerInstance.get(accepted.workerId)?.state).toBe("completed"));
     expect(workerSession.setActiveToolsByName).toHaveBeenCalledWith(expect.arrayContaining(["dteam_signal", "edit"]));
     expect(order).toEqual(["active", "resumed"]);
     expect(mockCreateWorkerSession).toHaveBeenCalledTimes(1);
@@ -178,7 +179,7 @@ describe("worker signal protocol", () => {
     const instance = manager();
     const accepted = instance.dispatch([{ title: "multi", task: "task", tier: "T1" }])[0]!;
     const first = instance.receiveSignal(accepted.workerId, { kind: "request_context", requestId: "r1", question: "one" });
-    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
     const second = instance.receiveSignal(accepted.workerId, { kind: "request_decision", requestId: "r2", question: "two" });
     instance.respond(accepted.workerId, "r1", { type: "provide_context", context: "ctx" });
     await expect(first).resolves.toMatchObject({ type: "provide_context" });
@@ -193,7 +194,7 @@ describe("worker signal protocol", () => {
     const instance = manager();
     const accepted = instance.dispatch([{ title: "blocked", task: "task", tier: "T1" }])[0]!;
     const waiting = instance.receiveSignal(accepted.workerId, { kind: "blocked", requestId: "blocked-1", reason: "dependency unclear" });
-    await vi.waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
     instance.respond(accepted.workerId, "blocked-1", { type: "decision", decision: "continue read-only" });
     await expect(waiting).resolves.toEqual({ type: "decision", decision: "continue read-only" });
     instance.shutdown();
@@ -204,7 +205,7 @@ describe("worker signal protocol", () => {
     expect(() => managerInstance.respond("missing", "r", { type: "deny", reason: "no" })).toThrow();
     const accepted = managerInstance.dispatch([{ title: "signal", task: "task", tier: "T1" }])[0]!;
     const waiting = managerInstance.receiveSignal(accepted.workerId, { kind: "request_decision", requestId: "r1", question: "choose" });
-    await vi.waitFor(() => expect(managerInstance.get(accepted.workerId)?.state).toBe("waiting"));
+    await waitFor(() => expect(managerInstance.get(accepted.workerId)?.state).toBe("waiting"));
     expect(() => managerInstance.respond(accepted.workerId, "wrong", { type: "decision", decision: "x" })).toThrow();
     expect(() => managerInstance.respond(accepted.workerId, "r1", { type: "grant_tools", tools: ["edit"] })).toThrow("不能回应 request_decision");
     managerInstance.cancel(accepted.workerId, "test");

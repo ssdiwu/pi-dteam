@@ -1,10 +1,10 @@
+import { waitFor } from "./test-helpers.js";
+import { mockCreateWorkerSession } from "./mock-modules.js";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it , mock } from "bun:test";
 
-const { mockCreateWorkerSession } = vi.hoisted(() => ({ mockCreateWorkerSession: vi.fn() }));
-vi.mock("../src/session.js", () => ({ createWorkerSession: mockCreateWorkerSession }));
 
 import { AdaptiveConcurrency } from "../src/dispatch/concurrency.js";
 import { DTEAM_CONFIG } from "../src/config.js";
@@ -14,17 +14,17 @@ import { workerReport } from "./worker-report.fixture.js";
 function options(overrides: any = {}) {
   return {
     cwd: "/workspace",
-    modelRegistry: { find: vi.fn(() => ({ provider: "ctx", id: "model" })) },
+    modelRegistry: { find: mock(() => ({ provider: "ctx", id: "model" })) },
     model: { provider: "ctx", id: "model" },
     parentActiveTools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
     concurrency: new AdaptiveConcurrency({ min: 1, max: 2, initial: 1, cooldownMs: 1000, successStreakToRise: 99 }),
-    onParentEvent: vi.fn(),
+    onParentEvent: mock(),
     ...overrides,
   };
 }
 
 function session(output: string) {
-  return { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), dispose: vi.fn(), setActiveToolsByName: vi.fn(), messages: [{ role: "assistant", content: [{ type: "text", text: output }, { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: output }) }] }] };
+  return { prompt: mock().mockResolvedValue(undefined), abort: mock().mockResolvedValue(undefined), dispose: mock(), setActiveToolsByName: mock(), messages: [{ role: "assistant", content: [{ type: "text", text: output }, { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: output }) }] }] };
 }
 
 beforeEach(() => mockCreateWorkerSession.mockReset());
@@ -63,12 +63,12 @@ describe("WorkerManager", () => {
   it("dteam_signal 与 dteam_report 不消耗工作工具额度，超额工作工具会终止 worker", async () => {
     let listener!: (event: any) => void;
     const live: any = session("不应完成");
-    live.subscribe = vi.fn((callback: (event: any) => void) => { listener = callback; return () => {}; });
-    live.prompt = vi.fn(() => new Promise<void>(() => {}));
+    live.subscribe = mock((callback: (event: any) => void) => { listener = callback; return () => {}; });
+    live.prompt = mock(() => new Promise<void>(() => {}));
     mockCreateWorkerSession.mockResolvedValue(live);
     const manager = new WorkerManager(options({ timeoutMs: 1_000 }));
     const [accepted] = manager.dispatch([{ title: "工具额度", task: "任务", tier: "T3" }]);
-    await vi.waitFor(() => expect(listener).toBeTypeOf("function"));
+    await waitFor(() => expect(listener).toBeTypeOf("function"));
     for (let i = 0; i < 100; i++) listener({ type: "tool_execution_start", toolName: "dteam_signal" });
     expect(manager.get(accepted!.workerId)?.toolCallCount).toBe(0);
     for (let i = 0; i < 60; i++) listener({ type: "tool_execution_start", toolName: "read" });
@@ -76,7 +76,7 @@ describe("WorkerManager", () => {
     listener({ type: "tool_execution_start", toolName: "dteam_report" });
     expect(manager.get(accepted!.workerId)).toMatchObject({ toolCallCount: 60, state: "running" });
     listener({ type: "tool_execution_start", toolName: "read" });
-    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
     expect(manager.get(accepted!.workerId)?.error).toContain("工具调用额度");
   });
 
@@ -85,8 +85,8 @@ describe("WorkerManager", () => {
     try {
       let listener!: (event: any) => void;
       const live: any = session("完成");
-      live.subscribe = vi.fn((callback: (event: any) => void) => { listener = callback; return () => {}; });
-      live.prompt = vi.fn(async () => {
+      live.subscribe = mock((callback: (event: any) => void) => { listener = callback; return () => {}; });
+      live.prompt = mock(async () => {
         listener({
           type: "message_end",
           message: {
@@ -98,9 +98,9 @@ describe("WorkerManager", () => {
       mockCreateWorkerSession.mockResolvedValue(live);
       const manager = new WorkerManager(options({ usageLedger: { agentDir, parentSessionId: "parent-session" } }));
       const [accepted] = manager.dispatch([{ title: "usage", task: "任务", tier: "T3" }]);
-      await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+      await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
       const path = join(agentDir, "dteam-usage.jsonl");
-      await vi.waitFor(() => expect(() => readFileSync(path, "utf8")).not.toThrow());
+      await waitFor(() => expect(readFileSync(path, "utf8").trim()).not.toBe(""));
       const record = JSON.parse(readFileSync(path, "utf8").trim());
       expect(record).toMatchObject({
         version: 1, parentSessionId: "parent-session", project: "/workspace", workerId: accepted!.workerId,
@@ -119,12 +119,12 @@ describe("WorkerManager", () => {
     try {
       let listener!: (event: any) => void;
       const live: any = session("不应完成");
-      live.subscribe = vi.fn((callback: (event: any) => void) => { listener = callback; return () => {}; });
-      live.prompt = vi.fn(() => new Promise<void>(() => {}));
+      live.subscribe = mock((callback: (event: any) => void) => { listener = callback; return () => {}; });
+      live.prompt = mock(() => new Promise<void>(() => {}));
       mockCreateWorkerSession.mockResolvedValue(live);
       const manager = new WorkerManager(options({ usageLedger: { agentDir, parentSessionId: "parent-session" } }));
       const [accepted] = manager.dispatch([{ title: "late usage", task: "任务", tier: "T3" }]);
-      await vi.waitFor(() => expect(listener).toBeTypeOf("function"));
+      await waitFor(() => expect(listener).toBeTypeOf("function"));
       manager.cancel(accepted!.workerId);
       listener({
         type: "message_end",
@@ -132,7 +132,7 @@ describe("WorkerManager", () => {
       });
 
       const path = join(agentDir, "dteam-usage.jsonl");
-      await vi.waitFor(() => expect(() => readFileSync(path, "utf8")).not.toThrow());
+      await waitFor(() => expect(readFileSync(path, "utf8").trim()).not.toBe(""));
       expect(JSON.parse(readFileSync(path, "utf8").trim())).toMatchObject({ workerId: accepted!.workerId, model: "ctx/late-model", usage: { totalTokens: 3 } });
     } finally {
       rmSync(agentDir, { recursive: true, force: true });
@@ -142,14 +142,14 @@ describe("WorkerManager", () => {
   it("用量账本写入失败不改变 worker 完成状态", async () => {
     let listener!: (event: any) => void;
     const live: any = session("完成");
-    live.subscribe = vi.fn((callback: (event: any) => void) => { listener = callback; return () => {}; });
-    live.prompt = vi.fn(async () => {
+    live.subscribe = mock((callback: (event: any) => void) => { listener = callback; return () => {}; });
+    live.prompt = mock(async () => {
       listener({ type: "message_end", message: { role: "assistant", provider: "ctx", model: "model", timestamp: Date.now(), usage: { totalTokens: 3 } } });
     });
     mockCreateWorkerSession.mockResolvedValue(live);
     const manager = new WorkerManager(options({ usageLedger: { agentDir: "/dev/null/not-a-directory", parentSessionId: "parent-session" } }));
     const [accepted] = manager.dispatch([{ title: "ledger failure", task: "任务", tier: "T3" }]);
-    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
     expect(manager.get(accepted!.workerId)?.error).toBeUndefined();
   });
 
@@ -167,38 +167,38 @@ describe("WorkerManager", () => {
     mockCreateWorkerSession.mockResolvedValue(live);
     const manager = new WorkerManager(options());
     const [accepted] = manager.dispatch([{ title: "释放 session", task: "任务", tier: "T3" }]);
-    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
     expect(live.abort).toHaveBeenCalled();
     expect(live.dispose).toHaveBeenCalledTimes(1);
   });
 
   it("无 assistant 文本不会自动跨档到 T1", async () => {
-    const noText = { prompt: vi.fn().mockResolvedValue(undefined), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    const noText = { prompt: mock().mockResolvedValue(undefined), abort: mock().mockResolvedValue(undefined), messages: [] };
     mockCreateWorkerSession.mockResolvedValueOnce(noText).mockResolvedValueOnce(session("不应执行"));
     const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/model" }, T1: { primary: "ctx/model" } } }));
     const [accepted] = manager.dispatch([{ title: "无文本失败", task: "任务", tier: "T3" }]);
-    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
     expect(manager.get(accepted!.workerId)).toMatchObject({ activeTier: "T3", fallbackTrail: ["T3"], error: expect.stringContaining("assistant 文本") });
     expect(mockCreateWorkerSession).toHaveBeenCalledTimes(1);
   });
 
   it("同档候选失败后不得把前一候选的报告复用给未报告 fallback", async () => {
     const primary = {
-      prompt: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn().mockResolvedValue(undefined),
-      setActiveToolsByName: vi.fn(),
+      prompt: mock().mockResolvedValue(undefined),
+      abort: mock().mockResolvedValue(undefined),
+      setActiveToolsByName: mock(),
       messages: [{ role: "assistant", content: [{ type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "primary report" }) }] }],
     };
     const fallback = {
-      prompt: vi.fn().mockResolvedValue(undefined),
-      abort: vi.fn().mockResolvedValue(undefined),
-      setActiveToolsByName: vi.fn(),
+      prompt: mock().mockResolvedValue(undefined),
+      abort: mock().mockResolvedValue(undefined),
+      setActiveToolsByName: mock(),
       messages: [{ role: "assistant", content: [{ type: "text", text: "fallback result without report" }] }],
     };
     mockCreateWorkerSession.mockResolvedValueOnce(primary).mockResolvedValueOnce(fallback);
     const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/primary", fallbackModels: ["ctx/fallback"] } } }));
     const [accepted] = manager.dispatch([{ title: "候选报告隔离", task: "任务", tier: "T3" }]);
-    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
     expect(mockCreateWorkerSession).toHaveBeenCalledTimes(2);
     expect(manager.get(accepted!.workerId)).toMatchObject({ terminalReason: "missing_report", error: expect.stringContaining("dteam_report") });
   });
@@ -207,27 +207,27 @@ describe("WorkerManager", () => {
     let rejectPrimary!: (error: Error) => void;
     let finishFallback!: () => void;
     const primary = {
-      prompt: vi.fn(() => new Promise<void>((_resolve, reject) => { rejectPrimary = reject; })),
-      abort: vi.fn().mockResolvedValue(undefined),
-      setActiveToolsByName: vi.fn(),
+      prompt: mock(() => new Promise<void>((_resolve, reject) => { rejectPrimary = reject; })),
+      abort: mock().mockResolvedValue(undefined),
+      setActiveToolsByName: mock(),
       messages: [],
     };
     const fallback = {
-      prompt: vi.fn(() => new Promise<void>((resolve) => { finishFallback = resolve; })),
-      abort: vi.fn().mockResolvedValue(undefined),
-      setActiveToolsByName: vi.fn(),
+      prompt: mock(() => new Promise<void>((resolve) => { finishFallback = resolve; })),
+      abort: mock().mockResolvedValue(undefined),
+      setActiveToolsByName: mock(),
       messages: [{ role: "assistant", content: [{ type: "text", text: "fallback result without report" }] }],
     };
     mockCreateWorkerSession.mockResolvedValueOnce(primary).mockResolvedValueOnce(fallback);
     const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/primary", fallbackModels: ["ctx/fallback"] } } }));
     const [accepted] = manager.dispatch([{ title: "迟到报告隔离", task: "任务", tier: "T3" }]);
-    await vi.waitFor(() => expect(primary.prompt).toHaveBeenCalled());
+    await waitFor(() => expect(primary.prompt).toHaveBeenCalled());
     const staleCandidateId = (manager as any).records.get(accepted!.workerId).activeCandidateId as string;
     rejectPrimary(new Error("primary failed"));
-    await vi.waitFor(() => expect(fallback.prompt).toHaveBeenCalled());
+    await waitFor(() => expect(fallback.prompt).toHaveBeenCalled());
     expect(() => manager.receiveReport(accepted!.workerId, workerReport({ summary: "late primary report" }), staleCandidateId)).toThrow("候选已失效");
     finishFallback();
-    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
     expect(manager.get(accepted!.workerId)).toMatchObject({ terminalReason: "missing_report", error: expect.stringContaining("dteam_report") });
   });
 
@@ -235,7 +235,7 @@ describe("WorkerManager", () => {
     mockCreateWorkerSession.mockResolvedValue(session("完成"));
     const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/model:high", fallbackModels: ["ctx/fallback:low"] } } }));
     const [accepted] = manager.dispatch([{ title: "思考强度", task: "任务", tier: "T3" }]);
-    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
     expect(mockCreateWorkerSession).toHaveBeenCalledWith(expect.objectContaining({ modelStr: "ctx/model", thinkingLevel: "high" }));
   });
 
@@ -250,7 +250,7 @@ describe("WorkerManager", () => {
 
     expect(accepted).toHaveLength(2);
     expect(new Set(accepted.map((item) => item.workerId)).size).toBe(2);
-    await vi.waitFor(() => expect(manager.list().every((item) => item.state === "completed")).toBe(true));
+    await waitFor(() => expect(manager.list().every((item) => item.state === "completed")).toBe(true));
     await new Promise((resolve) => setTimeout(resolve, 520));
     expect(events.filter((event) => event.type === "completed")).toHaveLength(1);
     expect(events[0].payload.results).toHaveLength(2);
@@ -274,7 +274,7 @@ describe("WorkerManager", () => {
       { title: "一", task: "任务一", tier: "T3" },
       { title: "二", task: "任务二", tier: "T3" },
     ]);
-    await vi.waitFor(() => expect(manager.list().every((item) => item.state === "completed")).toBe(true));
+    await waitFor(() => expect(manager.list().every((item) => item.state === "completed")).toBe(true));
     expect(accepted).toHaveLength(2);
     expect(peak).toBe(2);
     expect(limiter.flying).toBe(0);
@@ -284,7 +284,7 @@ describe("WorkerManager", () => {
     mockCreateWorkerSession.mockRejectedValueOnce(new Error("provider down")).mockResolvedValueOnce(session("不应执行"));
     const manager = new WorkerManager(options());
     const [accepted] = manager.dispatch([{ title: "失败", task: "任务", tier: "T3" }]);
-    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
     expect(manager.get(accepted!.workerId)).toMatchObject({ activeTier: "T3", fallbackTrail: ["T3"], error: "provider down" });
     expect(mockCreateWorkerSession).toHaveBeenCalledTimes(1);
   });

@@ -32,7 +32,7 @@ dteam 是 **模型分级路由执行层 + 主代理证据驱动多轮路由协�
 ### 做
 - ✅ 先读 `doc/README.md`、`doc/术语表.md`、`src/README.md` 和 `src/runtime/types.ts`
 - ✅ 涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 `doc/决策档案/`
-- ✅ 改完后跑 `npm run build` 验证
+- ✅ 改完后跑 `npm test` 和 `git diff --check` 验证
 - ✅ 改完后跑 `pi -e ./index.ts` 试加载
 - ✅ 保持文件数合理（按职责拆，不强求数量）
 - ✅ 用 LLM 的 tool calling 做结构化输出，**不要解析自由文本**
@@ -57,18 +57,21 @@ dteam 是 **模型分级路由执行层 + 主代理证据驱动多轮路由协�
 改完后**必须**跑：
 
 ```bash
-# 1. 编译
-npm run build
+# 1. 跑 Bun 测试
+npm test
 
-# 2. 在 Pi 里重载
+# 2. 检查 diff 格式
+git diff --check
+
+# 3. 在 Pi 里重载
 # 按 /reload
 
-# 3. 实际调 dteam
+# 4. 实际调 dteam
 # 调 dteam_dispatch({ workers: [{ title: "...", task: "...", tier: "T3" }] })，并检查新 WorkerReport 与 /dteam 展示。
 ```
 
-**如果 build 失败，必须先修。**
-**如果 build 过但 dteam 调不通，贴错误信息。**
+**如果测试失败，必须先修。**
+**如果测试通过但 dteam 调不通，贴错误信息。**
 
 ## 改动的边界
 
@@ -94,7 +97,7 @@ npm run build
 1. 同步版本号：`package.json` + `package-lock.json`。
 2. 更新 `CHANGELOG.md`，把用户可见变更、关键推翻项和验证结果落到对应版本段。
 3. 确认 `package.json` 版本、`CHANGELOG.md` 版本段、`git tag v<x.y.z>` 三者一致。
-4. 运行验证：`npm run build` + `npm test`；真实 LLM 行为另做 Pi TUI smoke test 并记录结果。
+4. 运行验证：`npm test` + `git diff --check`；真实 LLM 行为另做 Pi TUI smoke test 并记录结果。
 5. 提交单一主题 commit，再 `git tag v<x.y.z>`。
 6. 发布：`npm publish`；发布后 `git push && git push --tags`。
 
@@ -108,7 +111,7 @@ npm run build
 - `docs: 更新 doc/30-路线图/30-项目路线图.md`
 
 **提交前**：
-- `npm run build` 通过
+- `npm test` 与 `git diff --check` 通过
 - 改动的文件数 ≤ 5
 
 ## 联系 / 上下文
