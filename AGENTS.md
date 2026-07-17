@@ -4,13 +4,13 @@
 
 ## 一句话
 
-dteam 是 **模型分级路由执行层**——主模型（T1 思考档）负责思考/路由/验收，小任务 fan-out 给小模型（T3 快速档）批量并行做，思考跟随档位，搞不定走 fresh 验收 → 回退强模型。与 [`pi-dgoal`](../pi-dgoal) 独立并列：dteam = 多模型分级路由，dgoal = 单模型建检循环。代码组织见 `src/README.md`。
+dteam 是 **模型分级路由执行层 + 主代理证据驱动多轮路由协议**——主代理定义证据问题、分轮派 T3、综合报告并明确路由，Worker Manager 只执行已派发 worker；思考跟随档位，搞不定走 fresh 验收 → 回退强模型。与 [`pi-dgoal`](../pi-dgoal) 独立并列：dteam = 多模型分级路由，dgoal = 单模型建检循环。代码组织见 `src/README.md`。
 
 **先读 [`doc/README.md`](./doc/README.md)、[`doc/术语表.md`](./doc/术语表.md)，再读 [`src/README.md`](./src/README.md) 后动手。**
 
-涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**当前定位权威是 [`doc/决策档案/0008-dteam重定位为模型分级路由执行层.md`](./doc/决策档案/0008-dteam重定位为模型分级路由执行层.md)**（推翻 0006 对抗式合议 + 0007 对抗回合积分制）。
+涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**定位基底是 ADR 0008，主代理路由与报告当前权威是 [ADR 0020](./doc/决策档案/0020-主代理证据驱动多轮路由协议.md) + [ADR 0021](./doc/决策档案/0021-结构化工作报告区分动作完成度与验证深度.md)**。
 
-> **当前实现**：0008 的 T1/T2/T3、fresh dispatch、档位路由、并发与回退已实现；0.8 的会话级 Worker Manager、唯一 `dteam` 工具、A/B/C signal、受限动态工具、`/dteam` 管理和确认取消已实现并有测试；0.6 loop/signals/五角色已删除。
+> **当前实现**：T1/T2/T3、fresh dispatch、会话级 Worker Manager、四公开工具、有类型 signal、受限动态工具、统一 WorkerReport、`/dteam` 管理和确认取消已实现；0.6 loop/signals/五角色已删除。
 
 ## 项目结构速查
 
@@ -18,18 +18,18 @@ dteam 是 **模型分级路由执行层**——主模型（T1 思考档）负责
 |------|------|--------|
 | `doc/README.md` | 文档导航与阅读顺序 | **必读** |
 | `doc/术语表.md` | 项目术语定义 | **必读** |
-| `doc/决策档案/` | 架构决策记录；改边界前必读（**当前权威 0008**） | **必读** |
-| `src/README.md` | 当前 dispatch 实现地图 | **必读** |
-| `src/tools.ts` | dispatch 类型中心 | **必读** |
-| `src/leaf.ts` | worker 执行层（进程内 AgentSession；`dispatch()` 内核） | 必读 |
+| `doc/决策档案/` | 架构决策记录；改边界前必读（定位 0008，路由/报告 0020/0021） | **必读** |
+| `src/README.md` | 当前实现地图 | **必读** |
+| `src/runtime/types.ts` | worker、统一报告、signal、handoff 与四工具类型中心 | **必读** |
+| `src/runtime/worker-manager.ts` | 会话级 worker 生命周期、signal、报告、等待与恢复 | **必读** |
 | `src/session.ts` | fresh worker session 工厂（tier/thinking/Logical Isolation） | 必读 |
-| `./index.ts` | Pi 扩展入口（根目录） | **必读** |
+| `./index.ts` | Pi 四工具与 `/dteam` 扩展入口 | **必读** |
 
 
 ## 开发规范
 
 ### 做
-- ✅ 先读 `doc/README.md`、`doc/术语表.md`、`src/README.md` 和 `src/tools.ts`
+- ✅ 先读 `doc/README.md`、`doc/术语表.md`、`src/README.md` 和 `src/runtime/types.ts`
 - ✅ 涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 `doc/决策档案/`
 - ✅ 改完后跑 `npm run build` 验证
 - ✅ 改完后跑 `pi -e ./index.ts` 试加载
@@ -46,7 +46,7 @@ dteam 是 **模型分级路由执行层**——主模型（T1 思考档）负责
 
 ## 设计收敛纪律
 
-- dteam 的默认方向是收敛到「模型分级路由（T1/T2/T3）+ 会话级后台 Worker Manager + 单工具 dteam + 回退 + fresh 验收」，不是继续扩展成通用多 agent 平台，也不是回到对抗式合议/自发生长。
+- dteam 的默认方向是收敛到「主代理证据驱动多轮路由 + T1/T2/T3 + 会话级后台 Worker Manager + 四公开工具 + 统一 WorkerReport + 回退 + fresh 验收」，不是继续扩展成通用多 agent 平台，也不是回到对抗式合议/自发生长。
 - 新增概念前先写真实失败样例：哪个现有机制承载不了、会造成什么错误、如何验证新机制降低复杂度；没有证据就不新增。
 - 涉及角色市场、持久化、resume、编排循环、信号系统等扩展型设计时，默认先拒绝或降级为文档观察，除非 ADR 级别拷问通过。
 - 文档也要防术语膨胀：术语表只收稳定、反复使用、会影响实现命名的词；临时想法不要写进术语表。
@@ -63,7 +63,7 @@ npm run build
 # 按 /reload
 
 # 3. 实际调 dteam
-# 调 dteam({ type: "dispatch", workers: [{ title: "...", task: "...", tier: "T3" }] }) 验证后台分级路由。
+# 调 dteam_dispatch({ workers: [{ title: "...", task: "...", tier: "T3" }] })，并检查新 WorkerReport 与 /dteam 展示。
 ```
 
 **如果 build 失败，必须先修。**
@@ -71,19 +71,20 @@ npm run build
 
 ## 改动的边界
 
-> 0008 定位与 dispatch runtime 已落。下表是按当前边界迭代时该改哪里。
+> 0008 执行层、0020 主代理协议与 0021 报告合同已落。下表是按当前边界迭代时该改哪里。
 
 | 想加什么 | 怎么办 |
 |----------|--------|
-| 改 dispatch 实现 | 改 `leaf.ts` / `session.ts`（进程内 `AgentSession` + Logical Isolation + Multi-Provider Routing 加 tier/thinking） |
-| 改模型档位配置 | 改 `session/model-config.ts` 与 `~/.pi/agent/pi-dteam.json`（T1/T2/T3 模型链）；`tier-config.ts` 中的 `DTEAM_T*_MODEL` 仅作为内部兼容兜底 |
-| 改对外工具 | 改 `./index.ts` + `tools.ts`（唯一模型工具 `dteam`，`type` 区分 dispatch/respond） |
-| 加新工具 | **不推荐**——dteam 故意只暴露 1 个模型工具（dteam） |
+| 改 dispatch / lifecycle | 改 `src/runtime/worker-manager.ts` / `src/session.ts` |
+| 改 WorkerReport | 改 `src/runtime/types.ts` + `src/runtime/report-tool.ts`，同步 Manager、TUI、测试、API 与术语表 |
+| 改模型档位配置 | 改 `src/session/model-config.ts` 与 `~/.pi/agent/pi-dteam.json`；档位默认见 `src/session/tier-config.ts` |
+| 改对外工具 | 改 `./index.ts` + `src/runtime/types.ts`，保持 dispatch / respond / recover / wait 分工 |
+| 加新工具 | **不推荐**——先证明四工具与现有 signal 无法承载，再走 ADR 级对齐 |
 
 
 ## 状态机提醒
 
-> 当前入口没有独立 Orchestrator Loop 状态机：主模型（T1）在对话里直接路由 + 调 dteam fan-out + 收后台回传 + 按需 fresh 验收 + 回退。
+> 当前入口没有独立 Orchestrator Loop 状态机：主代理在对话里定义证据问题、分轮 dispatch、综合 WorkerReport、按需实现 / fresh 验收 / 回退；Manager 不知道轮次和下一步。
 
 ## 发版流程
 
