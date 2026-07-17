@@ -9,7 +9,8 @@
   └─ dteam_dispatch / dteam_respond / dteam_recover / dteam_wait [../index.ts]
        ├─ WorkerManager [runtime/worker-manager.ts]
        │   ├─ WorkerRecord + AgentSession + AbortController
-       │   ├─ SignalLog + RequestState
+       │   ├─ SignalLog + RequestState + pending parent events
+       │   ├─ dteam-usage.jsonl numeric ledger
        │   └─ shared AdaptiveConcurrency
        └─ createWorkerSession() [session.ts]
             └─ fresh AgentSession + Logical Isolation + tool policy
@@ -25,6 +26,7 @@
 | `runtime/signal-tool.ts` | worker 专用 `dteam_signal` |
 | `runtime/report-tool.ts` | 统一 `dteam_report` schema 与 parser；校验 outcome、activities、facts 和 verification 的交叉不变量 |
 | `runtime/tool-policy.ts` | addTools 精确校验和 built-in-only 降级边界 |
+| `runtime/usage-ledger.ts` | 独立 dteam worker 用量账本的数字白名单、去重键和安全追加写入 |
 | `runtime/types.ts` | 四工具、worker、report/handoff、writeScope、wait 与 parent event 的运行时契约 |
 | `tui/dteam-dialog.ts` | `/dteam` 列表、详情和终态只读渲染 |
 | `tui/tool-result.ts` | 公开工具的摘要与 Ctrl+O 人类可读详情投影 |
@@ -44,3 +46,5 @@
 5. shutdown / reload 中止活跃 worker，不 resume；completed/failed/timed_out/cancelled/shutdown 只读封存。
 6. worker 结束前必须经 `dteam_report` 区分任务 outcome、实际 activities、facts 与 verification；缺报告或旧/非法形状失败。Manager completed 不代表任务或验证通过。facts 在 completed event 注入真实 workerId，verification 不进入 handoff。可写 worker 中断回传 `write_interrupted`，由主 LLM 派 fresh T3 检查。
 7. 实时流只投影到 Snapshot 并经节流上抛，不用 `display: true` 原样写入主对话；用户通过 `/dteam` 查看实时状态。
+8. parent event 先进入 Manager 待消费队列；`dteam_wait` 消费后即删除，只有主代理 idle / settled 后仍未消费的事件才 follow-up。
+9. worker session 继续保持 in-memory；每条 assistant message 只把脱敏数字 usage 写入 `~/.pi/agent/dteam-usage.jsonl`，不持久化 worker transcript。

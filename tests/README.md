@@ -22,7 +22,8 @@ npm run typecheck:test
 | `worker-manager.protocol.test.ts` | Manager 报告回收、handoff provenance、verification 不进入 handoff、writeScope/write_interrupted 与 respond/recover 边界 |
 | `worker-manager.report.test.ts` | WorkerReport 枚举、字段与交叉不变量、旧形状 fail-closed 及统一 parser/tool 契约 |
 | `worker-report.fixture.ts` | 跨测试复用的最小合法 WorkerReport 工厂；不是测试入口 |
-| `worker-manager.wait.test.ts` | 指定 worker 的事件等待、事件消费与 timeout 部分结果 |
+| `worker-manager.wait.test.ts` | 指定 worker 的事件等待、事件后置消费、未消费 flush 与 timeout 部分结果 |
+| `worker-usage-ledger.test.ts` | 独立 dteam usage 的数字白名单、稳定去重键、JSONL 追加与 `0600` 权限 |
 | `tool-result.test.ts` | 默认摘要与 Ctrl+O 人类可读展开，不展示 JSON |
 | `tui-dialog.test.ts` | `/dteam` 列表、详情、实时文本/thinking/工具、timeout 诊断、WorkerReport 人类可读投影、包边、i18n 文案和运行/历史只读状态 |
 | `i18n.test.ts` | `pi.i18n.v1` bundle 注册与多通道 API 去重 |

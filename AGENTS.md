@@ -10,7 +10,7 @@ dteam 是 **模型分级路由执行层 + 主代理证据驱动多轮路由协�
 
 涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**定位基底是 ADR 0008，主代理路由与报告当前权威是 [ADR 0020](./doc/决策档案/0020-主代理证据驱动多轮路由协议.md) + [ADR 0021](./doc/决策档案/0021-结构化工作报告区分动作完成度与验证深度.md)**。
 
-> **当前实现**：T1/T2/T3、fresh dispatch、会话级 Worker Manager、四公开工具、有类型 signal、受限动态工具、统一 WorkerReport、`/dteam` 管理和确认取消已实现；0.6 loop/signals/五角色已删除。
+> **当前实现**：T1/T2/T3、fresh dispatch、会话级 Worker Manager、四公开工具、有类型 signal、受限动态工具、统一 WorkerReport、parent event 单次消费、独立 `dteam-usage.jsonl` 数字账本、`/dteam` 管理和确认取消已实现；0.6 loop/signals/五角色已删除。
 
 ## 项目结构速查
 
@@ -21,7 +21,8 @@ dteam 是 **模型分级路由执行层 + 主代理证据驱动多轮路由协�
 | `doc/决策档案/` | 架构决策记录；改边界前必读（定位 0008，路由/报告 0020/0021） | **必读** |
 | `src/README.md` | 当前实现地图 | **必读** |
 | `src/runtime/types.ts` | worker、统一报告、signal、handoff 与四工具类型中心 | **必读** |
-| `src/runtime/worker-manager.ts` | 会话级 worker 生命周期、signal、报告、等待与恢复 | **必读** |
+| `src/runtime/worker-manager.ts` | 会话级 worker 生命周期、signal、报告、等待、单次事件消费、用量记录与恢复 | **必读** |
+| `src/runtime/usage-ledger.ts` | 独立 dteam worker 脱敏数字用量账本 | 按需必读 |
 | `src/session.ts` | fresh worker session 工厂（tier/thinking/Logical Isolation） | 必读 |
 | `./index.ts` | Pi 四工具与 `/dteam` 扩展入口 | **必读** |
 
