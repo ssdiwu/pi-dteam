@@ -1,8 +1,8 @@
 # dteam API 参考
 
-> 下一主版本模型侧注册四个工具：`dteam_dispatch`、`dteam_respond`、`dteam_recover`、`dteam_wait`；`/dteam` 仍是用户查看、steering（插队指令）与确认取消的管理命令。
+> 当前模型侧注册四个工具：`dteam_dispatch`、`dteam_respond`、`dteam_recover`、`dteam_wait`；`/dteam` 仍是用户查看、steering（插队指令）与确认取消的管理命令。
 >
-> **实施状态**：派发、回应、恢复、显式等待、结构化报告、有限 handoff（交接）及可写中断守卫已实现；真实 provider 冒烟仍需在目标 Pi 环境复核。
+> **实施状态**：派发、回应、恢复、显式等待、统一 WorkerReport、有限 handoff（交接）、可写中断守卫及人类可读结果投影已实现；真实 provider 冒烟仍需在目标 Pi 环境复核。主代理多轮路由见 [触发协议](./14-dteam触发协议.md)。
 
 ## 0. 必需配置
 
@@ -83,17 +83,32 @@ dteam_wait({
 
 ## 5. Worker 内部工具
 
-`dteam_signal` 仍处理 progress、finding 和阻塞 request。每个 worker 结束前必须调用一次：
+`dteam_signal` 仍处理 progress、finding 和阻塞 request。每个 worker 结束前必须恰好调用一次统一的 `dteam_report`：
 
 ```ts
 dteam_report({
+  outcome: "completed", // completed | partial
   summary: "完成的简要结论",
+  activities: ["inspected", "modified", "tested"],
   facts: [{ claim: "可核验结论", evidence: "文件:行号或测试命令" }],
-  uncertainties: ["可选边界"],
+  verification: {
+    depth: "automated", // none | inspection | automated | runtime | visual
+    status: "passed",   // passed | failed | partial | not_run
+    evidence: ["npm test: 92 passed"],
+    remaining: ["无浏览器环境，未做视觉复测"],
+  },
+  uncertainties: ["可选的未知事实"],
 })
 ```
 
-缺报告按失败处理；Manager 为完成事件中的 facts 自动附加实际 `workerId` provenance（来源）。不接受最终自由文本作为交接回退。
+合同不变量：
+
+- `outcome` 表达被派任务是否完成，不等于验证结果；Manager `state=completed` 也只表示 worker 正常结束并提交合法报告。
+- `activities` 必须非空且不重复，只能使用 `inspected / modified / tested / executed / captured_visual`。
+- `facts` 至少一项，每项 `claim / evidence` 非空；Manager 只为完成事件中的 facts 附加实际 `workerId` provenance（来源）。verification 不进入 handoff。
+- `verification` 始终必填。未验证时必须是 `none + not_run + []`；其他深度必须有 evidence。inspection 要求 inspected，automated 要求 tested，runtime 要求 executed，visual 同时要求 executed 与 captured_visual。
+- `remaining` 是已知但未完成的检查；`uncertainties` 是仍可能改变结论的未知。`human` 与 expected verification depth 不属于 WorkerReport。
+- `dteam_report` 是必需的最终报告，不消耗工作工具额度；旧 `{ summary, facts, uncertainties? }` 形状、未知字段或最终自由文本均 fail-closed。
 
 ## 6. 可写中断守卫
 
@@ -103,7 +118,7 @@ reload（重载）或新会话前，若工作区存在未解释的 dirty diff（
 
 ## 7. 工具结果投影与不提供
 
-所有用户可见工具默认显示紧凑摘要；`Ctrl+O` 展开完整但仍为人类可读的文字、列表和诊断。完整结构只保留在模型上下文、内部 `details` 与测试，不直接进入 UI。
+所有用户可见工具默认显示紧凑摘要；`Ctrl+O` 展开完整但仍为人类可读的文字、列表和诊断。完成 worker 的展开详情显示 outcome、activities、verification、facts、remaining 与 uncertainties，不显示原始 JSON。完整结构只保留在模型上下文、内部 `details` 与测试。
 
 不提供：
 
