@@ -100,6 +100,31 @@ describe("dteam next-major extension entry", () => {
     expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ details: { waiting: expect.objectContaining({ targetWorkers: [{ id: workerId, title: "等待检查" }], timeoutMs: 10 }) } }));
   });
 
+  it("wait 消费完成事件后仍清理状态栏", async () => {
+    let finish!: () => void;
+    const session = {
+      prompt: vi.fn(() => new Promise<void>((resolve) => { finish = resolve; })),
+      abort: vi.fn().mockResolvedValue(undefined),
+      messages: [{ role: "assistant", content: [
+        { type: "text", text: "完成" },
+        { type: "toolCall", name: "dteam_report", arguments: { summary: "完成", facts: [] } },
+      ] }],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const { tools } = register();
+    const ctx = context();
+    const dispatched = await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "状态栏检查", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
+    const workerId = dispatched.details.accepted[0].workerId;
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("dteam", "1 个 worker 运行中");
+
+    const waiting = tools.dteam_wait.execute("wait", { workerIds: [workerId], timeoutMs: 1_000 }, undefined, undefined, ctx);
+    finish();
+
+    await expect(waiting).resolves.toMatchObject({ details: { result: { reason: "worker_event", ready: [expect.objectContaining({ id: workerId, state: "completed" })] } } });
+    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined);
+  });
+
   it("worker 内部事件不直接展示到主对话且会脱敏", () => {
     const pi = { sendMessage: vi.fn() };
     sendParentEvent(pi as any, { type: "failed", workerId: "w", title: "api_key=sk-title-secret", payload: { result: "api_key=sk-12345678901234567890 DATABASE_URL=postgresql://u:pw@example.test/db" } } as any);

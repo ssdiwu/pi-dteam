@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- 修复 `dteam_wait` 消费 worker 终态事件后状态栏仍残留运行中数量的问题；状态栏现在跟随 Worker Manager 生命周期变化同步清理。
+
 ## [0.8.5] - 2026-07-16
 
 ### Added

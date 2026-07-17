@@ -24,6 +24,13 @@ function managerFor(
 ): WorkerManager {
   if (!config.valid) throw new Error(formatDteamConfigWarning(config));
   if (current.manager) return current.manager;
+  let lastActive: number | undefined;
+  const syncStatus = () => {
+    const active = current.manager?.active().length ?? 0;
+    if (active === lastActive) return;
+    lastActive = active;
+    ctx.ui?.setStatus?.("dteam", active > 0 ? t("status.active", { count: active }) : undefined);
+  };
   const manager = new WorkerManager({
     cwd: ctx.cwd || process.cwd(),
     modelRegistry: ctx.modelRegistry,
@@ -32,14 +39,14 @@ function managerFor(
     getParentActiveTools: () => typeof pi.getActiveTools === "function" ? pi.getActiveTools() : (ctx as any).getActiveTools?.() ?? [],
     tierModelRoutes: config.routes,
     concurrency: new AdaptiveConcurrency(DEFAULT_CONCURRENCY_CONFIG),
-    onParentEvent: (event) => {
-      sendParentEvent(pi, event, ctx.hasUI);
-      const active = current.manager?.active().length ?? 0;
-      ctx.ui?.setStatus?.("dteam", active > 0 ? t("status.active", { count: active }) : undefined);
+    onParentEvent: (event) => sendParentEvent(pi, event, ctx.hasUI),
+    onChange: () => {
+      syncStatus();
+      current.render?.();
     },
-    onChange: () => current.render?.(),
   });
   current.manager = manager;
+  syncStatus();
   return manager;
 }
 
@@ -121,7 +128,6 @@ export default function registerDteam(pi: ExtensionAPI) {
         const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
         const manager = managerFor(pi, runtime, ctx, config);
         const accepted = manager.dispatch((rawParams as DteamDispatchParams).workers as WorkerRequest[]);
-        ctx.ui?.setStatus?.("dteam", t("status.active", { count: manager.active().length }));
         return { content: [{ type: "text" as const, text: JSON.stringify({ accepted }, null, 2) }], details: { accepted } };
       } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
     },
