@@ -1,5 +1,5 @@
 /** dteam — 三个模型工具与用户管理命令 `/dteam`。 */
-import { type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, Text } from "@earendil-works/pi-tui";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "./src/dispatch/concurrency.js";
 import { DTEAM_CONFIG } from "./src/config.js";
@@ -31,7 +31,8 @@ function managerFor(
     lastActive = active;
     ctx.ui?.setStatus?.("dteam", active > 0 ? t("status.active", { count: active }) : undefined);
   };
-  const manager = new WorkerManager({
+  let manager!: WorkerManager;
+  manager = new WorkerManager({
     cwd: ctx.cwd || process.cwd(),
     modelRegistry: ctx.modelRegistry,
     model: ctx.model,
@@ -39,7 +40,11 @@ function managerFor(
     getParentActiveTools: () => typeof pi.getActiveTools === "function" ? pi.getActiveTools() : (ctx as any).getActiveTools?.() ?? [],
     tierModelRoutes: config.routes,
     concurrency: new AdaptiveConcurrency(DEFAULT_CONCURRENCY_CONFIG),
+    usageLedger: { agentDir: getAgentDir(), parentSessionId: ctx.sessionManager.getSessionId() },
     onParentEvent: (event) => sendParentEvent(pi, event, ctx.hasUI),
+    onParentEventAvailable: () => {
+      if (ctx.isIdle()) manager.flushParentEvents();
+    },
     onChange: () => {
       syncStatus();
       current.render?.();
@@ -102,6 +107,20 @@ export default function registerDteam(pi: ExtensionAPI) {
     runtime.config = undefined;
     ctx.ui?.setStatus?.("dteam", undefined);
   });
+  // Pi >= 0.79 provides agent_settled. The agent_end idle check keeps 0.78 compatible
+  // without enqueueing follow-up while the main agent can still call dteam_wait.
+  pi.on("agent_end", (_event, ctx) => {
+    setTimeout(() => {
+      try {
+        if (ctx.isIdle()) runtime.manager?.flushParentEvents();
+      } catch {
+        // session replacement / shutdown can invalidate ctx before this compatibility tick
+      }
+    }, 0);
+  });
+  (pi.on as any)("agent_settled", () => {
+    runtime.manager?.flushParentEvents();
+  });
 
   const toolDescription = "dteam 模型分级后台 worker 工具。主 LLM 负责理解、路由、证据筛选、冲突裁决和收口；非极小代码任务先用多轮、多证据面的 T3 只读探测，外部信息由主代理选源后交 T3 有界提取；T2 处理已定位的常规实现，T1 只处理复杂判断、高风险收敛和验收。worker 必须通过内部 dteam_report 如实提交任务 outcome、实际 activities、facts 与 verification；跨档仅传有界 handoff，不传完整会话或 worker P2P 消息。可写 worker 必须声明 writeScope；中断时主 LLM 必须派 fresh T3 检查 scope 的 diff、编译或定向测试。";
   const workerSchema = {
@@ -118,6 +137,11 @@ export default function registerDteam(pi: ExtensionAPI) {
     required: ["title", "task", "tier"],
   };
   const renderResult = (kind: "dispatch" | "respond" | "recover" | "wait") => (result: any, { expanded }: { expanded: boolean }) => new Text(humanizeToolResult(kind, result, expanded), 0, 0);
+  const toolManager = (ctx: ExtensionContext) => {
+    const config = runtime.config ?? loadDteamConfig();
+    runtime.config = config;
+    return managerFor(pi, runtime, ctx, config);
+  };
 
   pi.registerTool({
     name: "dteam_dispatch", label: "dteam dispatch", description: toolDescription,
@@ -125,9 +149,7 @@ export default function registerDteam(pi: ExtensionAPI) {
     async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
       if (!rawParams || typeof rawParams !== "object" || !Array.isArray((rawParams as any).workers)) return errorResult("workers 必须是 1–32 项数组");
       try {
-        const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
-        const manager = managerFor(pi, runtime, ctx, config);
-        const accepted = manager.dispatch((rawParams as DteamDispatchParams).workers as WorkerRequest[]);
+        const accepted = toolManager(ctx).dispatch((rawParams as DteamDispatchParams).workers as WorkerRequest[]);
         return { content: [{ type: "text" as const, text: JSON.stringify({ accepted }, null, 2) }], details: { accepted } };
       } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
     },
@@ -145,8 +167,7 @@ export default function registerDteam(pi: ExtensionAPI) {
       const response = validateResponse(rawParams.response);
       if (!response.ok) return errorResult(response.error);
       try {
-        const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
-        const result = managerFor(pi, runtime, ctx, config).respond(rawParams.workerId, rawParams.requestId, response.value);
+        const result = toolManager(ctx).respond(rawParams.workerId, rawParams.requestId, response.value);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result, response: response.value } };
       } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
     },
@@ -163,8 +184,7 @@ export default function registerDteam(pi: ExtensionAPI) {
       const action = validateRecovery(rawParams);
       if (!action.ok) return errorResult(action.error);
       try {
-        const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
-        const result = managerFor(pi, runtime, ctx, config).recover((rawParams as any).workerId, (rawParams as any).requestId, action.value);
+        const result = toolManager(ctx).recover((rawParams as any).workerId, (rawParams as any).requestId, action.value);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result, action: action.value } };
       } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
     },
@@ -177,8 +197,7 @@ export default function registerDteam(pi: ExtensionAPI) {
     async execute(_toolCallId, rawParams, _signal, onUpdate, ctx) {
       if (!rawParams || typeof rawParams !== "object" || !Array.isArray((rawParams as any).workerIds) || typeof (rawParams as any).timeoutMs !== "number") return errorResult("需要 workerIds 和 timeoutMs");
       try {
-        const config = runtime.config ?? loadDteamConfig(); runtime.config = config;
-        const manager = managerFor(pi, runtime, ctx, config);
+        const manager = toolManager(ctx);
         const params = rawParams as DteamWaitParams;
         const startedAt = Date.now();
         const waiting = manager.wait(params.workerIds, params.timeoutMs);

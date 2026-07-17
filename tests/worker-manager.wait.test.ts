@@ -5,6 +5,7 @@ vi.mock("../src/session.js", () => ({ createWorkerSession: mockCreateWorkerSessi
 
 import { AdaptiveConcurrency } from "../src/dispatch/concurrency.js";
 import { WorkerManager } from "../src/runtime/worker-manager.js";
+import { workerReport } from "./worker-report.fixture.js";
 
 function options(overrides: any = {}) {
   return {
@@ -31,6 +32,22 @@ describe("WorkerManager explicit dependency wait", () => {
     expect(events.some((event) => event.type === "cancelled" && event.workerId === accepted!.workerId)).toBe(false);
   });
 
+  it("同一事件只解除一个重叠 wait", async () => {
+    const events: any[] = [];
+    const hanging = { prompt: vi.fn(() => new Promise<void>(() => {})), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(hanging);
+    const manager = new WorkerManager(options({ onParentEvent: (event: any) => events.push(event) }));
+    const [accepted] = manager.dispatch([{ title: "单消费者", task: "任务", tier: "T3" }]);
+    await vi.waitFor(() => expect(hanging.prompt).toHaveBeenCalled());
+    const first = manager.wait([accepted!.workerId], 100);
+    const second = manager.wait([accepted!.workerId], 20);
+    manager.cancel(accepted!.workerId);
+
+    await expect(first).resolves.toMatchObject({ reason: "worker_event", events: [expect.objectContaining({ type: "cancelled" })] });
+    await expect(second).resolves.toMatchObject({ reason: "timeout", events: [] });
+    expect(events).toEqual([]);
+  });
+
   it("任一 worker 需要主代理回应时解除多 worker wait，并带 request", async () => {
     const events: any[] = [];
     const first = { prompt: vi.fn(() => new Promise<void>(() => {})), abort: vi.fn().mockResolvedValue(undefined), messages: [] };
@@ -46,6 +63,81 @@ describe("WorkerManager explicit dependency wait", () => {
     manager.respond(accepted[0]!.workerId, "ctx", { type: "provide_context", context: "ok" });
     await request;
     manager.shutdown();
+  });
+
+  it("完成后才调用 wait 仍会消费待回放事件", async () => {
+    let finish!: () => void;
+    const events: any[] = [];
+    const session = {
+      prompt: vi.fn(() => new Promise<void>((resolve) => { finish = resolve; })),
+      abort: vi.fn().mockResolvedValue(undefined),
+      messages: [{ role: "assistant", content: [
+        { type: "text", text: "完成" },
+        { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "完成" }) },
+      ] }],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const manager = new WorkerManager(options({
+      onParentEvent: (event: any) => events.push(event),
+      onParentEventAvailable: vi.fn(),
+    }));
+    const [accepted] = manager.dispatch([{ title: "迟到等待", task: "任务", tier: "T3" }]);
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+    finish();
+    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+
+    await expect(manager.wait([accepted!.workerId], 100)).resolves.toMatchObject({
+      reason: "worker_event",
+      events: [expect.objectContaining({ type: "completed", workerId: accepted!.workerId })],
+      ready: [expect.objectContaining({ id: accepted!.workerId, state: "completed" })],
+    });
+    await expect(manager.wait([accepted!.workerId], 10)).resolves.toMatchObject({ reason: "timeout", events: [] });
+    manager.flushParentEvents();
+    expect(events).toEqual([]);
+  });
+
+  it("未被 wait 消费的完成事件只 flush 一次", async () => {
+    const events: any[] = [];
+    const session = {
+      prompt: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn().mockResolvedValue(undefined),
+      messages: [{ role: "assistant", content: [
+        { type: "text", text: "完成" },
+        { type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "完成" }) },
+      ] }],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const manager = new WorkerManager(options({
+      onParentEvent: (event: any) => events.push(event),
+      onParentEventAvailable: vi.fn(),
+    }));
+    const [accepted] = manager.dispatch([{ title: "后台回放", task: "任务", tier: "T3" }]);
+    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+
+    manager.flushParentEvents();
+    manager.flushParentEvents();
+    expect(events).toEqual([expect.objectContaining({ type: "completed", workerId: accepted!.workerId })]);
+    await expect(manager.wait([accepted!.workerId], 10)).resolves.toMatchObject({ reason: "timeout", events: [] });
+  });
+
+  it("迟到 wait 会显式返回 write_interrupted 事件", async () => {
+    const failed = {
+      prompt: vi.fn().mockRejectedValue(new Error("write failed")),
+      abort: vi.fn().mockResolvedValue(undefined),
+      messages: [],
+    };
+    mockCreateWorkerSession.mockResolvedValue(failed);
+    const manager = new WorkerManager(options({ onParentEventAvailable: vi.fn() }));
+    const [accepted] = manager.dispatch([{ title: "写入中断", task: "任务", tier: "T3", addTools: ["edit"], writeScope: ["src/runtime/"] }]);
+    await vi.waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+
+    await expect(manager.wait([accepted!.workerId], 100)).resolves.toMatchObject({
+      reason: "worker_event",
+      events: [
+        expect.objectContaining({ type: "failed", workerId: accepted!.workerId }),
+        expect.objectContaining({ type: "write_interrupted", workerId: accepted!.workerId, payload: expect.objectContaining({ writeScope: ["src/runtime/"] }) }),
+      ],
+    });
   });
 
   it("wait timeout 仅返回部分状态，不取消后台 worker", async () => {

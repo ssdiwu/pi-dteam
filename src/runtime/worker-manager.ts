@@ -12,6 +12,7 @@ import { SignalLog } from "./signal-log.js";
 import { makeSignalTool } from "./signal-tool.js";
 import { makeReportTool, parseWorkerReport } from "./report-tool.js";
 import { sanitizeSensitive, sanitizeUnknown, truncate } from "./sanitize.js";
+import { appendUsageLedger } from "./usage-ledger.js";
 import { MAX_WORKERS_PER_DISPATCH, REPORT_TOOL_NAME, SIGNAL_TOOL_NAME, type DispatchAccepted, type DteamWaitResult, type ParentEvent, type ParentResponse, type RecoveryAction, type TimeoutDiagnostic, type WaitRequest, type WorkerReport, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
 
 interface Waiter {
@@ -59,7 +60,10 @@ export interface WorkerManagerOptions {
   timeoutMs?: number;
   /** 测试或受控调用可覆盖当前 worker 的初始累计预算；生产默认使用 workerTimeoutMs。 */
   totalBudgetMs?: number;
+  usageLedger?: { agentDir: string; parentSessionId: string };
   onParentEvent?: (event: ParentEvent) => void;
+  /** 有未消费 parent event 时通知宿主；宿主应在主代理 idle/settled 后 flush。 */
+  onParentEventAvailable?: () => void;
   onChange?: () => void;
 }
 
@@ -69,8 +73,8 @@ export class WorkerManager {
   readonly requestState = new RequestState();
   private readonly records = new Map<string, WorkerRecord>();
   private readonly options: WorkerManagerOptions;
-  private completedBuffer: ParentEvent[] = [];
-  private completionTimer: ReturnType<typeof setTimeout> | undefined;
+  private pendingParentEvents: ParentEvent[] = [];
+  private parentEventTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly waiters = new Set<Waiter>();
   private closed = false;
 
@@ -211,7 +215,7 @@ export class WorkerManager {
     this.requestState.cancelWorker(workerId, reason);
     record.controller.abort();
     this.clearRenderTimer(record);
-    void abortBounded(record.session);
+    void closeSession(record.session);
     this.signal(record, "worker_cancelled", { reason });
     this.emit({ type: "cancelled", workerId, title: record.title, payload: { reason, state: record.state } });
     this.emitWriteInterrupted(record, reason);
@@ -226,7 +230,7 @@ export class WorkerManager {
     this.requestState.cancelWorker(record.id, "session_shutdown");
     record.controller.abort();
     this.clearRenderTimer(record);
-    void abortBounded(record.session);
+    void closeSession(record.session);
     this.signal(record, "worker_shutdown", { reason: "session_shutdown" });
     this.emit({ type: "cancelled", workerId: record.id, title: record.title, payload: { reason: "session_shutdown", state: record.state } });
     this.emitWriteInterrupted(record, "session_shutdown");
@@ -238,13 +242,12 @@ export class WorkerManager {
     for (const record of this.records.values()) {
       if (!isTerminal(record.state)) this.shutdownWorker(record);
     }
+    this.flushParentEvents();
     this.requestState.clear();
-    for (const waiter of [...this.waiters]) this.settleWaiter(waiter, "worker_event");
-    if (this.completionTimer) {
-      clearTimeout(this.completionTimer);
-      this.completionTimer = undefined;
-      this.completedBuffer = [];
-    }
+    for (const waiter of [...this.waiters]) this.settleWaiter(waiter, "worker_event", []);
+    if (this.parentEventTimer) clearTimeout(this.parentEventTimer);
+    this.parentEventTimer = undefined;
+    this.pendingParentEvents = [];
   }
 
   get(workerId: string): WorkerSnapshot | undefined { return this.snapshot(this.records.get(workerId)); }
@@ -258,14 +261,15 @@ export class WorkerManager {
     for (const workerId of workerIds) if (!this.records.has(workerId)) throw new Error(`dteam: worker 不存在 ${workerId}`);
     const ids = new Set(workerIds);
     const startedAt = Date.now();
-    if (this.readyForWait(ids).length > 0) return Promise.resolve(this.waitResult(ids, "worker_event", startedAt, timeoutMs));
+    const events = this.consumePendingEventsFor(ids);
+    if (events.length > 0) return Promise.resolve(this.waitResult(ids, "worker_event", startedAt, timeoutMs, events));
     return new Promise<DteamWaitResult>((resolve) => {
       const waiter: Waiter = {
         workerIds: ids,
         startedAt,
         timeoutMs,
         resolve,
-        timer: setTimeout(() => this.settleWaiter(waiter, "timeout"), timeoutMs),
+        timer: setTimeout(() => this.settleWaiter(waiter, "timeout", []), timeoutMs),
       };
       this.waiters.add(waiter);
     });
@@ -329,10 +333,10 @@ export class WorkerManager {
       if (isTerminal(record.state)) return;
       if (!record.report) throw new Error("worker 未提交必需的 dteam_report");
       record.state = "completed"; record.result = result; record.endedAt = Date.now();
-      await abortBounded(record.session);
+      await closeSession(record.session);
       record.session = undefined;
       this.signal(record, "worker_completed", { result });
-      this.emitCompleted({ type: "completed", workerId: record.id, title: record.title, payload: { result, report: this.reportWithProvenance(record), tier: record.activeTier, fallbackTrail: record.fallbackTrail } });
+      this.emit({ type: "completed", workerId: record.id, title: record.title, payload: { result, report: this.reportWithProvenance(record), tier: record.activeTier, fallbackTrail: record.fallbackTrail } });
     } catch (error) {
       if (isTerminal(record.state) || record.controller.signal.aborted) return;
       if (error instanceof WorkerTimeoutError) {
@@ -342,6 +346,8 @@ export class WorkerManager {
       record.state = "failed";
       record.terminalReason = errorMessage(error).includes("dteam_report") ? "missing_report" : "error";
       record.error = truncate(sanitizeSensitive(errorMessage(error)), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars); record.endedAt = Date.now();
+      await closeSession(record.session);
+      record.session = undefined;
       this.signal(record, "worker_failed", { error: record.error });
       this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state } });
       this.emitWriteInterrupted(record, record.error);
@@ -380,10 +386,10 @@ export class WorkerManager {
         record.liveText = undefined;
         record.liveThinking = undefined;
         record.liveTool = undefined;
-        const unsubscribe = this.subscribeSession(record, session);
+        const unsubscribe = this.subscribeSession(record, session, candidateId, modelStr);
         try {
           if (record.controller.signal.aborted || isTerminal(record.state)) {
-            await abortBounded(session);
+            await closeSession(session);
             throw new Error("dteam: worker 已取消");
           }
           const remainingAttemptBudget = record.attemptBudgetMs - record.attemptConsumedMs;
@@ -398,7 +404,7 @@ export class WorkerManager {
         lastError = error;
         if (record.toolLimitReached) throw new WorkerToolLimitError(toolBudgetExhaustedMessage(record));
         if (record.controller.signal.aborted || error instanceof WorkerTimeoutError) throw error;
-        await abortBounded(record.session);
+        await closeSession(record.session);
         record.session = undefined;
         // Reports are candidate-attempt scoped; the next same-tier candidate must submit its own.
         record.report = undefined;
@@ -420,7 +426,7 @@ export class WorkerManager {
       timer = setTimeout(() => {
         timedOut = true;
         timeoutError = new WorkerTimeoutError(`worker 执行超时（${formatDuration(timeoutMs)}）`);
-        void abortBounded(session).then(() => reject(timeoutError));
+        void closeSession(session).then(() => reject(timeoutError));
       }, timeoutMs);
     });
     const cancelled = new Promise<never>((_, reject) => {
@@ -547,7 +553,7 @@ export class WorkerManager {
     record.endedAt = Date.now();
     this.requestState.cancelWorker(record.id, reason);
     record.controller.abort();
-    void abortBounded(record.session);
+    void closeSession(record.session);
     this.signal(record, "worker_tool_budget_exhausted", { reason, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget });
     this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: reason, state: record.state, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget } });
     this.emitWriteInterrupted(record, reason);
@@ -588,9 +594,26 @@ export class WorkerManager {
     return `${task}${handoff}${recovery}`;
   }
 
-  private subscribeSession(record: WorkerRecord, session: any): () => void {
+  private subscribeSession(record: WorkerRecord, session: any, candidateId: string, configuredModel: string): () => void {
     if (typeof session?.subscribe !== "function") return () => {};
     return session.subscribe((event: any) => {
+      if (event?.type === "message_end" && event.message?.role === "assistant" && event.message.usage && this.options.usageLedger) {
+        const message = event.message;
+        const model = typeof message.provider === "string" && typeof message.model === "string"
+          ? `${message.provider}/${message.model}`
+          : configuredModel;
+        void appendUsageLedger(this.options.usageLedger.agentDir, {
+          timestamp: message.timestamp,
+          parentSessionId: this.options.usageLedger.parentSessionId,
+          project: this.options.cwd,
+          workerId: record.id,
+          requestedTier: record.requestedTier,
+          activeTier: record.activeTier,
+          candidateId,
+          model,
+          usage: message.usage,
+        }).catch((error) => this.signal(record, "usage_ledger_failed", { error: errorMessage(error) }));
+      }
       if (isTerminal(record.state)) return;
       if (event?.type === "message_update") {
         const delta = event.assistantMessageEvent;
@@ -650,29 +673,39 @@ export class WorkerManager {
       .filter((worker): worker is WorkerSnapshot => !!worker && (worker.state === "waiting" || isTerminal(worker.state)));
   }
 
-  private waitResult(workerIds: Set<string>, reason: DteamWaitResult["reason"], startedAt: number, timeoutMs: number): DteamWaitResult {
+  private waitResult(workerIds: Set<string>, reason: DteamWaitResult["reason"], startedAt: number, timeoutMs: number, events: ParentEvent[]): DteamWaitResult {
     const targetWorkers = [...workerIds].map((workerId) => {
       const worker = this.records.get(workerId)!;
       return { id: worker.id, title: worker.title };
     });
-    const ready = this.readyForWait(workerIds);
+    const eventWorkerIds = new Set(events.map((event) => event.workerId));
+    const ready = reason === "worker_event"
+      ? [...eventWorkerIds].map((workerId) => this.snapshot(this.records.get(workerId))).filter((worker): worker is WorkerSnapshot => !!worker)
+      : this.readyForWait(workerIds);
     const requests: WaitRequest[] = this.requestState.list()
       .filter((request) => workerIds.has(request.workerId))
       .map((request) => ({ workerId: request.workerId, requestId: request.requestId, kind: request.kind, payload: sanitizeUnknown(request.payload) }));
     const pendingWorkerIds = [...workerIds].filter((workerId) => !ready.some((worker) => worker.id === workerId));
-    return { reason, targetWorkers, waitedMs: Math.max(0, Date.now() - startedAt), timeoutMs, ready, requests, pendingWorkerIds };
+    return { reason, targetWorkers, waitedMs: Math.max(0, Date.now() - startedAt), timeoutMs, events, ready, requests, pendingWorkerIds };
   }
 
-  private consumeWaitersFor(workerId: string): boolean {
-    const matching = [...this.waiters].filter((waiter) => waiter.workerIds.has(workerId));
-    for (const waiter of matching) this.settleWaiter(waiter, "worker_event");
-    return matching.length > 0;
+  private consumeWaiterFor(event: ParentEvent): boolean {
+    const waiter = [...this.waiters].find((candidate) => candidate.workerIds.has(event.workerId));
+    if (!waiter) return false;
+    this.settleWaiter(waiter, "worker_event", [event]);
+    return true;
   }
 
-  private settleWaiter(waiter: Waiter, reason: DteamWaitResult["reason"]): void {
+  private consumePendingEventsFor(workerIds: Set<string>): ParentEvent[] {
+    const consumed = this.pendingParentEvents.filter((event) => workerIds.has(event.workerId));
+    if (consumed.length > 0) this.pendingParentEvents = this.pendingParentEvents.filter((event) => !workerIds.has(event.workerId));
+    return consumed;
+  }
+
+  private settleWaiter(waiter: Waiter, reason: DteamWaitResult["reason"], events: ParentEvent[]): void {
     if (!this.waiters.delete(waiter)) return;
     clearTimeout(waiter.timer);
-    waiter.resolve(this.waitResult(waiter.workerIds, reason, waiter.startedAt, waiter.timeoutMs));
+    waiter.resolve(this.waitResult(waiter.workerIds, reason, waiter.startedAt, waiter.timeoutMs, events));
   }
 
   private clearRenderTimer(record: WorkerRecord): void {
@@ -757,29 +790,46 @@ export class WorkerManager {
     return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], handoff: record.handoff, writeScope: record.writeScope, report: record.report, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), terminalReason: record.terminalReason };
   }
   private emit(event: ParentEvent): void {
-    if (this.consumeWaitersFor(event.workerId)) return;
     const safeEvent: ParentEvent = {
       ...event,
       title: truncate(sanitizeSensitive(event.title), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars),
       payload: sanitizeUnknown(event.payload),
     };
-    try { this.options.onParentEvent?.(safeEvent); } catch { /* 父代理通知失败不能改变 worker 业务状态 */ }
+    if (this.consumeWaiterFor(safeEvent)) return;
+    this.pendingParentEvents.push(safeEvent);
+    if (this.options.onParentEventAvailable) {
+      try { this.options.onParentEventAvailable(); } catch { /* 可用性通知失败不能改变 worker 业务状态 */ }
+    } else if (safeEvent.type === "completed") {
+      this.parentEventTimer ??= setTimeout(() => this.flushParentEvents(), 500);
+    } else {
+      this.flushParentEvents();
+    }
   }
-  private emitCompleted(event: ParentEvent): void {
-    if (this.consumeWaitersFor(event.workerId)) return;
-    this.completedBuffer.push(event);
-    if (this.completionTimer) return;
-    this.completionTimer = setTimeout(() => {
-      const events = this.completedBuffer.splice(0);
-      this.completionTimer = undefined;
-      this.emit({
+
+  /** 把仍未被 dteam_wait 消费的事件交给主代理；调用后事件不可再次消费。 */
+  flushParentEvents(): void {
+    if (this.parentEventTimer) clearTimeout(this.parentEventTimer);
+    this.parentEventTimer = undefined;
+    if (this.pendingParentEvents.length === 0) return;
+    const events = this.pendingParentEvents.splice(0);
+    const completed = events.filter((event) => event.type === "completed");
+    const other = events.filter((event) => event.type !== "completed");
+    for (const event of other) this.deliverParentEvent(event);
+    if (completed.length === 1) this.deliverParentEvent(completed[0]!);
+    else if (completed.length > 1) {
+      this.deliverParentEvent({
         type: "completed",
-        workerId: events.length === 1 ? events[0]!.workerId : "multiple",
-        title: events.length === 1 ? events[0]!.title : "dteam workers",
-        payload: events.length === 1 ? events[0]!.payload : { results: events.map((item) => ({ workerId: item.workerId, title: item.title, ...(item.payload as object) })) },
+        workerId: "multiple",
+        title: "dteam workers",
+        payload: { results: completed.map((item) => ({ workerId: item.workerId, title: item.title, ...(item.payload as object) })) },
       });
-    }, 500);
+    }
   }
+
+  private deliverParentEvent(event: ParentEvent): void {
+    try { this.options.onParentEvent?.(event); } catch { /* 父代理通知失败不能改变 worker 业务状态 */ }
+  }
+
 }
 
 class WorkerTimeoutError extends Error {
@@ -809,7 +859,7 @@ async function createSessionWithTimeout(options: Parameters<typeof createWorkerS
     signal?.addEventListener("abort", onAbort, { once: true });
     timer = setTimeout(() => finish(() => reject(new WorkerTimeoutError(`worker session 创建超时（${formatDuration(timeoutMs)}）`))), timeoutMs);
     void creation.then(
-      (session) => { if (settled) { void abortBounded(session); return; } finish(() => resolve(session)); },
+      (session) => { if (settled) { void closeSession(session); return; } finish(() => resolve(session)); },
       (error) => finish(() => reject(error instanceof Error ? error : new Error(String(error)))),
     );
   });
@@ -824,6 +874,12 @@ async function abortBounded(session: any): Promise<void> {
       new Promise<void>((resolve) => setTimeout(resolve, DTEAM_CONFIG.dispatch.abortGraceMs)),
     ]);
   } catch { /* abort 失败不能阻止终态或回退 */ }
+}
+
+async function closeSession(session: any): Promise<void> {
+  if (!session) return;
+  await abortBounded(session);
+  try { session.dispose?.(); } catch { /* dispose 失败不能阻止终态或回退 */ }
 }
 
 function responseAllowed(requestKind: string, responseType: ParentResponse["type"]): boolean {

@@ -145,6 +145,8 @@ export interface DteamWaitResult {
   targetWorkers: WaitTarget[];
   waitedMs: number;
   timeoutMs: number;
+  /** 本次 wait 实际消费的 parent events；timeout 时为空。 */
+  events: ParentEvent[];
   ready: WorkerSnapshot[];
   requests: WaitRequest[];
   pendingWorkerIds: string[];
