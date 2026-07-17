@@ -17,8 +17,31 @@ export type RecoveryAction =
   | { action: "extend"; additionalMs: number }
   | { action: "stop"; reason?: string };
 
+export const REPORT_OUTCOMES = ["completed", "partial"] as const;
+export const WORKER_ACTIVITIES = ["inspected", "modified", "tested", "executed", "captured_visual"] as const;
+export const VERIFICATION_DEPTHS = ["none", "inspection", "automated", "runtime", "visual"] as const;
+export const VERIFICATION_STATUSES = ["passed", "failed", "partial", "not_run"] as const;
+
+export type ReportOutcome = typeof REPORT_OUTCOMES[number];
+export type WorkerActivity = typeof WORKER_ACTIVITIES[number];
+export type VerificationDepth = typeof VERIFICATION_DEPTHS[number];
+export type VerificationStatus = typeof VERIFICATION_STATUSES[number];
+
 export interface ReportFact { claim: string; evidence: string }
-export interface WorkerReport { summary: string; facts: ReportFact[]; uncertainties?: string[] }
+export interface WorkerVerification {
+  depth: VerificationDepth;
+  status: VerificationStatus;
+  evidence: string[];
+  remaining?: string[];
+}
+export interface WorkerReport {
+  outcome: ReportOutcome;
+  summary: string;
+  activities: WorkerActivity[];
+  facts: ReportFact[];
+  verification: WorkerVerification;
+  uncertainties?: string[];
+}
 export interface ReportedFact extends ReportFact { workerId: string }
 export interface Handoff {
   facts: ReportedFact[];

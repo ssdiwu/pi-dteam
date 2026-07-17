@@ -3,7 +3,7 @@ export const DTEAM_CONFIG = {
   dispatch: {
     /** 每次 worker attempt 的默认总预算（内部使用毫秒）；超时后 abort 并请求主代理 timeout recovery。 */
     workerTimeoutMs: 300_000,
-    /** 每个 worker 按初始档位获得的工作工具调用额度；dteam_signal 不计入。 */
+    /** 每个 worker 按初始档位获得的工作工具调用额度；dteam_signal 与 dteam_report 不计入。 */
     toolCallBudgetByTier: { T1: 180, T2: 120, T3: 60 },
     /** 主代理一次可批准的额外工作工具调用额度。 */
     toolCallBudgetExtension: { min: 60, max: 120, step: 10, maxPerWorker: 1 },

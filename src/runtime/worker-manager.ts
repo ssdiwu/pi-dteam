@@ -10,7 +10,7 @@ import { createToolPolicy, validateRequestedTools } from "./tool-policy.js";
 import { RequestState } from "./request-state.js";
 import { SignalLog } from "./signal-log.js";
 import { makeSignalTool } from "./signal-tool.js";
-import { makeReportTool } from "./report-tool.js";
+import { makeReportTool, parseWorkerReport } from "./report-tool.js";
 import { sanitizeSensitive, sanitizeUnknown, truncate } from "./sanitize.js";
 import { MAX_WORKERS_PER_DISPATCH, REPORT_TOOL_NAME, SIGNAL_TOOL_NAME, type DispatchAccepted, type DteamWaitResult, type ParentEvent, type ParentResponse, type RecoveryAction, type TimeoutDiagnostic, type WaitRequest, type WorkerReport, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
 
@@ -41,6 +41,7 @@ interface WorkerRecord extends WorkerSnapshot {
   toolBudgetExtensionCount: number;
   toolLimitReached: boolean;
   rejectToolLimit?: (error: Error) => void;
+  activeCandidateId?: string;
   report?: WorkerReport;
   handoff?: WorkerRequest["handoff"];
   writeScope?: string[];
@@ -157,13 +158,25 @@ export class WorkerManager {
     return { workerId, requestId, state: record.state };
   }
 
-  receiveReport(workerId: string, report: WorkerReport): { ok: true } {
+  receiveReport(workerId: string, report: unknown, candidateId?: string): { ok: true } {
     const record = this.records.get(workerId);
     if (!record || isTerminal(record.state)) throw new Error("dteam_report: worker 已结束或不存在");
+    if (candidateId !== undefined && candidateId !== record.activeCandidateId) throw new Error("dteam_report: worker 候选已失效");
     if (record.report) throw new Error("dteam_report: 每个 worker 只能提交一次最终报告");
-    record.report = this.sanitizeReport(report);
+    record.report = this.sanitizeReport(parseWorkerReport(report));
     record.latestFinding = record.report.summary;
-    this.signal(record, "worker_reported", { summary: record.report.summary, facts: record.report.facts.length, uncertainties: record.report.uncertainties?.length ?? 0 });
+    this.signal(record, "worker_reported", {
+      outcome: record.report.outcome,
+      summary: record.report.summary,
+      activities: record.report.activities,
+      verification: {
+        depth: record.report.verification.depth,
+        status: record.report.verification.status,
+        remaining: record.report.verification.remaining?.length ?? 0,
+      },
+      facts: record.report.facts.length,
+      uncertainties: record.report.uncertainties?.length ?? 0,
+    });
     return { ok: true };
   }
 
@@ -345,6 +358,8 @@ export class WorkerManager {
       const remainingBudget = record.attemptBudgetMs - record.attemptConsumedMs;
       if (remainingBudget <= 0) throw new WorkerTimeoutError(`worker 累计预算已用尽（${formatDuration(record.totalBudgetMs)}）`);
       const attemptBudgetMs = Math.min(record.attemptBudgetMs, remainingBudget);
+      const candidateId = crypto.randomUUID();
+      record.activeCandidateId = candidateId;
       const creationStartedAt = Date.now();
       let creationAccounted = false;
       try {
@@ -354,7 +369,7 @@ export class WorkerManager {
           builtInTools: getTierTools(tier),
           registeredTools: [...new Set([...getTierTools(tier), ...record.policy.addTools, SIGNAL_TOOL_NAME, REPORT_TOOL_NAME])],
           initialActiveTools: record.activeTools,
-          customTools: [makeSignalTool(record.id, this), makeReportTool(record.id, this)],
+          customTools: [makeSignalTool(record.id, this), makeReportTool(record.id, candidateId, this)],
           thinkingLevel,
           logicalIsolation: true,
         }, attemptBudgetMs, record.controller.signal);
@@ -373,17 +388,20 @@ export class WorkerManager {
           }
           const remainingAttemptBudget = record.attemptBudgetMs - record.attemptConsumedMs;
           if (remainingAttemptBudget <= 0) throw new WorkerTimeoutError(`worker 累计预算已用尽（${formatDuration(record.totalBudgetMs)}）`);
-          return await this.promptWithTimeout(record, session, remainingAttemptBudget);
+          return await this.promptWithTimeout(record, session, remainingAttemptBudget, candidateId);
         } finally {
           unsubscribe();
         }
       } catch (error) {
+        if (record.activeCandidateId === candidateId) record.activeCandidateId = undefined;
         if (!creationAccounted) this.chargeAttemptTime(record, creationStartedAt);
         lastError = error;
         if (record.toolLimitReached) throw new WorkerToolLimitError(toolBudgetExhaustedMessage(record));
         if (record.controller.signal.aborted || error instanceof WorkerTimeoutError) throw error;
         await abortBounded(record.session);
         record.session = undefined;
+        // Reports are candidate-attempt scoped; the next same-tier candidate must submit its own.
+        record.report = undefined;
         this.requestState.cancelWorker(record.id, "worker_attempt_failed");
         if (!isTerminal(record.state)) record.state = "running";
         if (isRateLimitError(error)) this.options.concurrency.recordRateLimit();
@@ -392,7 +410,7 @@ export class WorkerManager {
     throw lastError instanceof Error ? lastError : new Error("dteam: 所有模型候选均失败");
   }
 
-  private async promptWithTimeout(record: WorkerRecord, session: any, timeoutMs: number): Promise<string> {
+  private async promptWithTimeout(record: WorkerRecord, session: any, timeoutMs: number, candidateId: string): Promise<string> {
     const startedAt = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let onAbort: (() => void) | undefined;
@@ -418,7 +436,7 @@ export class WorkerManager {
       if (timedOut) throw timeoutError ?? new WorkerTimeoutError(`worker 执行超时（${formatDuration(timeoutMs)}）`);
       if (!record.report) {
         const report = reportFromMessages(session.messages as any[]);
-        if (report) this.receiveReport(record.id, report);
+        if (report) this.receiveReport(record.id, report, candidateId);
       }
       const result = extractLastText(session.messages as any[]);
       if (result === "(no output)") throw new Error("worker 未返回 assistant 文本");
@@ -582,7 +600,7 @@ export class WorkerManager {
         if (delta?.type === "thinking_end" && typeof delta.content === "string") record.liveThinking = truncate(sanitizeSensitive(delta.content), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
         if (["text_delta", "text_end", "thinking_delta", "thinking_end"].includes(delta?.type)) record.lastActivity = "生成文本";
       } else if (event?.type === "tool_execution_start" && typeof event.toolName === "string") {
-        if (event.toolName !== SIGNAL_TOOL_NAME) {
+        if (event.toolName !== SIGNAL_TOOL_NAME && event.toolName !== REPORT_TOOL_NAME) {
           record.toolCallCount += 1;
           if (record.toolCallCount > record.toolCallBudget && !record.toolLimitReached) {
             record.toolLimitReached = true;
@@ -695,10 +713,23 @@ export class WorkerManager {
   }
 
   private sanitizeReport(report: WorkerReport): WorkerReport {
-    const summary = truncate(sanitizeSensitive(report.summary), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
-    const facts = report.facts.map((fact) => ({ claim: truncate(sanitizeSensitive(fact.claim), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars), evidence: truncate(sanitizeSensitive(fact.evidence), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars) }));
-    const uncertainties = report.uncertainties?.map((item) => truncate(sanitizeSensitive(item), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars));
-    return { summary, facts, ...(uncertainties?.length ? { uncertainties } : {}) };
+    const safe = (value: string) => truncate(sanitizeSensitive(value), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
+    const facts = report.facts.map((fact) => ({ claim: safe(fact.claim), evidence: safe(fact.evidence) }));
+    const remaining = report.verification.remaining?.map(safe);
+    const uncertainties = report.uncertainties?.map(safe);
+    return {
+      outcome: report.outcome,
+      summary: safe(report.summary),
+      activities: [...report.activities],
+      facts,
+      verification: {
+        depth: report.verification.depth,
+        status: report.verification.status,
+        evidence: report.verification.evidence.map(safe),
+        ...(remaining?.length ? { remaining } : {}),
+      },
+      ...(uncertainties?.length ? { uncertainties } : {}),
+    };
   }
 
   private reportWithProvenance(record: WorkerRecord) {
@@ -818,7 +849,7 @@ function toolCallBudgetForTier(tier: Tier): number {
 }
 
 function workerSystemPrompt(tier: Tier, toolCallBudget: number): string {
-  return `${getTierPrompt(tier)}\n\n本 worker 的工作工具调用额度为 ${toolCallBudget} 次；dteam_signal 和 dteam_report 不计入。若预计额度不足，必须在耗尽前调用 dteam_signal(kind=\"request_tool_budget\", requestId, reason) 请求主代理决定。主代理最多只会追加一次，且追加后再次不足时会结束本 worker，由主代理重新 dispatch fresh worker。\n\n结束前必须恰好调用一次 dteam_report({ summary, facts, uncertainties? })；每个事实须包含 claim 和可核验 evidence。未提交报告会按失败处理。`;
+  return `${getTierPrompt(tier)}\n\n本 worker 的工作工具调用额度为 ${toolCallBudget} 次；dteam_signal 和 dteam_report 不计入。若预计额度不足，必须在耗尽前调用 dteam_signal(kind=\"request_tool_budget\", requestId, reason) 请求主代理决定。主代理最多只会追加一次，且追加后再次不足时会结束本 worker，由主代理重新 dispatch fresh worker。\n\n结束前必须恰好调用一次 dteam_report({ outcome, summary, activities, facts, verification, uncertainties? })。outcome 只表达任务本身 completed/partial；activities 只列本轮实际做过的 inspected/modified/tested/executed/captured_visual；facts 至少一项且每项包含 claim 与可核验 evidence；verification 必填，只报告实际达到的 depth(none/inspection/automated/runtime/visual)、status(passed/failed/partial/not_run)、evidence[] 与 remaining?。没有验证时必须使用 none + not_run + 空 evidence；inspection/automated/runtime/visual 分别要求 inspected/tested/executed/(executed + captured_visual)。不要把人工复测或期望深度写进报告。未提交合法报告会按失败处理。`;
 }
 
 function toolBudgetExhaustedMessage(record: WorkerRecord): string {
@@ -843,12 +874,7 @@ function reportFromMessages(messages: any[]): WorkerReport | undefined {
     for (const content of [...message.content].reverse()) {
       if (content?.type !== "toolCall" || content.name !== REPORT_TOOL_NAME) continue;
       const raw = typeof content.arguments === "string" ? tryParseJson(content.arguments) : content.arguments;
-      if (!raw || typeof raw !== "object" || typeof (raw as any).summary !== "string" || !(raw as any).summary.trim() || !Array.isArray((raw as any).facts)) continue;
-      const facts = (raw as any).facts;
-      if (facts.some((fact: any) => !fact || typeof fact.claim !== "string" || !fact.claim.trim() || typeof fact.evidence !== "string" || !fact.evidence.trim())) continue;
-      const uncertainties = (raw as any).uncertainties;
-      if (uncertainties !== undefined && (!Array.isArray(uncertainties) || uncertainties.some((item) => typeof item !== "string" || !item.trim()))) continue;
-      return { summary: (raw as any).summary, facts, ...(uncertainties ? { uncertainties } : {}) };
+      try { return parseWorkerReport(raw); } catch { /* 忽略无效工具调用，继续寻找最近的合法报告。 */ }
     }
   }
   return undefined;
