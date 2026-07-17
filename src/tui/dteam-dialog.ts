@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { WorkerSnapshot } from "../runtime/types.js";
+import type { WorkerReport, WorkerSnapshot } from "../runtime/types.js";
 import { formatDuration } from "../duration.js";
 import { t, type Translate } from "./i18n.js";
 
@@ -89,7 +89,7 @@ export function renderWorkerDetail(item: WorkerSnapshot, theme?: ThemeLike, widt
     ...(item.liveTool ? [translate("dialog.liveTool", { value: safeText(item.liveTool) })] : []),
     ...(item.lastActivity ? [translate("dialog.lastActivity", { value: safeText(item.lastActivity) })] : []),
     ...(item.timeoutDiagnostic ? [timeoutLabel(item, translate), translate("dialog.timeoutOutput", { value: safeText(item.timeoutDiagnostic.outputSummary) })] : []),
-    ...(item.latestFinding ? [translate("dialog.finding", { value: safeText(item.latestFinding) })] : []),
+    ...(item.report ? reportDetailLines(item.report, translate) : item.latestFinding ? [translate("dialog.finding", { value: safeText(item.latestFinding) })] : []),
     ...(item.result ? [translate("dialog.result", { value: safeText(item.result) })] : []),
     ...(item.error ? [translate("dialog.error", { value: safeText(item.error) })] : []),
   ];
@@ -138,6 +138,19 @@ function timeoutLabel(item: WorkerSnapshot, translate: Translate): string {
     lastActivity: safeText(diagnostic.lastActivity),
     currentTool: safeText(diagnostic.currentTool),
   });
+}
+
+function reportDetailLines(report: WorkerReport, translate: Translate): string[] {
+  const lines = [
+    translate("dialog.reportSummary", { outcome: report.outcome, value: safeText(report.summary) }),
+    translate("dialog.reportActivities", { value: report.activities.map(safeText).join(", ") }),
+    translate("dialog.reportVerification", { depth: report.verification.depth, status: report.verification.status }),
+  ];
+  for (const evidence of report.verification.evidence) lines.push(translate("dialog.reportEvidence", { value: safeText(evidence) }));
+  for (const remaining of report.verification.remaining ?? []) lines.push(translate("dialog.reportRemaining", { value: safeText(remaining) }));
+  for (const fact of report.facts) lines.push(translate("dialog.reportFact", { claim: safeText(fact.claim), evidence: safeText(fact.evidence) }));
+  for (const uncertainty of report.uncertainties ?? []) lines.push(translate("dialog.reportUncertainty", { value: safeText(uncertainty) }));
+  return lines;
 }
 
 function paint(theme: ThemeLike | undefined, name: ThemeColor, text: string): string {

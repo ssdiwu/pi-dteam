@@ -1,5 +1,5 @@
 import { formatDuration } from "../duration.js";
-import type { DteamWaitResult, WorkerSnapshot } from "../runtime/types.js";
+import type { DteamWaitResult, WorkerReport, WorkerSnapshot } from "../runtime/types.js";
 
 export type DteamToolResultKind = "dispatch" | "respond" | "recover" | "wait";
 
@@ -83,9 +83,22 @@ function waitTargetText(targets: DteamWaitResult["targetWorkers"] | undefined): 
 
 function workerLines(worker: WorkerSnapshot): string[] {
   const lines = [`- ${text(worker.title) || "未命名"} · ${text(worker.id)} · ${text(worker.state)}`];
-  if (worker.report?.summary) lines.push(`  报告：${text(worker.report.summary)}`);
+  if (worker.report) lines.push(...reportLines(worker.report));
   if (worker.error) lines.push(`  错误：${text(worker.error)}`);
   if (worker.timeoutDiagnostic) lines.push(`  超时：${text(worker.timeoutDiagnostic.lastActivity) || "无活动信息"}`);
+  return lines;
+}
+
+function reportLines(report: WorkerReport): string[] {
+  const lines = [
+    `  报告：${report.outcome} · ${text(report.summary)}`,
+    `  动作：${arrayText(report.activities)}`,
+    `  验证：${report.verification.depth} / ${report.verification.status}`,
+  ];
+  for (const evidence of report.verification.evidence) lines.push(`    证据：${text(evidence)}`);
+  for (const remaining of report.verification.remaining ?? []) lines.push(`    剩余：${text(remaining)}`);
+  for (const fact of report.facts) lines.push(`  事实：${text(fact.claim)} ← ${text(fact.evidence)}`);
+  for (const uncertainty of report.uncertainties ?? []) lines.push(`  不确定：${text(uncertainty)}`);
   return lines;
 }
 
@@ -99,5 +112,7 @@ function arrayText(value: unknown): string {
 }
 
 function text(value: unknown): string {
-  return typeof value === "string" ? value.replace(/[\r\n]+/g, " ").trim() : "";
+  return typeof value === "string"
+    ? value.replace(/[\r\n]+/g, " ").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "�").trim()
+    : "";
 }

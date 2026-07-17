@@ -103,7 +103,7 @@ export default function registerDteam(pi: ExtensionAPI) {
     ctx.ui?.setStatus?.("dteam", undefined);
   });
 
-  const toolDescription = "dteam 模型分级后台 worker 工具。主 LLM 负责理解、路由、证据筛选、冲突裁决和收口；T3 先做只读事实探测或经显式最小授权的机械小改，T2 处理已定位的常规实现，T1 只处理复杂判断、高风险收敛和验收。worker 必须通过内部 dteam_report 提交结构化报告；跨档仅传有界 handoff，不传完整会话或 worker P2P 消息。可写 worker 必须声明 writeScope；中断时主 LLM 必须派 fresh T3 检查 scope 的 diff、编译或定向测试。";
+  const toolDescription = "dteam 模型分级后台 worker 工具。主 LLM 负责理解、路由、证据筛选、冲突裁决和收口；非极小代码任务先用多轮、多证据面的 T3 只读探测，外部信息由主代理选源后交 T3 有界提取；T2 处理已定位的常规实现，T1 只处理复杂判断、高风险收敛和验收。worker 必须通过内部 dteam_report 如实提交任务 outcome、实际 activities、facts 与 verification；跨档仅传有界 handoff，不传完整会话或 worker P2P 消息。可写 worker 必须声明 writeScope；中断时主 LLM 必须派 fresh T3 检查 scope 的 diff、编译或定向测试。";
   const workerSchema = {
     type: "object",
     properties: {
