@@ -1,9 +1,9 @@
 # dteam 重定位为模型分级路由执行层
 
-> **状态：✅ 有效（模型分级定位权威；0.8 运行时细节以 ADR 0009、0012 为准）**
+> **状态：✅ 有效（模型分级执行层权威；主代理路由与结果模型由 ADR 0020、0021 补充）**
 > **推翻**：[ADR 0006](./0006-dteam重定位为对抗式合议.md)（对抗式合议）+ [ADR 0007](./0007-对抗回合结构与积分制.md)（对抗回合结构与积分制）——经原型验证"繁琐且无用"（积分制成本与收益不成正比，git `78e03a7`）。
 > **保留有效**：0001（有立场替代层）、0002 精神（角色收敛）、0004（不做 resume）。0005 的执行基底（进程内 `AgentSession` + Logical Isolation、Multi-Provider Routing、Adaptive Concurrency）保留并承载新定位；0005 的 Signal Store 与 Orchestrator Loop 在本 ADR 砍掉。
-> **实施状态**：模型分级定位已生效；0.8 的 T1/T2/T3 fresh worker、档位路由、同档候选、五分钟 attempt、十分钟 timeout recovery、主代理相邻升级、会话级后台运行时和公开 `dteam` 工具已实现并有测试。旧 Orchestrator Loop、五角色与 Signal Store 已删除；当前运行态由 Worker Snapshot、Signal Log 和 `/dteam` 展示。
+> **实施状态**：模型分级定位已生效；0.8 的 T1/T2/T3 fresh worker、档位路由、同档候选、五分钟 attempt、十分钟 timeout recovery、主代理相邻升级、会话级后台运行时和 dispatch / respond / recover / wait 四公开工具已实现并有测试。旧 Orchestrator Loop、五角色与 Signal Store 已删除；当前运行态由 Worker Snapshot、Signal Log 和 `/dteam` 展示。
 
 ## 1. 一句话决定
 
@@ -41,17 +41,17 @@ dteam 从「对抗式合议」重定位为：**模型分级路由执行层——
 
 | 档位 | 模型 | 思考 | 默认工具 | 用途 |
 |---|---|---|---|---|
-| **T1 思考档** | 旗舰 | 高 | 全工具（读写改 + 审核） | 思考 / 决策 / 验收 / 回退重做 |
-| **T2 标准档** | 标准 | 中 | 可写（读写改） | 常规实现 |
-| **T3 快速档** | 快速 / 本地 | 低 | 默认只读；显式限定写 | 机械小任务 |
+| **T1 思考档** | 旗舰 | 高 | 默认只读；显式最小授权写 | 思考 / 决策 / 验收 / 回退重做 |
+| **T2 标准档** | 标准 | 中 | 默认只读；显式最小授权写 | 常规实现 |
+| **T3 快速档** | 快速 / 本地 | 低 | 默认只读；显式最小授权写 | 机械小任务 |
 
 - **标准锚定供应商产品线层级**（每家供应商都已分好旗舰/标准/快速三线），价格为辅验证。
 - **思考强度跟随档位**（T1 高 / T2 中 / T3 低），不独立成维——理由：思考收益随档位降低而递减（小模型高思考不划算），且难任务走回退换强模型（自带高思考），不需要让小模型多想。
 - **标准本质是人为划档**（模型能力连续，档位是离散近似），不是客观物理边界。
 
-### 4.2 单工具 dteam
+### 4.2 当时的单工具形态（已被 ADR 0013 + 0018 更新）
 
-dteam 暴露**唯一模型工具** `dteam({ type: "dispatch" | "respond", ... })`：
+本 ADR 当时决定暴露单工具 `dteam({ type: "dispatch" | "respond", ... })`；当前实现已拆为 `dteam_dispatch / dteam_respond / dteam_recover / dteam_wait` 四工具，以下只保留决策时序：
 - `dispatch` 创建 fresh 进程内 worker session（Logical Isolation，不继承主会话），立即返回接收状态，结果通过 parent event/follow-up 通知。
 - `respond` 回应 waiting worker 的结构化请求；timeout recovery 支持 `retry`、相邻 `escalate`、`extend`、`stop`，恢复使用 fresh session 和裁剪摘要。
 - **执行 / 验收 / 恢复都是 dteam 的不同用法**；主代理并发调用多个 dispatch = 并行 fan-out；`/dteam` 展示 Worker Snapshot 实时状态。
