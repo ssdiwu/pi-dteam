@@ -23,6 +23,13 @@ interface Waiter {
   timer: ReturnType<typeof setTimeout>;
 }
 
+type ParentEventDelivery = "follow_up" | "wait_only";
+
+interface QueuedParentEvent {
+  event: ParentEvent;
+  delivery: ParentEventDelivery;
+}
+
 interface WorkerRecord extends WorkerSnapshot {
   controller: AbortController;
   session?: any;
@@ -73,7 +80,7 @@ export class WorkerManager {
   readonly requestState = new RequestState();
   private readonly records = new Map<string, WorkerRecord>();
   private readonly options: WorkerManagerOptions;
-  private pendingParentEvents: ParentEvent[] = [];
+  private pendingParentEvents: QueuedParentEvent[] = [];
   private parentEventTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly waiters = new Set<Waiter>();
   private closed = false;
@@ -350,7 +357,8 @@ export class WorkerManager {
       await closeSession(record.session);
       record.session = undefined;
       this.signal(record, "worker_failed", { error: record.error });
-      this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state } });
+      const delivery: ParentEventDelivery = error instanceof WorkerNoOutputError && !record.report && !record.writeScope?.length ? "wait_only" : "follow_up";
+      this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state } }, delivery);
       this.emitWriteInterrupted(record, record.error);
     } finally {
       if (acquired) this.options.concurrency.release(record.state === "completed");
@@ -446,7 +454,7 @@ export class WorkerManager {
         if (report) this.receiveReport(record.id, report, candidateId);
       }
       const result = extractLastText(session.messages as any[]);
-      if (result === "(no output)") throw new Error("worker 未返回 assistant 文本");
+      if (result === "(no output)") throw new WorkerNoOutputError("worker 未返回 assistant 文本");
       return truncate(sanitizeSensitive(result), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
     } finally {
       this.chargeAttemptTime(record, startedAt);
@@ -698,9 +706,9 @@ export class WorkerManager {
   }
 
   private consumePendingEventsFor(workerIds: Set<string>): ParentEvent[] {
-    const consumed = this.pendingParentEvents.filter((event) => workerIds.has(event.workerId));
-    if (consumed.length > 0) this.pendingParentEvents = this.pendingParentEvents.filter((event) => !workerIds.has(event.workerId));
-    return consumed;
+    const consumed = this.pendingParentEvents.filter(({ event }) => workerIds.has(event.workerId));
+    if (consumed.length > 0) this.pendingParentEvents = this.pendingParentEvents.filter(({ event }) => !workerIds.has(event.workerId));
+    return consumed.map(({ event }) => event);
   }
 
   private settleWaiter(waiter: Waiter, reason: DteamWaitResult["reason"], events: ParentEvent[]): void {
@@ -790,14 +798,15 @@ export class WorkerManager {
     const diagnostic = record.timeoutDiagnostic ? { ...record.timeoutDiagnostic, lastActivity: safe(record.timeoutDiagnostic.lastActivity) ?? "", currentTool: safe(record.timeoutDiagnostic.currentTool) ?? "", outputSummary: safe(record.timeoutDiagnostic.outputSummary) ?? "" } : undefined;
     return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], handoff: record.handoff, writeScope: record.writeScope, report: record.report, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), terminalReason: record.terminalReason };
   }
-  private emit(event: ParentEvent): void {
+  private emit(event: ParentEvent, delivery: ParentEventDelivery = "follow_up"): void {
     const safeEvent: ParentEvent = {
       ...event,
       title: truncate(sanitizeSensitive(event.title), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars),
       payload: sanitizeUnknown(event.payload),
     };
     if (this.consumeWaiterFor(safeEvent)) return;
-    this.pendingParentEvents.push(safeEvent);
+    this.pendingParentEvents.push({ event: safeEvent, delivery });
+    if (delivery === "wait_only") return;
     if (this.options.onParentEventAvailable) {
       try { this.options.onParentEventAvailable(); } catch { /* 可用性通知失败不能改变 worker 业务状态 */ }
     } else if (safeEvent.type === "completed") {
@@ -807,12 +816,15 @@ export class WorkerManager {
     }
   }
 
-  /** 把仍未被 dteam_wait 消费的事件交给主代理；调用后事件不可再次消费。 */
+  /** 把仍未被 dteam_wait 消费且允许 follow-up 的事件交给主代理；调用后事件不可再次消费。 */
   flushParentEvents(): void {
     if (this.parentEventTimer) clearTimeout(this.parentEventTimer);
     this.parentEventTimer = undefined;
     if (this.pendingParentEvents.length === 0) return;
-    const events = this.pendingParentEvents.splice(0);
+    const events = this.pendingParentEvents
+      .filter(({ delivery }) => delivery === "follow_up")
+      .map(({ event }) => event);
+    this.pendingParentEvents = this.pendingParentEvents.filter(({ delivery }) => delivery === "wait_only");
     const completed = events.filter((event) => event.type === "completed");
     const other = events.filter((event) => event.type !== "completed");
     for (const event of other) this.deliverParentEvent(event);
@@ -835,6 +847,10 @@ export class WorkerManager {
 
 class WorkerTimeoutError extends Error {
   constructor(message: string) { super(message); this.name = "WorkerTimeoutError"; }
+}
+
+class WorkerNoOutputError extends Error {
+  constructor(message: string) { super(message); this.name = "WorkerNoOutputError"; }
 }
 
 class WorkerToolLimitError extends Error {

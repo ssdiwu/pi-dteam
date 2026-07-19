@@ -96,6 +96,32 @@ describe("WorkerManager explicit dependency wait", () => {
     expect(events).toEqual([]);
   });
 
+  it("无输出只读失败仅供迟到 wait 消费，不触发回放", async () => {
+    const events: any[] = [];
+    const onParentEventAvailable = mock();
+    const session = {
+      prompt: mock().mockResolvedValue(undefined),
+      abort: mock().mockResolvedValue(undefined),
+      messages: [],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const manager = new WorkerManager(options({
+      onParentEvent: (event: any) => events.push(event),
+      onParentEventAvailable,
+    }));
+    const [accepted] = manager.dispatch([{ title: "无输出只读", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+
+    expect(onParentEventAvailable).not.toHaveBeenCalled();
+    manager.flushParentEvents();
+    expect(events).toEqual([]);
+    await expect(manager.wait([accepted!.workerId], 100)).resolves.toMatchObject({
+      reason: "worker_event",
+      events: [expect.objectContaining({ type: "failed", workerId: accepted!.workerId })],
+      ready: [expect.objectContaining({ id: accepted!.workerId, state: "failed" })],
+    });
+  });
+
   it("未被 wait 消费的完成事件只 flush 一次", async () => {
     const events: any[] = [];
     const session = {

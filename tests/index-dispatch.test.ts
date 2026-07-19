@@ -160,6 +160,26 @@ describe("dteam next-major extension entry", () => {
     expect(pi.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("无 assistant 文本的只读失败在 agent_settled 后不回放", async () => {
+    const session = {
+      prompt: mock().mockResolvedValue(undefined),
+      abort: mock().mockResolvedValue(undefined),
+      messages: [],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const { pi, tools } = register();
+    const ctx = context();
+    const start = pi.on.mock.calls.find(([event]: any[]) => event === "session_start")?.[1];
+    const settled = pi.on.mock.calls.find(([event]: any[]) => event === "agent_settled")?.[1];
+    start!({}, ctx);
+    await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "无输出只读", task: "任务", tier: "T3" }] }, undefined, undefined, ctx);
+    await waitFor(() => expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("dteam", undefined));
+
+    settled!({}, ctx);
+    settled!({}, ctx);
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("未被 wait 消费的事件在 agent_settled 后只回放一次", async () => {
     const session = {
       prompt: mock().mockResolvedValue(undefined),
