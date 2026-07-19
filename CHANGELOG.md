@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+## [0.8.9] - 2026-07-19
+
+### Fixed
+- 可写 worker 的 timeout recovery（超时恢复）已发出并被消费 `write_interrupted`（写入中断）守卫后，选择 `stop` 不再强制重复回传同一 scope；首次中断守卫仍保留，确保主代理可执行完整性检查。
+
 ## [0.8.8] - 2026-07-19
 
 ### Fixed

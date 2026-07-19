@@ -97,19 +97,27 @@ describe("next-major worker protocol", () => {
     expect(() => manager.dispatch([{ title: "过多事实", task: "任务", tier: "T3", handoff: { facts: Array.from({ length: 25 }, () => fact) } }])).toThrow("handoff.facts");
   });
 
-  it("可写 worker 超时立即回传中断，recover 只接受 timeout recovery", async () => {
+  it("可写 worker 超时只回传一次中断，recover 只接受 timeout recovery", async () => {
     const hanging = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
     mockCreateWorkerSession.mockResolvedValue(hanging);
     const events: any[] = [];
-    const manager = new WorkerManager(options({ timeoutMs: 10, onParentEvent: (event: any) => events.push(event) }));
+    const manager = new WorkerManager(options({
+      timeoutMs: 10,
+      onParentEvent: (event: any) => events.push(event),
+      onParentEventAvailable: mock(),
+    }));
     const [accepted] = manager.dispatch([{ title: "超时", task: "任务", tier: "T3", addTools: ["edit"], writeScope: ["src/runtime/"] }]);
     await waitFor(() => expect(manager.get(accepted!.workerId)?.timeoutDiagnostic).toBeDefined());
     const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
-    expect(events).toContainEqual(expect.objectContaining({ type: "write_interrupted", workerId: accepted!.workerId, payload: expect.objectContaining({ state: "waiting", writeScope: ["src/runtime/"] }) }));
+    const waited = await manager.wait([accepted!.workerId], 10);
+    expect(waited.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "request", workerId: accepted!.workerId }),
+      expect.objectContaining({ type: "write_interrupted", workerId: accepted!.workerId, payload: expect.objectContaining({ state: "waiting", writeScope: ["src/runtime/"] }) }),
+    ]));
     expect(() => manager.respond(accepted!.workerId, requestId, { type: "deny", reason: "错误工具" })).toThrow("不能回应 timeout_recovery");
-    manager.recover(accepted!.workerId, requestId, { action: "stop" });
-    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("timed_out"));
-    expect(events).toContainEqual(expect.objectContaining({ type: "write_interrupted", workerId: accepted!.workerId, payload: expect.objectContaining({ state: "timed_out", writeScope: ["src/runtime/"] }) }));
+    expect(manager.recover(accepted!.workerId, requestId, { action: "stop" })).toMatchObject({ state: "timed_out" });
+    manager.flushParentEvents();
+    expect(events).toEqual([]);
   });
 
   it("fresh recovery 必须重新报告，升档时保持报告工具激活", async () => {

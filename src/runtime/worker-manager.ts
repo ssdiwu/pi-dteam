@@ -568,7 +568,7 @@ export class WorkerManager {
     record.endedAt = Date.now();
     this.signal(record, "worker_timed_out", { error: record.error, diagnostic: record.timeoutDiagnostic });
     if (notifyParent) this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state, diagnostic: record.timeoutDiagnostic } });
-    this.emitWriteInterrupted(record, record.error, true);
+    this.emitWriteInterrupted(record, record.error);
   }
 
   private outputSummary(record: WorkerRecord): string | undefined {
