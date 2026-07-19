@@ -1,6 +1,6 @@
 # runtime/
 
-0.8 的会话级后台运行时。这里仅管理当前 Pi 会话内已提交 worker 的生命周期、signal、候选工具和回传；主代理的多轮证据路由留在对话层，不保存轮次、batch、依赖图、外部地图、dgoal 状态或跨 reload 恢复数据。每次 attempt 默认五分钟，timeout recovery 独立累计上限十分钟；同档候选自动尝试，跨档仅由主代理经 `dteam_recover` 相邻升级。工作工具额度按初始档位为 T3=60、T2=120、T1=180，`dteam_signal` 与最终 `dteam_report` 不计入；worker 可申请一次由主代理批准的 +60～+120（10 的倍数），再次耗尽由主代理重新 dispatch fresh worker。实时文本、thinking、工具活动和 timeout 诊断投影到 Worker Snapshot，供 `/dteam` 消费。parent event 先进入待消费队列；wait 已消费的事件不会再 follow-up。每条 worker assistant message 的纯数字 usage 另写独立账本，不持久化 worker 正文。
+0.8 的会话级后台运行时。这里仅管理当前 Pi 会话内已提交 worker 的生命周期、signal、候选工具和回传；主代理的多轮证据路由留在对话层，不保存轮次、batch、依赖图、外部地图、dgoal 状态或跨 reload 恢复数据。每次 attempt 默认五分钟，timeout recovery 独立累计上限十分钟；同档候选自动尝试，跨档仅由主代理经 `dteam_recover` 相邻升级。工作工具额度按初始档位为 T3=60、T2=120、T1=180，`dteam_signal` 与最终 `dteam_report` 不计入；worker 可申请一次由主代理批准的 +60～+120（10 的倍数），再次耗尽由主代理重新 dispatch fresh worker。实时文本、thinking、工具活动和 timeout 诊断投影到 Worker Snapshot，供 `/dteam` 消费。parent event 先进入待消费队列；wait 已消费的事件不会再 follow-up；无 writeScope 且没有 assistant 文本和 WorkerReport 的失败仅供后续 wait 消费，不回放到主对话。每条 worker assistant message 的纯数字 usage 另写独立账本，不持久化 worker 正文。
 
 | 文件 | 职责 |
 |---|---|

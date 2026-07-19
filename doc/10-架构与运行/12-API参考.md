@@ -77,7 +77,7 @@ dteam_wait({
 仅当后续工作依赖指定 worker 时调用。它不等待全部 worker 结束：任一指定 worker 完成、失败、进入终态或进入 `waiting` 时立即返回已就绪结果、需要回应的 request 与剩余 `pendingWorkerIds`。若仍需其余结果，主模型只对剩余 ID 再次 wait。
 
 - `timeoutMs` 必须是 1–300000 的整数；timeout 只结束本次等待，不取消 worker、不触发 recovery。
-- parent event 先进入 Manager 待消费队列。被 wait 捕获后立即从待回放队列删除，即使 wait 晚于事件发生也不会重复 follow-up；只有主代理 idle / settled 后仍未消费的事件才异步回放。`events` 明确列出本次实际消费的 `completed / failed / cancelled / request / write_interrupted`；终态 Snapshot 本身不冒充新事件。Signal Log 与 `/dteam` 仍保留记录。
+- parent event 先进入 Manager 待消费队列。被 wait 捕获后立即从待回放队列删除，即使 wait 晚于事件发生也不会重复 follow-up；无 `writeScope` 且没有 assistant 文本和 `WorkerReport` 的失败仅供后续 wait 消费、不异步回放，其余未消费事件在主代理 idle / settled 后回放。`events` 明确列出本次实际消费的 `completed / failed / cancelled / request / write_interrupted`；终态 Snapshot 本身不冒充新事件。Signal Log 与 `/dteam` 仍保留记录。
 - 进入 `waiting` 时先用 `dteam_respond` 或 `dteam_recover` 处理，再决定是否继续 wait，避免死锁。
 - 默认显示目标 worker、已等待时长（`s`/`m+s`）与 timeout 上限，以及就绪/仍等待数量；执行中每秒刷新计时。`Ctrl+O` 再展开 worker、report、request 与 pending 列表。
 

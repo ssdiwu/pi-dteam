@@ -46,5 +46,5 @@
 5. shutdown / reload 中止活跃 worker，不 resume；completed/failed/timed_out/cancelled/shutdown 只读封存。
 6. worker 结束前必须经 `dteam_report` 区分任务 outcome、实际 activities、facts 与 verification；缺报告或旧/非法形状失败。Manager completed 不代表任务或验证通过。facts 在 completed event 注入真实 workerId，verification 不进入 handoff。可写 worker 中断回传 `write_interrupted`，由主 LLM 派 fresh T3 检查。
 7. 实时流只投影到 Snapshot 并经节流上抛，不用 `display: true` 原样写入主对话；用户通过 `/dteam` 查看实时状态。
-8. parent event 先进入 Manager 待消费队列；`dteam_wait` 消费后即删除，只有主代理 idle / settled 后仍未消费的事件才 follow-up。
+8. parent event 先进入 Manager 待消费队列；`dteam_wait` 消费后即删除。无 writeScope 且没有 assistant 文本和 WorkerReport 的失败仅供后续 wait 消费、仍可在 `/dteam` 查看，不触发 follow-up；其余未消费事件在主代理 idle / settled 后回放。
 9. worker session 继续保持 in-memory；每条 assistant message 只把脱敏数字 usage 写入 `~/.pi/agent/dteam-usage.jsonl`，不持久化 worker transcript。
