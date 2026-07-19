@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-07-19
+
+### Fixed
+- 主代理已通过 `dteam_wait`（显式等待）处理 timeout recovery（超时恢复）并选择 `stop` 后，`dteam_recover` 现在同步返回终态，且不再在主会话 settled（稳定）后追加冗余 failed follow-up（失败后续轮次）；`/dteam` 仍保留终态与可写 worker 的中断通知。
+
+### Verification
+- `npm test`（20 files / 151 tests）、`git diff --check` 与 Pi 扩展加载通过；新 Pi 进程并发派发 4 个短小 T3 worker 均完成，未出现真实 worker timeout。
+
 ## [0.8.7] - 2026-07-18
 
 ### Changed

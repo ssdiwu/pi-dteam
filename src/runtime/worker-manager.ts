@@ -159,6 +159,7 @@ export class WorkerManager {
     if (!pending || pending.kind !== "timeout_recovery") throw new Error("dteam: timeout recovery request 不存在或不属于该 worker");
     this.signal(record, "timeout_recovery_action", action);
     this.requestState.respond(workerId, requestId, action);
+    if (action.action === "stop") this.stopTimedOut(record, action.reason, false);
     return { workerId, requestId, state: record.state };
   }
 
@@ -559,14 +560,14 @@ export class WorkerManager {
     this.emitWriteInterrupted(record, reason);
   }
 
-  private stopTimedOut(record: WorkerRecord, reason?: string): void {
+  private stopTimedOut(record: WorkerRecord, reason?: string, notifyParent = true): void {
     if (isTerminal(record.state)) return;
     record.state = "timed_out";
     record.terminalReason = "timeout";
     record.error = reason ?? `worker 执行超时（${formatDuration(record.attemptBudgetMs)}）`;
     record.endedAt = Date.now();
     this.signal(record, "worker_timed_out", { error: record.error, diagnostic: record.timeoutDiagnostic });
-    this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state, diagnostic: record.timeoutDiagnostic } });
+    if (notifyParent) this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state, diagnostic: record.timeoutDiagnostic } });
     this.emitWriteInterrupted(record, record.error, true);
   }
 
