@@ -5,12 +5,10 @@
 
 ## [Unreleased]
 
+## [0.8.9] - 2026-07-20
+
 ### Fixed
 - 无 `writeScope` 且没有 assistant 文本和 `WorkerReport` 的只读 worker 失败现在仅保留给后续 `dteam_wait`（显式等待）和 `/dteam`（管理视图）查询，不会在主代理 settled（稳定）后触发冗余 follow-up（后续轮次）；可写中断、timeout recovery（超时恢复）请求与其他失败通知保持不变。
-
-## [0.8.9] - 2026-07-19
-
-### Fixed
 - 可写 worker 的 timeout recovery（超时恢复）已发出并被消费 `write_interrupted`（写入中断）守卫后，选择 `stop` 不再强制重复回传同一 scope；首次中断守卫仍保留，确保主代理可执行完整性检查。
 
 ## [0.8.8] - 2026-07-19
