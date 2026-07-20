@@ -5,8 +5,8 @@
 
 ## [Unreleased]
 
-### Changed
-- **派发契约收敛**：`dteam_dispatch`（派发工具）只接收自包含、相互独立的 worker 任务；上游任务可执行性判断与状态写入继续由主代理负责，不形成扩展级交接协议。
+### Fixed
+- 主代理通过 `dteam_respond`（普通回应工具）的 `cancel` 取消 waiting worker 后，`cancelled` 与 `write_interrupted`（写入中断）不再在 idle / settled 后迟到 follow-up（后续轮次）回放；写入守卫改为同步返回给 `respond` 结果，仍可由 `dteam_wait`（显式等待）消费。用户经 `/dteam` 取消时仍保持原有 follow-up 通知。
 
 ## [0.9.0] - 2026-07-21
 

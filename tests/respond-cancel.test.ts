@@ -6,7 +6,7 @@ import { WorkerManager } from "../src/runtime/worker-manager.js";
 
 beforeEach(() => mockCreateWorkerSession.mockReset());
 
-function manager(onParentEvent: (event: any) => void = () => {}) {
+function manager(onParentEvent: (event: any) => void = () => {}, overrides: any = {}) {
   mockCreateWorkerSession.mockResolvedValue({ prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), setActiveToolsByName: mock(), messages: [] });
   return new WorkerManager({
     cwd: "/workspace",
@@ -15,22 +15,63 @@ function manager(onParentEvent: (event: any) => void = () => {}) {
     parentActiveTools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
     concurrency: new AdaptiveConcurrency({ min: 1, max: 1, initial: 1, cooldownMs: 1000, successStreakToRise: 99 }),
     onParentEvent,
+    ...overrides,
   });
 }
 
 describe("dteam_respond cancel 响应", () => {
-  it("cancel 直接终止 waiting worker，回传 cancelled 并 emit 事件", async () => {
+  it("主代理 cancel 直接终止 waiting worker，但不回放已知 cancelled 终态", async () => {
     const events: any[] = [];
-    const instance = manager((event) => events.push(event));
+    const instance = manager((event) => events.push(event), { onParentEventAvailable: mock() });
     const accepted = instance.dispatch([{ title: "接管", task: "task", tier: "T1" }])[0]!;
     const waiting = instance.receiveSignal(accepted.workerId, { kind: "blocked", requestId: "b1", reason: "需要写工具" });
     await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    await instance.wait([accepted.workerId], 1);
 
     const result = instance.respond(accepted.workerId, "b1", { type: "cancel", reason: "主代理接管" });
     expect(result).toMatchObject({ workerId: accepted.workerId, requestId: "b1", state: "cancelled" });
     expect(instance.get(accepted.workerId)).toMatchObject({ state: "cancelled", terminalReason: "user_cancelled", cancelReason: "主代理接管" });
-    expect(events).toContainEqual(expect.objectContaining({ type: "cancelled", workerId: accepted.workerId, payload: expect.objectContaining({ reason: "主代理接管" }) }));
     await expect(waiting).resolves.toEqual({ type: "cancel", reason: "主代理接管" });
+
+    instance.flushParentEvents();
+    expect(events).toEqual([]);
+    const waited = await instance.wait([accepted.workerId], 1);
+    expect(waited.events).toEqual([expect.objectContaining({ type: "cancelled", workerId: accepted.workerId })]);
+  });
+
+  it("主代理 cancel 同步返回 writeScope 守卫，且守卫不迟到回放", async () => {
+    const events: any[] = [];
+    const instance = manager((event) => events.push(event), { onParentEventAvailable: mock() });
+    const accepted = instance.dispatch([{ title: "可写接管", task: "task", tier: "T1", writeScope: ["src/"] }])[0]!;
+    const waiting = instance.receiveSignal(accepted.workerId, { kind: "blocked", requestId: "b1", reason: "主代理接管" });
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    await instance.wait([accepted.workerId], 1);
+
+    const result = instance.respond(accepted.workerId, "b1", { type: "cancel", reason: "主代理接管" });
+    expect(result).toMatchObject({ state: "cancelled", writeInterrupted: { reason: "主代理接管", writeScope: ["src/"] } });
+    await expect(waiting).resolves.toEqual({ type: "cancel", reason: "主代理接管" });
+
+    instance.flushParentEvents();
+    expect(events).toEqual([]);
+    const waited = await instance.wait([accepted.workerId], 1);
+    expect(waited.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "cancelled", workerId: accepted.workerId }),
+      expect.objectContaining({ type: "write_interrupted", workerId: accepted.workerId, payload: expect.objectContaining({ writeScope: ["src/"] }) }),
+    ]));
+  });
+
+  it("用户取消仍 follow-up cancelled 与 write_interrupted", async () => {
+    const events: any[] = [];
+    const instance = manager((event) => events.push(event), { onParentEventAvailable: mock() });
+    const accepted = instance.dispatch([{ title: "用户取消", task: "task", tier: "T1", writeScope: ["src/"] }])[0]!;
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("running"));
+
+    instance.cancel(accepted.workerId, "用户确认取消");
+    instance.flushParentEvents();
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "cancelled", workerId: accepted.workerId, payload: expect.objectContaining({ reason: "用户确认取消" }) }),
+      expect.objectContaining({ type: "write_interrupted", workerId: accepted.workerId, payload: expect.objectContaining({ writeScope: ["src/"] }) }),
+    ]));
   });
 
   it("cancel 可回应所有非 timeout_recovery 的 request kind", async () => {

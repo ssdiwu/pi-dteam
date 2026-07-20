@@ -25,6 +25,18 @@ interface Waiter {
 
 type ParentEventDelivery = "follow_up" | "wait_only";
 
+interface WriteInterruptedGuard {
+  reason?: string;
+  writeScope: string[];
+}
+
+interface RespondResult {
+  workerId: string;
+  requestId: string;
+  state: string;
+  writeInterrupted?: WriteInterruptedGuard;
+}
+
 interface QueuedParentEvent {
   event: ParentEvent;
   delivery: ParentEventDelivery;
@@ -125,7 +137,7 @@ export class WorkerManager {
     return accepted;
   }
 
-  respond(workerId: string, requestId: string, response: ParentResponse): { workerId: string; requestId: string; state: string } {
+  respond(workerId: string, requestId: string, response: ParentResponse): RespondResult {
     const record = this.records.get(workerId);
     if (!record || isTerminal(record.state)) throw new Error("dteam: worker 已结束或不存在");
     const pending = this.requestState.get(workerId, requestId);
@@ -149,14 +161,14 @@ export class WorkerManager {
     } else if (response.type === "grant_tool_budget") {
       this.grantToolBudget(record, response.additionalCalls);
       this.signal(record, "grant_tool_budget", { additionalCalls: response.additionalCalls, toolCallBudget: record.toolCallBudget });
-  } else if (response.type === "cancel") {
-    this.signal(record, "cancel", response);
-    this.requestState.respond(workerId, requestId, response);
-    this.cancel(workerId, response.reason);
-    return { workerId, requestId, state: record.state };
-  } else {
-    this.signal(record, response.type, response);
-  }
+    } else if (response.type === "cancel") {
+      this.signal(record, "cancel", response);
+      this.requestState.respond(workerId, requestId, response);
+      const writeInterrupted = this.cancel(workerId, response.reason, false);
+      return { workerId, requestId, state: record.state, ...(writeInterrupted ? { writeInterrupted } : {}) };
+    } else {
+      this.signal(record, response.type, response);
+    }
     this.requestState.respond(workerId, requestId, response);
     if (pending.kind === "timeout_recovery") return { workerId, requestId, state: record.state };
     if (!this.requestState.list().some((request) => request.workerId === workerId)) record.state = "running";
@@ -218,7 +230,7 @@ export class WorkerManager {
     this.signal(record, "steer", { instruction });
   }
 
-  cancel(workerId: string, reason = "user_cancelled"): void {
+  cancel(workerId: string, reason = "user_cancelled", notifyParent = true): WriteInterruptedGuard | undefined {
     const record = this.records.get(workerId);
     if (!record || isTerminal(record.state)) throw new Error("dteam: worker 已结束或不存在");
     record.cancelReason = reason;
@@ -230,8 +242,9 @@ export class WorkerManager {
     this.clearRenderTimer(record);
     void closeSession(record.session);
     this.signal(record, "worker_cancelled", { reason });
-    this.emit({ type: "cancelled", workerId, title: record.title, payload: { reason, state: record.state } });
-    this.emitWriteInterrupted(record, reason);
+    const delivery: ParentEventDelivery = notifyParent ? "follow_up" : "wait_only";
+    this.emit({ type: "cancelled", workerId, title: record.title, payload: { reason, state: record.state } }, delivery);
+    return this.emitWriteInterrupted(record, reason, false, delivery);
   }
 
   private shutdownWorker(record: WorkerRecord): void {
@@ -784,11 +797,14 @@ export class WorkerManager {
     return { ...report, facts: report.facts.map((fact) => ({ ...fact, workerId: record.id })) };
   }
 
-  private emitWriteInterrupted(record: WorkerRecord, reason?: string, force = false): void {
-    if (!record.writeScope?.length || record.state === "completed" || (record.writeInterrupted && !force)) return;
+  private emitWriteInterrupted(record: WorkerRecord, reason?: string, force = false, delivery: ParentEventDelivery = "follow_up"): WriteInterruptedGuard | undefined {
+    if (!record.writeScope?.length || record.state === "completed" || (record.writeInterrupted && !force)) return undefined;
     record.writeInterrupted = true;
-    this.signal(record, "write_interrupted", { reason, writeScope: record.writeScope });
-    this.emit({ type: "write_interrupted", workerId: record.id, title: record.title, payload: { reason, state: record.state, writeScope: record.writeScope } });
+    const guard: WriteInterruptedGuard = { writeScope: [...record.writeScope] };
+    if (reason !== undefined) guard.reason = reason;
+    this.signal(record, "write_interrupted", { reason, writeScope: guard.writeScope });
+    this.emit({ type: "write_interrupted", workerId: record.id, title: record.title, payload: { reason, state: record.state, writeScope: guard.writeScope } }, delivery);
+    return guard;
   }
 
   private signal(record: WorkerRecord, kind: string, payload: unknown): void {
