@@ -24,7 +24,7 @@ dteam_dispatch({
 })
 ```
 
-- 原子受理 1–32 个相互独立的 worker；不表达 batch、依赖、Plan 或 goal/task 映射。
+- 原子受理 1–32 个相互独立且自包含的 worker；不表达 batch、依赖、Plan 或 goal/task 映射。
 - T3→T2→T1 由主 LLM 决策；同档候选才自动回退。
 - 所有档位默认只读。需要 `edit` 或 `write` 时，必须在 `addTools` 显式授权，并声明项目相对 `writeScope`。
 - 可选 `handoff` 只传带 `workerId` 来源的事实、约束和不确定性；禁止主会话 / transcript（逐字记录） / P2P（点对点）消息。

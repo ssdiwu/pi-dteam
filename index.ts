@@ -1,4 +1,4 @@
-/** dteam — 三个模型工具与用户管理命令 `/dteam`。 */
+/** dteam — 四个模型工具与用户管理命令 `/dteam`。 */
 import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, Text } from "@earendil-works/pi-tui";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "./src/dispatch/concurrency.js";
@@ -123,7 +123,7 @@ export default function registerDteam(pi: ExtensionAPI) {
     runtime.manager?.flushParentEvents();
   });
 
-  const toolDescription = "dteam 模型分级后台 worker 工具。主 LLM 负责理解、路由、证据筛选、冲突裁决和收口；非极小代码任务先用多轮、多证据面的 T3 只读探测，外部信息由主代理选源后交 T3 有界提取；T2 处理已定位的常规实现，T1 只处理复杂判断、高风险收敛和验收。worker 必须通过内部 dteam_report 如实提交任务 outcome、实际 activities、facts 与 verification；跨档仅传有界 handoff，不传完整会话或 worker P2P 消息。可写 worker 必须声明 writeScope；中断时主 LLM 必须派 fresh T3 检查 scope 的 diff、编译或定向测试。";
+  const toolDescription = "dteam 模型分级后台 worker 工具。主 LLM 负责理解、路由、证据筛选、冲突裁决和收口；非极小代码任务先用多轮、多证据面的 T3 只读探测，外部信息由主代理选源后交 T3 有界提取；T2 处理已定位的常规实现，T1 只处理复杂判断、高风险收敛和验收。worker 必须接收自包含、相互独立的任务，并通过内部 dteam_report 如实提交 outcome、实际 activities、facts 与 verification，由主代理核验证据并决定后续动作。跨档仅传有界 handoff，不传完整会话或 worker P2P 消息。可写 worker 必须声明 writeScope；中断时主 LLM 必须派 fresh T3 检查 scope 的 diff、编译或定向测试。";
   const workerSchema = {
     type: "object",
     properties: {

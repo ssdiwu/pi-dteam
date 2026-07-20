@@ -14,7 +14,7 @@ npm test
 
 | 文件 | 关注点 |
 |---|---|
-| `index-dispatch.test.ts` | 四工具、同名 `/dteam` 命令、紧凑渲染与参数 fail-closed |
+| `index-dispatch.test.ts` | 四工具、同名 `/dteam` 命令、自包含独立 worker 契约、紧凑渲染与参数 fail-closed |
 | `dynamic-tools.test.ts` | 首次 active set、候选工具、第三方降级 |
 | `worker-manager.dispatch.test.ts` | 请求校验、派发、档位候选、共享并发与工具额度 |
 | `worker-manager.recovery.test.ts` | timeout recovery、重试、升级、延长和恢复预算边界 |

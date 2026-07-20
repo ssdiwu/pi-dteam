@@ -62,6 +62,11 @@ describe("dteam next-major extension entry", () => {
     expect(tools.dteam_dispatch.description).toContain("verification");
     expect(tools.dteam_dispatch.description).toContain("多轮");
     expect(tools.dteam_dispatch.description).toContain("writeScope");
+    expect(tools.dteam_dispatch.description).toContain("自包含、相互独立的任务");
+    expect(tools.dteam_dispatch.description).not.toContain("pi-dgoal");
+    expect(tools.dteam_dispatch.description).not.toContain("外部 Plan");
+    expect(tools.dteam_dispatch.description).not.toContain("ready task");
+    expect(tools.dteam_dispatch.description).not.toContain("plan_update");
     expect(tools.dteam_respond.description).toContain("普通阻塞");
     expect(tools.dteam_recover.description).toContain("timeout recovery");
     expect(tools.dteam_wait.description).toContain("依赖指定 worker");
