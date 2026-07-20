@@ -26,3 +26,4 @@
 | [0020](./0020-主代理证据驱动多轮路由协议.md) | 主代理证据驱动多轮路由协议 | dteam 合同包含执行层与主代理路由协议；多轮 T3、受限外部取证和外部耐久地图均不进入 Manager 状态 |
 | [0021](./0021-结构化工作报告区分动作完成度与验证深度.md) | 结构化工作报告区分动作、完成度与验证深度 | `dteam_report` 统一表达 outcome、activities、facts 与实际 verification，人工复测留在报告之外 |
 | [0022](./0022-dteam用量写入独立脱敏账本.md) | dteam 用量写入独立脱敏账本 | worker 每条 assistant message 的纯数字 usage 写入 `~/.pi/agent/dteam-usage.jsonl`，不持久化 worker 正文或复用 dgoal 审核账本 |
+| [0023](./0023-cancel作为dteam-respond的受限取消响应.md) | cancel 作为 dteam_respond 的受限取消响应 | `dteam_respond` 增加 `cancel` 响应（与 `deny` 并列），只在 worker waiting 时可用；主代理接管时停掉 worker，不引入通用 cancel 工具 |

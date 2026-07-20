@@ -70,6 +70,7 @@ function validateResponse(raw: any): { ok: true; value: DteamRespondParams["resp
   if (raw?.type === "grant_tool_budget" && typeof raw.additionalCalls === "number" && Number.isFinite(raw.additionalCalls)) return { ok: true, value: { type: raw.type, additionalCalls: raw.additionalCalls } };
   if (raw?.type === "decision" && typeof raw.decision === "string") return { ok: true, value: { type: raw.type, decision: raw.decision } };
   if (raw?.type === "deny" && typeof raw.reason === "string") return { ok: true, value: { type: raw.type, reason: raw.reason } };
+  if (raw?.type === "cancel" && typeof raw.reason === "string") return { ok: true, value: { type: raw.type, reason: raw.reason } };
   return { ok: false, error: "respond response 字段不符合 type 对应 schema" };
 }
 
@@ -157,10 +158,10 @@ export default function registerDteam(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "dteam_respond", label: "dteam respond", description: "回应 worker 的普通阻塞 request：提供上下文、授予本次预授权工具、追加一次工具额度、作出业务决策或拒绝。timeout recovery 请使用 dteam_recover。",
+    name: "dteam_respond", label: "dteam respond", description: "回应 worker 的普通阻塞 request：提供上下文、授予本次预授权工具、追加一次工具额度、作出业务决策、拒绝或取消。当决定自己接管该 worker 的任务时，用 cancel 直接停掉它，不要 deny 后任其在后台空跑；timeout recovery 请使用 dteam_recover。",
     parameters: { type: "object", properties: {
       workerId: { type: "string" }, requestId: { type: "string" },
-      response: { type: "object", properties: { type: { type: "string", enum: ["provide_context", "grant_tools", "grant_tool_budget", "decision", "deny"] }, context: { type: "string" }, tools: { type: "array", items: { type: "string" } }, additionalCalls: { type: "number" }, decision: { type: "string" }, reason: { type: "string" } }, required: ["type"] },
+      response: { type: "object", properties: { type: { type: "string", enum: ["provide_context", "grant_tools", "grant_tool_budget", "decision", "deny", "cancel"] }, context: { type: "string" }, tools: { type: "array", items: { type: "string" } }, additionalCalls: { type: "number" }, decision: { type: "string" }, reason: { type: "string" } }, required: ["type"] },
     }, required: ["workerId", "requestId", "response"] } as any,
     async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
       if (!isRespondParams(rawParams)) return errorResult("需要 workerId、requestId 和 response");

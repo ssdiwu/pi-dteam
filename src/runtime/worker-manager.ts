@@ -149,9 +149,14 @@ export class WorkerManager {
     } else if (response.type === "grant_tool_budget") {
       this.grantToolBudget(record, response.additionalCalls);
       this.signal(record, "grant_tool_budget", { additionalCalls: response.additionalCalls, toolCallBudget: record.toolCallBudget });
-    } else {
-      this.signal(record, response.type, response);
-    }
+  } else if (response.type === "cancel") {
+    this.signal(record, "cancel", response);
+    this.requestState.respond(workerId, requestId, response);
+    this.cancel(workerId, response.reason);
+    return { workerId, requestId, state: record.state };
+  } else {
+    this.signal(record, response.type, response);
+  }
     this.requestState.respond(workerId, requestId, response);
     if (pending.kind === "timeout_recovery") return { workerId, requestId, state: record.state };
     if (!this.requestState.list().some((request) => request.workerId === workerId)) record.state = "running";
@@ -902,6 +907,7 @@ async function closeSession(session: any): Promise<void> {
 function responseAllowed(requestKind: string, responseType: ParentResponse["type"]): boolean {
   if (requestKind === "timeout_recovery") return false;
   if (responseType === "deny") return true;
+  if (responseType === "cancel") return true;
   if (requestKind === "request_context") return responseType === "provide_context";
   if (requestKind === "request_tools") return responseType === "grant_tools";
   if (requestKind === "request_tool_budget") return responseType === "grant_tool_budget";
@@ -922,7 +928,7 @@ function toolCallBudgetForTier(tier: Tier): number {
 }
 
 function workerSystemPrompt(tier: Tier, toolCallBudget: number): string {
-  return `${getTierPrompt(tier)}\n\n本 worker 的工作工具调用额度为 ${toolCallBudget} 次；dteam_signal 和 dteam_report 不计入。若预计额度不足，必须在耗尽前调用 dteam_signal(kind=\"request_tool_budget\", requestId, reason) 请求主代理决定。主代理最多只会追加一次，且追加后再次不足时会结束本 worker，由主代理重新 dispatch fresh worker。\n\n结束前必须恰好调用一次 dteam_report({ outcome, summary, activities, facts, verification, uncertainties? })。outcome 只表达任务本身 completed/partial；activities 只列本轮实际做过的 inspected/modified/tested/executed/captured_visual；facts 至少一项且每项包含 claim 与可核验 evidence；verification 必填，只报告实际达到的 depth(none/inspection/automated/runtime/visual)、status(passed/failed/partial/not_run)、evidence[] 与 remaining?。没有验证时必须使用 none + not_run + 空 evidence；inspection/automated/runtime/visual 分别要求 inspected/tested/executed/(executed + captured_visual)。不要把人工复测或期望深度写进报告。未提交合法报告会按失败处理。`;
+  return `${getTierPrompt(tier)}\n\n本 worker 的工作工具调用额度为 ${toolCallBudget} 次；dteam_signal 和 dteam_report 不计入。若预计额度不足，必须在耗尽前调用 dteam_signal(kind=\"request_tool_budget\", requestId, reason) 请求主代理决定。主代理最多只会追加一次，且追加后再次不足时会结束本 worker，由主代理重新 dispatch fresh worker。\n\n若发现缺少完成任务所需的核心能力（如写文件或执行命令的工具），应立即调用 dteam_signal(kind=\"blocked\", requestId, reason) 报告并等待主代理决策；不要在能力缺失时空转或反复尝试。\n\n结束前必须恰好调用一次 dteam_report({ outcome, summary, activities, facts, verification, uncertainties? })。outcome 只表达任务本身 completed/partial；activities 只列本轮实际做过的 inspected/modified/tested/executed/captured_visual；facts 至少一项且每项包含 claim 与可核验 evidence；verification 必填，只报告实际达到的 depth(none/inspection/automated/runtime/visual)、status(passed/failed/partial/not_run)、evidence[] 与 remaining?。没有验证时必须使用 none + not_run + 空 evidence；inspection/automated/runtime/visual 分别要求 inspected/tested/executed/(executed + captured_visual)。不要把人工复测或期望深度写进报告。未提交合法报告会按失败处理。`;
 }
 
 function toolBudgetExhaustedMessage(record: WorkerRecord): string {

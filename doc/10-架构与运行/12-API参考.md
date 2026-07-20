@@ -47,6 +47,7 @@ dteam_respond({
 - `grant_tool_budget`（60–120，且为 10 的倍数；每个 worker 一次）
 - `decision`
 - `deny`
+- `cancel`（带 `reason`；主代理决定自己接管该 worker 任务时用它直接停掉，不要 `deny` 后任其在后台空跑；不是通用 cancel 工具，只在 worker waiting 时可用，详见 ADR 0023）
 
 不能回应 timeout recovery（超时恢复）；该情形必须使用 `dteam_recover`。
 
@@ -133,5 +134,5 @@ worker session 仍使用 `SessionManager.inMemory()`，不会写入 Pi session J
 不提供：
 
 - 旧 `dteam({ type })`，无兼容层；升级后执行 `/reload`。
-- `dteam_status`、模型侧 cancel / steer；用户管理仍经 `/dteam`。`dteam_wait` 是显式事件等待，不是状态查询或轮询。
+- `dteam_status`、通用模型侧 cancel / steer；用户管理仍经 `/dteam`。`dteam_respond` 的 `cancel` 是受限取消响应（只在 worker waiting 时可用，ADR 0023），不是通用 cancel 工具。`dteam_wait` 是显式事件等待，不是状态查询或轮询。
 - batch、依赖图、自动升级、Orchestrator Loop、TTL Signal Store、P2P、resume、worktree 或文件锁。

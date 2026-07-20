@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+### Added
+- `dteam_respond` 新增 `cancel` 响应：主代理在 worker 请求交互（waiting）时可直接取消该 worker，用于接管任务时停掉后台 worker，避免 `deny` 后 worker 空跑、完成时回放打断主代理；不是通用 cancel 工具，只在 worker waiting 时可用，详见 ADR 0023。
+
 ## [0.8.9] - 2026-07-20
 
 ### Fixed

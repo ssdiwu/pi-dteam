@@ -10,7 +10,8 @@ export type ParentResponse =
   | { type: "grant_tools"; tools: string[] }
   | { type: "grant_tool_budget"; additionalCalls: number }
   | { type: "decision"; decision: string }
-  | { type: "deny"; reason: string };
+  | { type: "deny"; reason: string }
+  | { type: "cancel"; reason: string };
 export type RecoveryAction =
   | { action: "retry" }
   | { action: "escalate"; tier: Tier }
