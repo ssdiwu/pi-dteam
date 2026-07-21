@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-21
+
 ### Fixed
 - 主代理通过 `dteam_respond`（普通回应工具）的 `cancel` 取消 waiting worker 后，`cancelled` 与 `write_interrupted`（写入中断）不再在 idle / settled 后迟到 follow-up（后续轮次）回放；写入守卫改为同步返回给 `respond` 结果，仍可由 `dteam_wait`（显式等待）消费。用户经 `/dteam` 取消时仍保持原有 follow-up 通知。
 
