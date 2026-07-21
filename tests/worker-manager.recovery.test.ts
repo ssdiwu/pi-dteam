@@ -107,6 +107,31 @@ describe("WorkerManager", () => {
     expect(events).toEqual([]);
   });
 
+  it("主代理 stop 同步返回 writeScope 守卫，并清除已排队 timeout 事件", async () => {
+    const events: any[] = [];
+    const hanging = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(hanging);
+    const manager = new WorkerManager(options({
+      timeoutMs: 10,
+      totalBudgetMs: 10,
+      onParentEvent: (event: any) => events.push(event),
+      onParentEventAvailable: mock(),
+    }));
+    const [accepted] = manager.dispatch([{ title: "显式停止", task: "任务", tier: "T3", addTools: ["edit"], writeScope: ["src/"] }]);
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
+    const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
+
+    const result = manager.recover(accepted!.workerId, requestId, { action: "stop", reason: "主代理接管" });
+    expect(result).toMatchObject({
+      state: "timed_out",
+      writeInterrupted: { reason: "主代理接管", writeScope: ["src/"] },
+    });
+    manager.flushParentEvents();
+    expect(events).toEqual([]);
+    const waited = await manager.wait([accepted!.workerId], 1);
+    expect(waited).toMatchObject({ reason: "timeout", events: [], ready: [expect.objectContaining({ state: "timed_out" })] });
+  });
+
   it("abort 让 prompt resolve 时仍请求 timeout recovery，不误报无 assistant 文本", async () => {
     let resolvePrompt!: () => void;
     const session = {

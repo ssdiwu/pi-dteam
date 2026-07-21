@@ -17,10 +17,11 @@ npm test
 | `index-dispatch.test.ts` | 四工具、同名 `/dteam` 命令、自包含独立 worker 契约、紧凑渲染与参数 fail-closed |
 | `dynamic-tools.test.ts` | 首次 active set、候选工具、第三方降级 |
 | `worker-manager.dispatch.test.ts` | 请求校验、派发、档位候选、共享并发与工具额度 |
-| `worker-manager.recovery.test.ts` | timeout recovery、重试、升级、延长和恢复预算边界 |
+| `worker-manager.recovery.test.ts` | timeout recovery、重试、升级、延长、恢复预算，以及主代理 stop 的守卫同步返回与旧事件清理 |
 | `worker-manager.lifecycle.test.ts` | 快照投影、事件与脱敏、取消、shutdown 和创建竞态 |
 | `signal-request.test.ts` | A/B/C signal、阻塞 request、原 session 恢复和 requestId 作用域 |
 | `worker-manager.protocol.test.ts` | Manager 报告回收、handoff provenance、verification 不进入 handoff、writeScope/write_interrupted 与 respond/recover 边界 |
+| `respond-cancel.test.ts` | 主代理受限 cancel 的同步守卫、旧事件清理，以及用户 `/dteam` 取消的 follow-up 边界 |
 | `worker-manager.report.test.ts` | WorkerReport 枚举、字段与交叉不变量、旧形状 fail-closed 及统一 parser/tool 契约 |
 | `worker-report.fixture.ts` | 跨测试复用的最小合法 WorkerReport 工厂；不是测试入口 |
 | `test-helpers.ts` / `mock-modules.ts` | Bun 原生 `waitFor`（等待断言）和跨文件模块 mock；不是测试入口 |
