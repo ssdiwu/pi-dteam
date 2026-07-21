@@ -47,7 +47,7 @@ dteam_respond({
 - `grant_tool_budget`（60–120，且为 10 的倍数；每个 worker 一次）
 - `decision`
 - `deny`
-- `cancel`（带 `reason`；主代理决定自己接管该 worker 任务时用它直接停掉，不要 `deny` 后任其在后台空跑；不是通用 cancel 工具，只在 worker waiting 时可用，详见 ADR 0023）
+- `cancel`（带 `reason`；主代理决定自己接管该 worker 任务时用它直接停掉，不要 `deny` 后任其在后台空跑；不是通用 cancel 工具，只在 worker waiting 时可用。工具结果同步返回必要的 `writeInterrupted` 守卫，并清除该 worker 尚未消费的 parent event，详见 ADR 0023）
 
 不能回应 timeout recovery（超时恢复）；该情形必须使用 `dteam_recover`。
 
@@ -62,9 +62,9 @@ dteam_recover({ workerId: "...", requestId: "...", action: "retry" })
 - `retry`：同档 fresh worker；
 - `escalate`：只允许相邻的 T3→T2 或 T2→T1；
 - `extend`：在累计恢复预算内延长；
-- `stop`：终止为 `timed_out`。
+- `stop`：终止为 `timed_out`；若有 `writeScope`，工具结果同步返回 `writeInterrupted` 守卫，并清除该 worker 尚未消费的 parent event。
 
-Manager 强制 fresh session、相邻升级、次数与预算上限；不做 resume（恢复）。可写 worker 超时即会回传 `write_interrupted`，主 LLM 必须先派 fresh T3 完整性检查，再决定修复或恢复。
+Manager 强制 fresh session、相邻升级、次数与预算上限；不做 resume（恢复）。可写 worker 超时但尚未显式 stop 时，仍会回传首次 `write_interrupted`，主 LLM 必须先派 fresh T3 完整性检查，再决定修复或恢复。
 
 ## 4. `dteam_wait`
 
@@ -78,7 +78,7 @@ dteam_wait({
 仅当后续工作依赖指定 worker 时调用。它不等待全部 worker 结束：任一指定 worker 完成、失败、进入终态或进入 `waiting` 时立即返回已就绪结果、需要回应的 request 与剩余 `pendingWorkerIds`。若仍需其余结果，主模型只对剩余 ID 再次 wait。
 
 - `timeoutMs` 必须是 1–300000 的整数；timeout 只结束本次等待，不取消 worker、不触发 recovery。
-- parent event 先进入 Manager 待消费队列。被 wait 捕获后立即从待回放队列删除，即使 wait 晚于事件发生也不会重复 follow-up；无 `writeScope` 且没有 assistant 文本和 `WorkerReport` 的失败仅供后续 wait 消费、不异步回放，其余未消费事件在主代理 idle / settled 后回放。`events` 明确列出本次实际消费的 `completed / failed / cancelled / request / write_interrupted`；终态 Snapshot 本身不冒充新事件。Signal Log 与 `/dteam` 仍保留记录。
+- parent event 先进入 Manager 待消费队列。被 wait 捕获后立即从待回放队列删除，即使 wait 晚于事件发生也不会重复 follow-up；主代理通过 `dteam_respond(cancel)` 或 `dteam_recover(stop)` 明确放弃 worker 时，该 worker 尚未消费的事件也会原子清除，迟到 wait 只看到终态 Snapshot，不冒充新事件。无 `writeScope` 且没有 assistant 文本和 `WorkerReport` 的失败仅供后续 wait 消费、不异步回放；其余未消费事件在主代理 idle / settled 后回放。`events` 明确列出本次实际消费的 `completed / failed / cancelled / request / write_interrupted`。Signal Log 与 `/dteam` 仍保留记录。
 - 进入 `waiting` 时先用 `dteam_respond` 或 `dteam_recover` 处理，再决定是否继续 wait，避免死锁。
 - 默认显示目标 worker、已等待时长（`s`/`m+s`）与 timeout 上限，以及就绪/仍等待数量；执行中每秒刷新计时。`Ctrl+O` 再展开 worker、report、request 与 pending 列表。
 
@@ -113,7 +113,7 @@ dteam_report({
 
 ## 6. 可写中断守卫
 
-worker 因 failed、cancelled、shutdown、timed_out 或缺报告而未确认完成，且有 `writeScope` 时，Manager 回传 `write_interrupted`，其中包含 worker、原因和 scope。主 LLM 不得将该结果当可信证据，必须派 fresh T3 检查 scope 的 diff、编译或定向测试。
+worker 因 failed、cancelled、shutdown、timed_out 或缺报告而未确认完成，且有 `writeScope` 时，Manager 回传包含 worker、reason 与 scope 的 `write_interrupted`。主代理显式 cancel/stop 时守卫随工具结果同步返回，且该 worker 旧 parent event 被清除；其他中断仍按事件渠道送达。主 LLM 不得将中断 worker 的结果当可信证据，必须派 fresh T3 检查 scope 的 diff、编译或定向测试。
 
 reload（重载）或新会话前，若工作区存在未解释的 dirty diff（未提交差异），主 LLM 也必须先作 T3 完整性检查，才能再派可写 worker。守卫不自动回滚、不创建持久标记、不自动派发检查 worker。
 

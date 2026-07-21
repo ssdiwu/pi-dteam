@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- 主代理通过 `dteam_respond(cancel)` 或 `dteam_recover(stop)` 明确放弃 worker 时，现在会同步返回可写中断守卫并清除该 worker 已排队的 parent event，避免终态后仍在 idle / settled 阶段迟到回放旧 `request`、`write_interrupted` 或其他事件；用户经 `/dteam` 取消和未显式停止的 timeout 首次守卫保持原行为。
+
 ## [0.9.1] - 2026-07-21
 
 ### Fixed
