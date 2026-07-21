@@ -349,18 +349,12 @@ export class WorkerManager {
       }
       acquired = true;
       if (record.controller.signal.aborted || isTerminal(record.state)) return;
-      record.state = "running";
-      record.startedAt ??= Date.now();
-      if (record.fallbackTrail.at(-1) !== record.activeTier) record.fallbackTrail.push(record.activeTier);
-      record.lastActivity = "开始执行";
-      record.attemptConsumedMs = 0;
-      this.signal(record, "attempt_started", { tier: record.activeTier, budgetMs: record.attemptBudgetMs });
+      this.beginAttempt(record);
       const result = await this.runTierCandidates(record);
       if (isTerminal(record.state)) return;
       if (!record.report) throw new Error("worker 未提交必需的 dteam_report");
       record.state = "completed"; record.result = result; record.endedAt = Date.now();
-      await closeSession(record.session);
-      record.session = undefined;
+      await this.releaseSession(record);
       this.signal(record, "worker_completed", { result });
       this.emit({ type: "completed", workerId: record.id, title: record.title, payload: { result, report: this.reportWithProvenance(record), tier: record.activeTier, fallbackTrail: record.fallbackTrail } });
     } catch (error) {
@@ -372,8 +366,7 @@ export class WorkerManager {
       record.state = "failed";
       record.terminalReason = errorMessage(error).includes("dteam_report") ? "missing_report" : "error";
       record.error = truncate(sanitizeSensitive(errorMessage(error)), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars); record.endedAt = Date.now();
-      await closeSession(record.session);
-      record.session = undefined;
+      await this.releaseSession(record);
       this.signal(record, "worker_failed", { error: record.error });
       const delivery: ParentEventDelivery = error instanceof WorkerNoOutputError && !record.report && !record.writeScope?.length ? "wait_only" : "follow_up";
       this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state } }, delivery);
@@ -381,6 +374,20 @@ export class WorkerManager {
     } finally {
       if (acquired) this.options.concurrency.release(record.state === "completed");
     }
+  }
+  private beginAttempt(record: WorkerRecord): void {
+    record.state = "running";
+    record.startedAt ??= Date.now();
+    if (record.fallbackTrail.at(-1) !== record.activeTier) record.fallbackTrail.push(record.activeTier);
+    record.lastActivity = "开始执行";
+    record.attemptConsumedMs = 0;
+    this.signal(record, "attempt_started", { tier: record.activeTier, budgetMs: record.attemptBudgetMs });
+  }
+
+  private async releaseSession(record: WorkerRecord): Promise<void> {
+    const session = record.session;
+    record.session = undefined;
+    await closeSession(session);
   }
 
   private async runTierCandidates(record: WorkerRecord): Promise<string> {
@@ -431,8 +438,7 @@ export class WorkerManager {
         lastError = error;
         if (record.toolLimitReached) throw new WorkerToolLimitError(toolBudgetExhaustedMessage(record));
         if (record.controller.signal.aborted || error instanceof WorkerTimeoutError) throw error;
-        await closeSession(record.session);
-        record.session = undefined;
+        await this.releaseSession(record);
         // Reports are candidate-attempt scoped; the next same-tier candidate must submit its own.
         record.report = undefined;
         this.requestState.cancelWorker(record.id, "worker_attempt_failed");
@@ -555,6 +561,12 @@ export class WorkerManager {
       const remainingAttemptBudget = Math.max(0, record.totalBudgetMs - record.attemptConsumedMs);
       budgetMs = Math.min(defaultAttemptBudget, remainingAttemptBudget + response.additionalMs);
     }
+    this.queueRecoveryAttempt(record, tier, budgetMs);
+    this.signal(record, "worker_recovery_started", { action: response.action, tier, budgetMs, recoveryCount: record.timeoutRecoveryCount });
+    void this.run(record);
+  }
+
+  private queueRecoveryAttempt(record: WorkerRecord, tier: Tier, budgetMs: number): void {
     record.timeoutRecoveryCount += 1;
     record.writeInterrupted = false;
     record.report = undefined;
@@ -567,8 +579,6 @@ export class WorkerManager {
     record.error = undefined;
     record.endedAt = undefined;
     record.state = "queued";
-    this.signal(record, "worker_recovery_started", { action: response.action, tier, budgetMs, recoveryCount: record.timeoutRecoveryCount });
-    void this.run(record);
   }
 
   private failForToolBudget(record: WorkerRecord, reason: string): void {

@@ -5,7 +5,7 @@
 | 文件 | 职责 |
 |---|---|
 | `tool-policy.ts` | 校验 `addTools` 候选与 fail-closed 工具边界；当前第三方 extension 候选明确降级拒绝 |
-| `worker-manager.ts` | worker 生命周期、共享并发、同档候选、timeout recovery、信号转发、单次事件消费、AgentSession 释放和 shutdown |
+| `worker-manager.ts` | worker 生命周期、共享并发、同档候选、timeout recovery、信号转发、单次事件消费，以及集中 attempt 启动、恢复重置和 AgentSession 释放 |
 | `signal-log.ts` | append-only Signal Log 与 Worker Snapshot 投影 |
 | `request-state.ts` | workerId/requestId 作用域的阻塞请求 deferred |
 | `signal-tool.ts` | worker 专用 `dteam_signal` custom tool |
