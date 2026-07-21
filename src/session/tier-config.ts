@@ -4,7 +4,8 @@
  * 所有档位均只读为安全默认：bash、edit、write 都要由调用方在 addTools 显式最小授予。
  */
 
-import { TIERS, THINKING_LEVELS, type ThinkingLevel, type Tier, type TierModelRoutes } from "../types/dispatch.js";
+import { TIERS, type ThinkingLevel, type Tier, type TierModelRoutes } from "../types/dispatch.js";
+import { parseModelCandidate } from "./model-candidate.js";
 
 export const READ_ONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
 export const WRITABLE_TOOLS = ["bash", "edit", "write"] as const;
@@ -80,12 +81,8 @@ export function getTierThinking(tier: Tier, requestedThinking?: ThinkingLevel): 
 
 /** 从 provider/model[:thinking] 解析模型和思考强度；无后缀时跟随档位默认值。 */
 export function parseTierModelCandidate(candidate: string, tier: Tier): { modelStr: string; thinkingLevel: ThinkingLevel } {
-  const separator = candidate.lastIndexOf(":");
-  const suffix = separator > candidate.indexOf("/") ? candidate.slice(separator + 1) : "";
-  if (suffix && (THINKING_LEVELS as readonly string[]).includes(suffix)) {
-    return { modelStr: candidate.slice(0, separator), thinkingLevel: suffix as ThinkingLevel };
-  }
-  return { modelStr: candidate, thinkingLevel: getTierThinking(tier) };
+  const parsed = parseModelCandidate(candidate);
+  return { modelStr: parsed.modelStr, thinkingLevel: parsed.thinkingLevel ?? getTierThinking(tier) };
 }
 
 export function getTierPrompt(tier: Tier): string {

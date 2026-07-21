@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { TIERS, THINKING_LEVELS, type Tier, type TierModelRoutes } from "../types/dispatch.js";
+import { TIERS, type Tier, type TierModelRoutes } from "../types/dispatch.js";
+import { isModelReference, parseModelCandidate } from "./model-candidate.js";
 
 export const DTEAM_CONFIG_PATH = join(homedir(), ".pi", "agent", "pi-dteam.json");
 
@@ -65,8 +66,9 @@ function parseTierCandidates(value: unknown, tier: Tier, errors: string[]): stri
 
   const models = [...new Set(values.map((item) => item.trim()).filter(Boolean))];
   for (const [index, candidate] of models.entries()) {
-    const model = modelWithoutThinking(candidate);
-    if (!isModelRef(model)) errors.push(`${Array.isArray(value) ? `${tier}[${index}]` : `${tier}.model`} 必须是 provider/model[:thinking] 格式：${candidate}`);
+    if (!isModelReference(parseModelCandidate(candidate).modelStr)) {
+      errors.push(`${Array.isArray(value) ? `${tier}[${index}]` : `${tier}.model`} 必须是 provider/model[:thinking] 格式：${candidate}`);
+    }
   }
   return models;
 }
@@ -80,18 +82,6 @@ function parseLegacyFallbacks(value: unknown, tier: Tier, errors: string[]): str
   return value.map((item) => item.trim()).filter(Boolean);
 }
 
-function modelWithoutThinking(value: string): string {
-  const separator = value.lastIndexOf(":");
-  const suffix = separator > value.indexOf("/") ? value.slice(separator + 1) : "";
-  return suffix && (THINKING_LEVELS as readonly string[]).includes(suffix)
-    ? value.slice(0, separator)
-    : value;
-}
-
-function isModelRef(value: string): boolean {
-  const slash = value.indexOf("/");
-  return slash > 0 && slash < value.length - 1 && !value.includes(" ");
-}
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
