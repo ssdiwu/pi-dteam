@@ -15,15 +15,15 @@
 | [0009](./0009-dteam重构为会话级后台运行时与星型信号协议.md) | dteam 重构为会话级后台运行时与星型信号协议 | 0.8 将同步 dispatch 升级为 Worker Manager 管理的后台 worker；主代理经有类型星型 signal 协作，不复活 loop / TTL store / resume |
 | [0010](./0010-dteam不引入批次或依赖调度.md) | dteam 不引入批次或依赖调度 | 主代理一次派发可提交多个独立 worker；dteam 不保存批次或依赖，dgoal task 与 worker 不建立跨扩展对应关系 |
 | [0011](./0011-dteam作为唯一模型工具名.md) | dteam 作为唯一模型工具名 | **已被 0013 推翻**；单工具 `dteam` 只保留决策时序 |
-| [0012](./0012-主代理决策式逐级升级与超时恢复.md) | 主代理决策式逐级升级与超时恢复 | 跨档按 T3→T2→T1 由主代理决策；timeout 在会话内请求有限 fresh 恢复，不做 resume |
+| [0012](./0012-主代理决策式逐级升级与超时恢复.md) | 主代理决策式逐级升级与超时恢复 | 跨档按 T3→T2→T1 由主代理决策；timeout 在会话内请求有限 fresh 恢复，显式 stop 同步守卫并原子清旧事件 |
 | [0013](./0013-dteam拆分为派发回应与恢复三个模型工具.md) | dteam 拆分为派发、回应与恢复三个模型工具 | 已以 `dteam_dispatch` / `dteam_respond` / `dteam_recover` 取代单一工具；0018 再增加 `dteam_wait` |
 | [0014](./0014-代码任务默认T3优先探测.md) | 代码任务默认 T3 优先探测 | 已实施：非极小代码任务默认先派有界 T3 只读探测；多轮与外部取证由 0020 补充 |
 | [0015](./0015-结构化工作报告与有界上下文交接.md) | 结构化工作报告与有界上下文交接 | 每个 worker 必须提交结构化 `dteam_report`，主模型经有界 `handoff` 显式跨档交接事实 |
 | [0016](./0016-递增成本执行与验证闭环.md) | 递增成本执行与验证闭环 | 实施与 fresh 验证都按 T3→T2→T1 的最低足够档位逐级派发 |
-| [0017](./0017-可写工作者中断完整性守卫.md) | 可写工作者中断完整性守卫 | 可写 worker 必须声明 `writeScope`；中断后强制 fresh T3 检查，脏工作区也须先验再写 |
+| [0017](./0017-可写工作者中断完整性守卫.md) | 可写工作者中断完整性守卫 | 可写 worker 必须声明 `writeScope`；普通中断送达守卫，主代理显式 cancel/stop 时同步返回并清旧事件，随后强制 fresh T3 检查 |
 | [0018](./0018-显式依赖等待原语.md) | 显式依赖等待原语 | 增加 `dteam_wait`：显式等待指定 worker 的下一可消费事件，不引入轮询或依赖图 |
 | [0019](./0019-工具结果的人类可读投影.md) | 工具结果的人类可读投影 | 所有用户可见工具默认显示摘要、`Ctrl+O` 展示人类可读详情，内部结构不直接进入 UI |
 | [0020](./0020-主代理证据驱动多轮路由协议.md) | 主代理证据驱动多轮路由协议 | dteam 合同包含执行层与主代理路由协议；多轮 T3、受限外部取证和外部耐久地图均不进入 Manager 状态 |
 | [0021](./0021-结构化工作报告区分动作完成度与验证深度.md) | 结构化工作报告区分动作、完成度与验证深度 | `dteam_report` 统一表达 outcome、activities、facts 与实际 verification，人工复测留在报告之外 |
 | [0022](./0022-dteam用量写入独立脱敏账本.md) | dteam 用量写入独立脱敏账本 | worker 每条 assistant message 的纯数字 usage 写入 `~/.pi/agent/dteam-usage.jsonl`，不持久化 worker 正文或复用 dgoal 审核账本 |
-| [0023](./0023-cancel作为dteam-respond的受限取消响应.md) | cancel 作为 dteam_respond 的受限取消响应 | `dteam_respond` 增加 `cancel` 响应（与 `deny` 并列），只在 worker waiting 时可用；主代理接管时停掉 worker，不引入通用 cancel 工具 |
+| [0023](./0023-cancel作为dteam-respond的受限取消响应.md) | cancel 作为 dteam_respond 的受限取消响应 | `dteam_respond(cancel)` 只在 worker waiting 时可用；主代理接管时同步守卫并清除该 worker 待回放事件，不引入通用 cancel 工具 |
