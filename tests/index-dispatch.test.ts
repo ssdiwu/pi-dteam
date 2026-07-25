@@ -72,6 +72,28 @@ describe("dteam next-major extension entry", () => {
     expect(tools.dteam_wait.description).toContain("依赖指定 worker");
   });
 
+  it("压缩后仅向下一次 context 注入未收口 worker 的内存摘要", async () => {
+    const hanging = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(hanging);
+    const { pi, tools } = register();
+    const ctx = context();
+    const start = pi.on.mock.calls.find(([event]: any[]) => event === "session_start")?.[1];
+    const compact = pi.on.mock.calls.find(([event]: any[]) => event === "session_compact")?.[1];
+    const injectContext = pi.on.mock.calls.find(([event]: any[]) => event === "context")?.[1];
+    const shutdown = pi.on.mock.calls.find(([event]: any[]) => event === "session_shutdown")?.[1];
+    start!({}, ctx);
+    await tools.dteam_dispatch.execute("dispatch", { workers: [{ title: "待决 worker", task: "检查范围", tier: "T3" }] }, undefined, undefined, ctx);
+    await waitFor(() => expect(hanging.prompt).toHaveBeenCalled());
+    compact!({}, ctx);
+    const first = injectContext!({ messages: [] }, ctx);
+    expect(first.messages).toHaveLength(1);
+    expect(first.messages[0]).toMatchObject({ role: "custom", customType: "dteam-compaction-resync", display: false });
+    expect(first.messages[0].content).toContain("<dteam_resync>");
+    expect(first.messages[0].content).toContain("待决 worker");
+    expect(injectContext!({ messages: [] }, ctx)).toBeUndefined();
+    shutdown!({}, ctx);
+  });
+
   it.each([0, 33])("dispatch 拒绝 workers 数量 %s", async (count) => {
     const { tools } = register();
     const response = await tools.dteam_dispatch.execute("call", { workers: Array.from({ length: count }, (_, i) => ({ title: String(i), task: "x", tier: "T3" })) }, undefined, undefined, context());

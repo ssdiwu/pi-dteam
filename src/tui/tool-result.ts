@@ -93,6 +93,7 @@ function waitTargetText(targets: DteamWaitResult["targetWorkers"] | undefined): 
 
 function workerLines(worker: WorkerSnapshot): string[] {
   const lines = [`- ${text(worker.title) || "未命名"} · ${text(worker.id)} · ${text(worker.state)}`];
+  if (worker.writeScope?.length) lines.push(`  本 worker 写入范围：${arrayText(worker.writeScope)}（不代表父任务完成）`);
   if (worker.report) lines.push(...reportLines(worker.report));
   if (worker.error) lines.push(`  错误：${text(worker.error)}`);
   if (worker.timeoutDiagnostic) lines.push(`  超时：${text(worker.timeoutDiagnostic.lastActivity) || "无活动信息"}`);

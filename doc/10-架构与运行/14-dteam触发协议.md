@@ -29,6 +29,7 @@
 3. **定义证据问题**：本轮拿到什么事实，主代理就能作出下一步判断。
 
 不要求预生成完整任务树，也不把“前沿”“轮次”或 expected verification depth 写进 Manager schema。worker task 应自包含、范围有界，并说明期望回传的事实格式或验证证据。
+`writeScope` 与 worker task 中的局部限制只约束对应 worker；主代理不得把它们提升为父任务的非目标、交付边界或完成依据。
 
 ## 4. 代码任务：多轮、多证据面 T3
 
@@ -79,6 +80,7 @@ Manager `state=completed` 仅表示 worker 正常结束并提交合法报告。�
 - `facts`：可复验且可进入 bounded handoff 的事实；
 - `verification`：实际深度、结果、证据和 remaining；
 - `uncertainties`：仍可能改变结论的未知。
+- `writeScope` / `workerBoundary`：当前 worker 的局部预期写入范围，不是父任务的覆盖证明；
 
 然后只选择当前必要动作：
 
@@ -91,9 +93,12 @@ Manager `state=completed` 仅表示 worker 正常结束并提交合法报告。�
 | 验证 failed | 建立失败反馈环，修根因后再验 |
 | 只能由用户决定或人工环境才能验证 | 回到用户；不改写 worker 历史报告 |
 
+若 worker 已知有范围外未覆盖的工件或检查，应在 `remaining` 中明确；尚未查明但可能改变结论的风险进入 `uncertainties`。主代理据此决定是否派 fresh T3 复核声明交付物、实际 diff 与相关工件；Manager 不自动派发或阻断收口。
+
 ## 7. 外部耐久地图与长任务
 
 issue、PRD、spec、dgoal plan 或项目既有地图可以保存跨会话目标、决策与依赖。主代理只把当前 slice、必要事实与 evidence pointer 交给 dteam。dteam 不保存外部 ID、不更新地图、不恢复旧 worker session，也不把完整地图或主会话全文注入 worker。
+主会话发生 compaction（压缩）时，dteam 不恢复 worker session 或保存 transcript；仅在当前 Pi 进程内从 Manager Snapshot 一次性重注入未收口 worker 的有界摘要。摘要只包含局部范围、验证、事实摘要和未收口风险，注入后即消费。
 
 ## 8. 示例
 

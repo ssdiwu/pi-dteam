@@ -25,7 +25,7 @@ describe("human-readable tool result projection", () => {
         waitedMs: 1_250,
         timeoutMs: 60_000,
         events: [{ type: "write_interrupted", workerId: "w1", title: "检查", payload: { reason: "worker failed", writeScope: ["src/runtime/"] } }],
-        ready: [{ id: "w1", title: "检查", state: "completed", requestedTier: "T3", activeTier: "T3", fallbackTrail: [], activeTools: [], report: workerReport({
+        ready: [{ id: "w1", title: "检查", state: "completed", requestedTier: "T3", activeTier: "T3", fallbackTrail: [], activeTools: [], writeScope: ["src/runtime/"], report: workerReport({
           summary: "发现入口",
           activities: ["inspected", "tested"],
           facts: [{ claim: "入口存在", evidence: "src/index.ts:1" }],
@@ -43,6 +43,7 @@ describe("human-readable tool result projection", () => {
     const expanded = humanizeToolResult("wait", result, true);
     expect(expanded).toContain("事件 · w1 · write_interrupted · 写入范围：src/runtime/ · 原因：worker failed");
     expect(expanded).toContain("检查 · w1 · completed");
+    expect(expanded).toContain("本 worker 写入范围：src/runtime/（不代表父任务完成）");
     expect(expanded).toContain("报告：completed · 发现入口");
     expect(expanded).toContain("动作：inspected、tested");
     expect(expanded).toContain("验证：automated / partial");

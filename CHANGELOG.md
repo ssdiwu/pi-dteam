@@ -1,11 +1,15 @@
 # Changelog
 
 本文件记录 dteam 的用户可感知变更与关键实现收口。  
-格式参考 Keep a Changelog，但保持中文、简洁、面向项目实际。
+本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的基本格式；已打 tag 的版本以 Git tag（Git 标签）为准，未打 tag 的 Build 候选以 App target 构建号为准。
+
+版本段使用 `## [x.x.x] - YYYY-MM-DD`；能明确回链到 GitHub issue 的条目在句尾标 `(#xx)`。
 
 ## [Unreleased]
 
 ### Fixed
+- `writeScope`（写入范围）和 worker task（任务）的局部限制现在明确只约束对应 worker；完成事件、`dteam_wait`（显式等待）与 `/dteam`（管理视图）会标注该范围不代表父任务完成，避免局部限制被误用为总交付边界。
+- 主会话 compaction（压缩）后，dteam 会仅一次性把运行中、异常或带 `partial` / `remaining` / `uncertainties` 的 worker 有界证据摘要重注入下一次模型 context（上下文）；不保存 worker transcript（逐字记录），也不跨 reload（重载）恢复。
 - 主代理通过 `dteam_respond(cancel)` 或 `dteam_recover(stop)` 明确放弃 worker 时，现在会同步返回可写中断守卫并清除该 worker 已排队的 parent event，避免终态后仍在 idle / settled 阶段迟到回放旧 `request`、`write_interrupted` 或其他事件；用户经 `/dteam` 取消和未显式停止的 timeout 首次守卫保持原行为。
 
 ## [0.9.1] - 2026-07-21

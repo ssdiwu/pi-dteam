@@ -84,6 +84,7 @@ export function renderWorkerDetail(item: WorkerSnapshot, theme?: ThemeLike, widt
     translate("dialog.tools", { value: item.activeTools.map(safeText).join(", ") || translate("dialog.none") }),
     translate("dialog.fallback", { value: item.fallbackTrail.length > 1 ? item.fallbackTrail.map(safeText).join(" → ") : translate("dialog.none") }),
     translate("dialog.task", { value: safeText(item.task) || translate("dialog.noTask") }),
+    ...(item.writeScope?.length ? [translate("dialog.writeScope", { value: item.writeScope.map(safeText).join(", ") })] : []),
     ...(item.liveText ? [translate("dialog.liveText", { value: safeText(item.liveText) })] : []),
     ...(item.liveThinking ? [translate("dialog.liveThinking", { value: safeText(item.liveThinking) })] : []),
     ...(item.liveTool ? [translate("dialog.liveTool", { value: safeText(item.liveTool) })] : []),

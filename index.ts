@@ -122,8 +122,25 @@ export default function registerDteam(pi: ExtensionAPI) {
   (pi.on as any)("agent_settled", () => {
     runtime.manager?.flushParentEvents();
   });
+  pi.on("session_compact", () => {
+    runtime.manager?.markCompactionResync();
+  });
+  // 仅在 compaction 后的下一次模型调用中重注入 Manager 内存里的未收口证据；
+  // context 修改不写回 session，因此不形成 worker transcript 或跨 reload 状态。
+  pi.on("context", (event: any) => {
+    const summary = runtime.manager?.consumeCompactionResync();
+    if (!summary) return;
+    return {
+      messages: [...event.messages, {
+        role: "custom",
+        customType: "dteam-compaction-resync",
+        content: summary,
+        display: false,
+      }],
+    };
+  });
 
-  const toolDescription = "dteam 模型分级后台 worker 工具。主 LLM 负责理解、路由、证据筛选、冲突裁决和收口；非极小代码任务先用多轮、多证据面的 T3 只读探测，外部信息由主代理选源后交 T3 有界提取；T2 处理已定位的常规实现，T1 只处理复杂判断、高风险收敛和验收。worker 必须接收自包含、相互独立的任务，并通过内部 dteam_report 如实提交 outcome、实际 activities、facts 与 verification，由主代理核验证据并决定后续动作。跨档仅传有界 handoff，不传完整会话或 worker P2P 消息。可写 worker 必须声明 writeScope；中断时主 LLM 必须派 fresh T3 检查 scope 的 diff、编译或定向测试。";
+  const toolDescription = "dteam 模型分级后台 worker 工具。主 LLM 负责理解、路由、证据筛选、冲突裁决和收口；非极小代码任务先用多轮、多证据面的 T3 只读探测，外部信息由主代理选源后交 T3 有界提取；T2 处理已定位的常规实现，T1 只处理复杂判断、高风险收敛和验收。worker 必须接收自包含、相互独立的任务，并通过内部 dteam_report 如实提交 outcome、实际 activities、facts 与 verification，由主代理核验证据并决定后续动作。worker 的 task 限制和 writeScope 只约束该 worker，不代表父任务的交付范围或完成；主代理收口前必须核对局部范围、facts、verification、remaining 与 uncertainties。跨档仅传有界 handoff，不传完整会话或 worker P2P 消息。可写 worker 必须声明 writeScope；中断时主 LLM 必须派 fresh T3 检查 scope 的 diff、编译或定向测试。";
   const workerSchema = {
     type: "object",
     properties: {

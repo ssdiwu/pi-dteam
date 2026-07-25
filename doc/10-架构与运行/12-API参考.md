@@ -28,6 +28,7 @@ dteam_dispatch({
 - T3→T2→T1 由主 LLM 决策；同档候选才自动回退。
 - 所有档位默认只读。需要 `edit` 或 `write` 时，必须在 `addTools` 显式授权，并声明项目相对 `writeScope`。
 - 可选 `handoff` 只传带 `workerId` 来源的事实、约束和不确定性；禁止主会话 / transcript（逐字记录） / P2P（点对点）消息。
+- `writeScope` 是当前 worker 的局部预期写入范围，不是父任务的交付范围或完成条件。worker task 中已知的范围外未覆盖检查必须进入 `verification.remaining`，尚未查明且可能影响结论的风险进入 `uncertainties`。
 - 默认只显示紧凑受理摘要；按 `Ctrl+O` 展开完整但仍为人类可读的 worker 列表，不显示原始 JSON（JavaScript 对象表示法）。
 
 ## 2. `dteam_respond`
@@ -81,6 +82,7 @@ dteam_wait({
 - parent event 先进入 Manager 待消费队列。被 wait 捕获后立即从待回放队列删除，即使 wait 晚于事件发生也不会重复 follow-up；主代理通过 `dteam_respond(cancel)` 或 `dteam_recover(stop)` 明确放弃 worker 时，该 worker 尚未消费的事件也会原子清除，迟到 wait 只看到终态 Snapshot，不冒充新事件。无 `writeScope` 且没有 assistant 文本和 `WorkerReport` 的失败仅供后续 wait 消费、不异步回放；其余未消费事件在主代理 idle / settled 后回放。`events` 明确列出本次实际消费的 `completed / failed / cancelled / request / write_interrupted`。Signal Log 与 `/dteam` 仍保留记录。
 - 进入 `waiting` 时先用 `dteam_respond` 或 `dteam_recover` 处理，再决定是否继续 wait，避免死锁。
 - 默认显示目标 worker、已等待时长（`s`/`m+s`）与 timeout 上限，以及就绪/仍等待数量；执行中每秒刷新计时。`Ctrl+O` 再展开 worker、report、request 与 pending 列表。
+- Pi 主会话 compaction（压缩）后，Manager 只会向下一次模型 context（上下文）一次性重注入内存中未收口 worker 的有界摘要：运行中/等待中/异常终态 worker，或 `partial`、有 `remaining` / `uncertainties` 的 completed worker。摘要包含局部 `writeScope`、验证与未收口风险；不保存 worker transcript（逐字记录）、不跨 reload（重载）恢复。
 
 ## 5. Worker 内部工具
 
@@ -109,6 +111,7 @@ dteam_report({
 - `facts` 至少一项，每项 `claim / evidence` 非空；Manager 只为完成事件中的 facts 附加实际 `workerId` provenance（来源）。verification 不进入 handoff。
 - `verification` 始终必填。未验证时必须是 `none + not_run + []`；其他深度必须有 evidence。inspection 要求 inspected，automated 要求 tested，runtime 要求 executed，visual 同时要求 executed 与 captured_visual。
 - `remaining` 是已知但未完成的检查；`uncertainties` 是仍可能改变结论的未知。`human` 与 expected verification depth 不属于 WorkerReport。
+- `writeScope` 或 task 的局部限制仅约束对应 worker。即使 `outcome=completed`，主代理也必须结合 workerBoundary（完成事件中的 Manager 派生局部范围）、`remaining` 与 `uncertainties` 决定父任务是否还需补验。
 - `dteam_report` 是必需的最终报告，不消耗工作工具额度；旧 `{ summary, facts, uncertainties? }` 形状、未知字段或最终自由文本均 fail-closed。
 
 ## 6. 可写中断守卫
@@ -130,6 +133,7 @@ worker session 仍使用 `SessionManager.inMemory()`，不会写入 Pi session J
 ## 8. 工具结果投影与不提供
 
 所有用户可见工具默认显示紧凑摘要；`Ctrl+O` 展开完整但仍为人类可读的文字、列表和诊断。完成 worker 的展开详情显示 outcome、activities、verification、facts、remaining 与 uncertainties，不显示原始 JSON。完整结构只保留在模型上下文、内部 `details` 与测试。
+完成事件与 `dteam_wait` 的 ready Snapshot 还会显示 Manager 派生的 workerBoundary：`writeScope` 仅代表该 worker 的局部范围，不能被当作父任务已覆盖的工件清单。
 
 不提供：
 

@@ -111,6 +111,7 @@ describe("/dteam dialog rendering", () => {
     const text = renderWorkerDetail({
       ...base,
       state: "completed",
+      writeScope: ["src/runtime/worker-manager.ts"],
       report: workerReport({
         summary: "完成检查",
         activities: ["inspected", "tested"],
@@ -126,6 +127,7 @@ describe("/dteam dialog rendering", () => {
     expect(text).toContain("剩余验证：未做真实 provider 冒烟");
     expect(text).toContain("事实：入口存在 ← src/index.ts:1");
     expect(text).toContain("不确定：外部环境未知");
+    expect(text).toContain("本 worker 写入范围：src/runtime/worker-manager.ts（不代表父任务完成）");
     expect(text).not.toContain("{\"");
   });
 

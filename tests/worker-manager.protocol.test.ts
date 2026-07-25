@@ -76,6 +76,35 @@ describe("next-major worker protocol", () => {
     expect(JSON.stringify(report)).not.toContain("sk-uncertain-secret");
   });
 
+  it("writeScope 只约束当前 worker，并在完成事件与压缩 resync 中保留局部边界", async () => {
+    let prompt = "";
+    let workerId = "";
+    const events: any[] = [];
+    const manager = new WorkerManager(options({ onParentEvent: (event: any) => events.push(event) }));
+    mockCreateWorkerSession.mockResolvedValue({
+      abort: mock().mockResolvedValue(undefined),
+      messages: [{ role: "assistant", content: [{ type: "text", text: "部分完成" }, { type: "toolCall", name: "dteam_report", arguments: workerReport({ outcome: "partial", summary: "仅完成代码切片", facts: [{ claim: "实现已改", evidence: "src/feature.ts:1" }], verification: { depth: "none", status: "not_run", evidence: [], remaining: ["README 未核验"] }, uncertainties: ["发布说明是否需要更新未知"] }) }] }],
+      prompt: mock(async (input: string) => { prompt = input; }),
+    });
+    const [accepted] = manager.dispatch([{ title: "局部实现", task: "只修改代码", tier: "T3", writeScope: ["src/feature.ts"] }]);
+    workerId = accepted!.workerId;
+    await waitFor(() => expect(manager.get(workerId)?.state).toBe("completed"));
+    await waitFor(() => expect(events.some((event) => event.type === "completed")).toBe(true));
+    const completed = events.find((event) => event.type === "completed");
+    expect(prompt).toContain("只约束当前 worker");
+    expect(prompt).toContain("verification.remaining");
+    expect(completed.payload.workerBoundary).toEqual({ writeScope: ["src/feature.ts"], localOnly: true });
+
+    manager.markCompactionResync();
+    const summary = manager.consumeCompactionResync();
+    expect(summary).toContain("<dteam_resync>");
+    expect(summary).toContain(workerId);
+    expect(summary).toContain("src/feature.ts");
+    expect(summary).toContain("README 未核验");
+    expect(summary).toContain("发布说明是否需要更新未知");
+    expect(manager.consumeCompactionResync()).toBeUndefined();
+  });
+
   it("可写 worker 缺 writeScope 被拒绝，取消后回传 write_interrupted", async () => {
     const manager = new WorkerManager(options());
     expect(() => manager.dispatch([{ title: "缺范围", task: "任务", tier: "T3", addTools: ["edit"] }])).toThrow("writeScope");

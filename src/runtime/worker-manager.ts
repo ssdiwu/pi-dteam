@@ -103,6 +103,7 @@ export class WorkerManager {
   private parentEventTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly waiters = new Set<Waiter>();
   private closed = false;
+  private compactionResyncPending = false;
 
   constructor(options: WorkerManagerOptions) { this.options = options; }
 
@@ -289,6 +290,26 @@ export class WorkerManager {
   list(): WorkerSnapshot[] { return [...this.records.values()].map((record) => this.snapshot(record)!); }
   active(): WorkerSnapshot[] { return this.list().filter((record) => ["queued", "running", "waiting"].includes(record.state)); }
 
+  /** 标记下一次主模型 context 注入当前会话内未收口 worker 的有界摘要。 */
+  markCompactionResync(): void {
+    if (!this.closed) this.compactionResyncPending = true;
+  }
+
+  /** 一次性消费压缩后的重同步摘要；只读 Manager 内存，不写入 session。 */
+  consumeCompactionResync(): string | undefined {
+    if (!this.compactionResyncPending) return undefined;
+    this.compactionResyncPending = false;
+    const records = [...this.records.values()].filter(needsCompactionResync);
+    if (!records.length) return undefined;
+    const lines = [
+      "<dteam_resync>",
+      "以下 worker 仍需主代理裁决。writeScope 和 task 限制只约束对应 worker，不代表父任务完成。请根据局部范围、验证、remaining 与 uncertainties 决定后续动作。",
+      ...records.flatMap(formatCompactionResyncRecord),
+      "</dteam_resync>",
+    ];
+    return truncate(lines.join("\n"), DTEAM_CONFIG.dispatch.maxHandoffChars);
+  }
+
   wait(workerIds: string[], timeoutMs: number): Promise<DteamWaitResult> {
     if (!Array.isArray(workerIds) || workerIds.length < 1 || workerIds.length > MAX_WORKERS_PER_DISPATCH || workerIds.some((id) => typeof id !== "string" || !id)) throw new Error("dteam: workerIds 必须是 1–32 个非空字符串");
     if (new Set(workerIds).size !== workerIds.length) throw new Error("dteam: workerIds 不可重复");
@@ -365,7 +386,7 @@ export class WorkerManager {
       record.state = "completed"; record.result = result; record.endedAt = Date.now();
       await this.releaseSession(record);
       this.signal(record, "worker_completed", { result });
-      this.emit({ type: "completed", workerId: record.id, title: record.title, payload: { result, report: this.reportWithProvenance(record), tier: record.activeTier, fallbackTrail: record.fallbackTrail } });
+      this.emit({ type: "completed", workerId: record.id, title: record.title, payload: { result, report: this.reportWithProvenance(record), tier: record.activeTier, fallbackTrail: record.fallbackTrail, workerBoundary: { writeScope: [...(record.writeScope ?? [])], localOnly: true } } });
     } catch (error) {
       if (isTerminal(record.state) || record.controller.signal.aborted) return;
       if (error instanceof WorkerTimeoutError) {
@@ -637,9 +658,12 @@ export class WorkerManager {
 
   private promptTask(record: WorkerRecord): string {
     const task = sanitizeSensitive(record.task);
+    const scope = record.writeScope?.length
+      ? `\n\n--- worker write scope ---\n本 worker 的预期写入范围：${record.writeScope.join(", ")}。该范围只约束当前 worker，不定义父任务交付范围或完成条件。若已知某项检查因当前范围、工具或任务限制未覆盖，写入 verification.remaining；若仍可能影响结论但尚未查明，写入 uncertainties。`
+      : "";
     const handoff = record.handoff ? `\n\n--- bounded handoff ---\n${JSON.stringify(record.handoff)}` : "";
     const recovery = record.recoverySummary ? `\n\n--- timeout recovery context ---\n${sanitizeSensitive(record.recoverySummary)}` : "";
-    return `${task}${handoff}${recovery}`;
+    return `${task}${scope}${handoff}${recovery}`;
   }
 
   private subscribeSession(record: WorkerRecord, session: any, candidateId: string, configuredModel: string): () => void {
@@ -971,6 +995,32 @@ function isNextTier(current: Tier, next: Tier): boolean {
 
 function toolCallBudgetForTier(tier: Tier): number {
   return DTEAM_CONFIG.dispatch.toolCallBudgetByTier[tier];
+}
+
+function needsCompactionResync(record: WorkerRecord): boolean {
+  if (["queued", "running", "waiting"].includes(record.state)) return true;
+  if (record.state !== "completed") return true;
+  const report = record.report;
+  return Boolean(report && (report.outcome === "partial" || report.verification.status !== "passed" || report.verification.remaining?.length || report.uncertainties?.length));
+}
+
+function formatCompactionResyncRecord(record: WorkerRecord): string[] {
+  const safe = (value: string) => truncate(sanitizeSensitive(value), DTEAM_CONFIG.dispatch.maxHandoffFieldChars);
+  const scope = record.writeScope?.length ? record.writeScope.map(safe).join(", ") : "未声明";
+  const lines = [
+    `- worker ${safe(record.id)} · ${safe(record.title)} · state=${record.state}`,
+    `  局部 writeScope（仅此 worker）：${scope}`,
+  ];
+  const report = record.report;
+  if (report) {
+    lines.push(`  报告：${report.outcome}；验证：${report.verification.depth}/${report.verification.status}`);
+    const fact = report.facts[0];
+    if (fact) lines.push(`  事实：${safe(fact.claim)} ← ${safe(fact.evidence)}`);
+    for (const remaining of report.verification.remaining ?? []) lines.push(`  剩余：${safe(remaining)}`);
+    for (const uncertainty of report.uncertainties ?? []) lines.push(`  不确定：${safe(uncertainty)}`);
+  }
+  if (record.error) lines.push(`  错误：${safe(record.error)}`);
+  return lines;
 }
 
 function workerSystemPrompt(tier: Tier, toolCallBudget: number): string {
