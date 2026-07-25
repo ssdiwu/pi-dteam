@@ -59,6 +59,9 @@ export function makeReportTool(workerId: string, candidateId: string, host: Repo
     label: "dteam report",
     description: "提交最终结构化工作报告。完成前必须恰好调用一次；区分任务 outcome、实际 activities 与实际 verification，只报告可核验事实。",
     parameters: makeReportSchema(),
+    // 受约束采样：支持的模型按 strict JSON Schema 调用，不支持的模型自动降级为普通工具调用，
+    // 不影响多供应商回退；parseWorkerReport 仍负责跨字段语义校验。
+    constrainedSampling: { type: "json_schema", strict: "prefer" } as any,
     async execute(_toolCallId: string, params: unknown) {
       const result = await host.receiveReport(workerId, params, candidateId);
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: { report: result } };

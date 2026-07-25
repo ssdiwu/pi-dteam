@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { TIERS, type Tier, type TierModelRoutes } from "../types/dispatch.js";
 import { isModelReference, parseModelCandidate } from "./model-candidate.js";
 
-export const DTEAM_CONFIG_PATH = join(homedir(), ".pi", "agent", "pi-dteam.json");
+export const DTEAM_CONFIG_PATH = join(getAgentDir(), "pi-dteam.json");
 
 export interface DteamConfigFile {
   tiers: Record<Tier, string[]>;

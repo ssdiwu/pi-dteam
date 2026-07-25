@@ -1,6 +1,6 @@
 /** dteam 0.7 模型字符串解析：将 `provider/id` 或裸 id 解析为 Model。 */
 
-import { getModel } from "@earendil-works/pi-ai";
+import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 
 /** 解析 model 字符串 → Model 对象 */
 export function resolveModelStr(
@@ -15,7 +15,7 @@ export function resolveModelStr(
     const found = modelRegistry.find(provider, id);
     if (found) return found;
     try {
-      const resolved = getModel(provider as any, id as any);
+      const resolved = getBuiltinModel(provider as any, id as any);
       if (resolved) return resolved;
     } catch {
       // fall through

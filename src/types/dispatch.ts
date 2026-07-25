@@ -8,7 +8,7 @@
 export const TIERS = ["T1", "T2", "T3"] as const;
 export type Tier = (typeof TIERS)[number];
 
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 /** 一档模型的显式主模型与供应商回退链；不按名称或价格猜档。 */

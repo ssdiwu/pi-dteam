@@ -25,4 +25,4 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
   SettingsManager: { inMemory: mockSettingsManager },
 }));
 
-mock.module("@earendil-works/pi-ai", () => ({ getModel: mockGetModel }));
+mock.module("@earendil-works/pi-ai/providers/all", () => ({ getBuiltinModel: mockGetModel }));
