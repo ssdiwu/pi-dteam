@@ -8,6 +8,7 @@
 ## [Unreleased]
 
 ### Fixed
+- 修复 `dteam_report` 在支持 strict JSON Schema（严格结构）的 Codex 模型上因对象层 `required` 不完整而被拒绝的问题；空 `remaining` / `uncertainties` 现在以空数组提交，非 strict 模型仍兼容旧的省略字段。
 - `writeScope`（写入范围）和 worker task（任务）的局部限制现在明确只约束对应 worker；完成事件、`dteam_wait`（显式等待）与 `/dteam`（管理视图）会标注该范围不代表父任务完成，避免局部限制被误用为总交付边界。
 - 主会话 compaction（压缩）后，dteam 会仅一次性把运行中、异常或带 `partial` / `remaining` / `uncertainties` 的 worker 有界证据摘要重注入下一次模型 context（上下文）；不保存 worker transcript（逐字记录），也不跨 reload（重载）恢复。
 - 主代理通过 `dteam_respond(cancel)` 或 `dteam_recover(stop)` 明确放弃 worker 时，现在会同步返回可写中断守卫并清除该 worker 已排队的 parent event，避免终态后仍在 idle / settled 阶段迟到回放旧 `request`、`write_interrupted` 或其他事件；用户经 `/dteam` 取消和未显式停止的 timeout 首次守卫保持原行为。

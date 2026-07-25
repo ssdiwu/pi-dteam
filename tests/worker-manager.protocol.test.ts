@@ -93,6 +93,9 @@ describe("next-major worker protocol", () => {
     const completed = events.find((event) => event.type === "completed");
     expect(prompt).toContain("只约束当前 worker");
     expect(prompt).toContain("verification.remaining");
+    const systemPrompt = mockCreateWorkerSession.mock.calls[0]?.[0]?.systemPrompt;
+    expect(systemPrompt).toContain("无剩余验证传 remaining: []");
+    expect(systemPrompt).toContain("无不确定性传 uncertainties: []");
     expect(completed.payload.workerBoundary).toEqual({ writeScope: ["src/feature.ts"], localOnly: true });
 
     manager.markCompactionResync();

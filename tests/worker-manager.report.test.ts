@@ -8,17 +8,40 @@ describe("WorkerReport contract", () => {
     expect(schema).toMatchObject({
       type: "object",
       additionalProperties: false,
-      required: ["outcome", "summary", "activities", "facts", "verification"],
+      required: ["outcome", "summary", "activities", "facts", "verification", "uncertainties"],
       properties: {
         outcome: { enum: ["completed", "partial"] },
         activities: { minItems: 1, uniqueItems: true },
-        verification: { additionalProperties: false, required: ["depth", "status", "evidence"] },
+        verification: { additionalProperties: false, required: ["depth", "status", "evidence", "remaining"] },
       },
     });
     expect(schema.properties.verification.oneOf).toEqual([
-      expect.objectContaining({ properties: { depth: { const: "none" }, status: { const: "not_run" }, evidence: expect.objectContaining({ maxItems: 0 }) } }),
-      expect.objectContaining({ properties: { depth: { enum: ["inspection", "automated", "runtime", "visual"] }, status: { enum: ["passed", "failed", "partial"] }, evidence: expect.objectContaining({ minItems: 1 }) } }),
+      expect.objectContaining({ properties: { depth: { const: "none" }, status: { const: "not_run" }, evidence: expect.objectContaining({ maxItems: 0 }) }, required: ["depth", "status", "evidence"] }),
+      expect.objectContaining({ properties: { depth: { enum: ["inspection", "automated", "runtime", "visual"] }, status: { enum: ["passed", "failed", "partial"] }, evidence: expect.objectContaining({ minItems: 1 }) }, required: ["depth", "status", "evidence"] }),
     ]);
+  });
+
+  it("strict Schema 关闭额外字段并要求每个 properties 键", () => {
+    const missingRequired: string[] = [];
+    const missingAdditionalProperties: string[] = [];
+    const visit = (value: unknown, path: string): void => {
+      if (!value || typeof value !== "object") return;
+      const schema = value as Record<string, unknown>;
+      if (schema.type === "object" && schema.additionalProperties !== false) missingAdditionalProperties.push(path);
+      if (schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties)) {
+        const required = new Set(Array.isArray(schema.required) ? schema.required.filter((key): key is string => typeof key === "string") : []);
+        for (const key of Object.keys(schema.properties as Record<string, unknown>)) if (!required.has(key)) missingRequired.push(`${path}.properties.${key}`);
+      }
+      for (const [key, child] of Object.entries(schema)) {
+        if (Array.isArray(child)) child.forEach((item, index) => visit(item, `${path}.${key}[${index}]`));
+        else visit(child, `${path}.${key}`);
+      }
+    };
+
+    visit(makeReportSchema(), "dteam_report");
+    expect(missingAdditionalProperties).toEqual([]);
+    expect(missingRequired).toEqual([]);
+    expect(makeReportTool("worker-1", "candidate-1", { receiveReport: mock() }).constrainedSampling).toEqual({ type: "json_schema", strict: "prefer" });
   });
 
   it("接受 partial outcome 与诚实的 none + not_run", () => {
