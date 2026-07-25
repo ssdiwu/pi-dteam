@@ -1,6 +1,6 @@
 import { waitFor } from "./test-helpers.js";
 import { mockCreateWorkerSession } from "./mock-modules.js";
-import { beforeEach, describe, expect, it , mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it , mock } from "bun:test";
 
 
 import { AdaptiveConcurrency } from "../src/dispatch/concurrency.js";
@@ -16,7 +16,12 @@ function options(overrides: any = {}) {
   };
 }
 
-beforeEach(() => mockCreateWorkerSession.mockReset());
+beforeEach(() => {
+  mockCreateWorkerSession.mockReset();
+  delete process.env.DTEAM_DIAGNOSTICS;
+});
+
+afterEach(() => delete process.env.DTEAM_DIAGNOSTICS);
 
 describe("WorkerManager explicit dependency wait", () => {
   it("目标 worker 终态时解除 wait，并消费同一 parent event", async () => {
@@ -115,11 +120,46 @@ describe("WorkerManager explicit dependency wait", () => {
     expect(onParentEventAvailable).not.toHaveBeenCalled();
     manager.flushParentEvents();
     expect(events).toEqual([]);
-    await expect(manager.wait([accepted!.workerId], 100)).resolves.toMatchObject({
+    const result = await manager.wait([accepted!.workerId], 100);
+    expect(result).toMatchObject({
       reason: "worker_event",
       events: [expect.objectContaining({ type: "failed", workerId: accepted!.workerId })],
       ready: [expect.objectContaining({ id: accepted!.workerId, state: "failed" })],
     });
+    expect((result.events[0] as any)?.payload).not.toHaveProperty("noOutputDiagnostics");
+    expect(result.ready[0]).not.toHaveProperty("noOutputDiagnostics");
+  });
+
+  it("DTEAM_DIAGNOSTICS=1 只为无输出失败投影脱敏诊断", async () => {
+    process.env.DTEAM_DIAGNOSTICS = "1";
+    let listener!: (event: any) => void;
+    const session = {
+      prompt: mock(() => {
+        listener({ type: "agent_start" });
+        listener({ type: "message_start" });
+        return Promise.resolve();
+      }),
+      subscribe: mock((callback: (event: any) => void) => { listener = callback; return () => {}; }),
+      abort: mock().mockResolvedValue(undefined),
+      messages: [{ role: "user", content: [] }, { role: "assistant", content: [] }],
+      agent: { state: { errorMessage: "api_key=sk-diagnostics-secret" } },
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const manager = new WorkerManager(options());
+    const [accepted] = manager.dispatch([{ title: "无输出诊断", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+
+    const result = await manager.wait([accepted!.workerId], 100);
+    const diagnostics = (result.events[0] as any)?.payload?.noOutputDiagnostics;
+    expect(diagnostics).toMatchObject({
+      candidateModel: expect.any(String),
+      messageCount: 2,
+      messageRoles: ["user", "assistant"],
+      lifecycleEvents: ["agent_start", "message_start"],
+      elapsedMs: expect.any(Number),
+    });
+    expect(JSON.stringify(diagnostics)).not.toContain("sk-diagnostics-secret");
+    expect(result.ready[0]?.noOutputDiagnostics).toEqual(diagnostics);
   });
 
   it("未被 wait 消费的完成事件只 flush 一次", async () => {

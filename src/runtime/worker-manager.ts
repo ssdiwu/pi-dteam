@@ -13,7 +13,7 @@ import { makeSignalTool } from "./signal-tool.js";
 import { makeReportTool, parseWorkerReport } from "./report-tool.js";
 import { sanitizeSensitive, sanitizeUnknown, truncate } from "./sanitize.js";
 import { appendUsageLedger } from "./usage-ledger.js";
-import { MAX_WORKERS_PER_DISPATCH, REPORT_TOOL_NAME, SIGNAL_TOOL_NAME, type DispatchAccepted, type DteamWaitResult, type ParentEvent, type ParentResponse, type RecoveryAction, type TimeoutDiagnostic, type WaitRequest, type WorkerReport, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
+import { MAX_WORKERS_PER_DISPATCH, REPORT_TOOL_NAME, SIGNAL_TOOL_NAME, type DispatchAccepted, type DteamWaitResult, type ParentEvent, type ParentResponse, type RecoveryAction, type TimeoutDiagnostic, type WaitRequest, type WorkerNoOutputDiagnostics, type WorkerReport, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
 
 interface Waiter {
   workerIds: Set<string>;
@@ -73,6 +73,7 @@ interface WorkerRecord extends WorkerSnapshot {
   handoff?: WorkerRequest["handoff"];
   writeScope?: string[];
   writeInterrupted?: boolean;
+  diagnosticLifecycleEvents?: string[];
 }
 
 export interface WorkerManagerOptions {
@@ -399,7 +400,7 @@ export class WorkerManager {
       await this.releaseSession(record);
       this.signal(record, "worker_failed", { error: record.error });
       const delivery: ParentEventDelivery = error instanceof WorkerNoOutputError && !record.report && !record.writeScope?.length ? "wait_only" : "follow_up";
-      this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state } }, delivery);
+      this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state, ...(record.noOutputDiagnostics ? { noOutputDiagnostics: record.noOutputDiagnostics } : {}) } }, delivery);
       this.emitWriteInterrupted(record, record.error);
     } finally {
       if (acquired) this.options.concurrency.release(record.state === "completed");
@@ -430,6 +431,8 @@ export class WorkerManager {
       const attemptBudgetMs = Math.min(record.attemptBudgetMs, remainingBudget);
       const candidateId = crypto.randomUUID();
       record.activeCandidateId = candidateId;
+      record.noOutputDiagnostics = undefined;
+      record.diagnosticLifecycleEvents = workerDiagnosticsEnabled() ? [] : undefined;
       const creationStartedAt = Date.now();
       let creationAccounted = false;
       try {
@@ -458,7 +461,7 @@ export class WorkerManager {
           }
           const remainingAttemptBudget = record.attemptBudgetMs - record.attemptConsumedMs;
           if (remainingAttemptBudget <= 0) throw new WorkerTimeoutError(`worker 累计预算已用尽（${formatDuration(record.totalBudgetMs)}）`);
-          return await this.promptWithTimeout(record, session, remainingAttemptBudget, candidateId);
+          return await this.promptWithTimeout(record, session, remainingAttemptBudget, candidateId, modelStr);
         } finally {
           unsubscribe();
         }
@@ -479,7 +482,7 @@ export class WorkerManager {
     throw lastError instanceof Error ? lastError : new Error("dteam: 所有模型候选均失败");
   }
 
-  private async promptWithTimeout(record: WorkerRecord, session: any, timeoutMs: number, candidateId: string): Promise<string> {
+  private async promptWithTimeout(record: WorkerRecord, session: any, timeoutMs: number, candidateId: string, candidateModel: string): Promise<string> {
     const startedAt = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let onAbort: (() => void) | undefined;
@@ -508,7 +511,10 @@ export class WorkerManager {
         if (report) this.receiveReport(record.id, report, candidateId);
       }
       const result = extractLastText(session.messages as any[]);
-      if (result === "(no output)") throw new WorkerNoOutputError("worker 未返回 assistant 文本");
+      if (result === "(no output)") {
+        this.captureNoOutputDiagnostics(record, session, candidateModel);
+        throw new WorkerNoOutputError("worker 未返回 assistant 文本");
+      }
       return truncate(sanitizeSensitive(result), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
     } finally {
       this.chargeAttemptTime(record, startedAt);
@@ -516,6 +522,20 @@ export class WorkerManager {
       if (onAbort) record.controller.signal.removeEventListener("abort", onAbort);
       if (record.rejectToolLimit === rejectToolLimit) record.rejectToolLimit = undefined;
     }
+  }
+
+  private captureNoOutputDiagnostics(record: WorkerRecord, session: any, candidateModel: string): void {
+    if (!workerDiagnosticsEnabled()) return;
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    const agentError = typeof session?.agent?.state?.errorMessage === "string" ? session.agent.state.errorMessage : undefined;
+    record.noOutputDiagnostics = {
+      candidateModel: truncate(sanitizeSensitive(candidateModel), 200),
+      messageCount: messages.length,
+      messageRoles: messages.slice(0, 20).map((message: any) => typeof message?.role === "string" ? message.role : "unknown"),
+      ...(agentError ? { agentError: truncate(sanitizeSensitive(agentError), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars) } : {}),
+      lifecycleEvents: [...(record.diagnosticLifecycleEvents ?? [])],
+      elapsedMs: Math.max(0, Date.now() - (record.startedAt ?? Date.now())),
+    };
   }
 
   private chargeAttemptTime(record: WorkerRecord, startedAt: number): void {
@@ -669,6 +689,9 @@ export class WorkerManager {
   private subscribeSession(record: WorkerRecord, session: any, candidateId: string, configuredModel: string): () => void {
     if (typeof session?.subscribe !== "function") return () => {};
     return session.subscribe((event: any) => {
+      if (workerDiagnosticsEnabled() && record.diagnosticLifecycleEvents && typeof event?.type === "string" && record.diagnosticLifecycleEvents.length < 20) {
+        record.diagnosticLifecycleEvents.push(event.type);
+      }
       if (event?.type === "message_end" && event.message?.role === "assistant" && event.message.usage && this.options.usageLedger) {
         const message = event.message;
         const model = typeof message.provider === "string" && typeof message.model === "string"
@@ -863,7 +886,7 @@ export class WorkerManager {
     if (!record) return undefined;
     const safe = (value?: string) => value === undefined ? undefined : truncate(sanitizeSensitive(value), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
     const diagnostic = record.timeoutDiagnostic ? { ...record.timeoutDiagnostic, lastActivity: safe(record.timeoutDiagnostic.lastActivity) ?? "", currentTool: safe(record.timeoutDiagnostic.currentTool) ?? "", outputSummary: safe(record.timeoutDiagnostic.outputSummary) ?? "" } : undefined;
-    return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], handoff: record.handoff, writeScope: record.writeScope, report: record.report, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), terminalReason: record.terminalReason };
+    return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], handoff: record.handoff, writeScope: record.writeScope, report: record.report, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), terminalReason: record.terminalReason, ...(record.noOutputDiagnostics ? { noOutputDiagnostics: record.noOutputDiagnostics } : {}) };
   }
   private emit(event: ParentEvent, delivery: ParentEventDelivery = "follow_up"): void {
     const safeEvent: ParentEvent = {
@@ -1035,6 +1058,8 @@ function toolBudgetExhaustedMessage(record: WorkerRecord): string {
 }
 
 export { sanitizeSensitive, sanitizeUnknown };
+
+function workerDiagnosticsEnabled(): boolean { return process.env.DTEAM_DIAGNOSTICS === "1"; }
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 

@@ -95,6 +95,16 @@ export interface TimeoutDiagnostic {
   outputSummary: string;
 }
 
+/** 仅在 DTEAM_DIAGNOSTICS=1 的无文本 worker 失败时暴露的脱敏瞬时诊断。 */
+export interface WorkerNoOutputDiagnostics {
+  candidateModel: string;
+  messageCount: number;
+  messageRoles: string[];
+  agentError?: string;
+  lifecycleEvents: string[];
+  elapsedMs: number;
+}
+
 export interface WorkerSnapshot {
   id: string;
   title: string;
@@ -122,6 +132,7 @@ export interface WorkerSnapshot {
   error?: string;
   cancelReason?: string;
   terminalReason?: "user_cancelled" | "session_shutdown" | "timeout" | "error" | "missing_report";
+  noOutputDiagnostics?: WorkerNoOutputDiagnostics;
 }
 
 export interface ParentEvent {

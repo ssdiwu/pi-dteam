@@ -14,6 +14,10 @@
 | `usage-ledger.ts` | `~/.pi/agent/dteam-usage.jsonl` 的纯数字白名单、去重键与 `0600` append-only 写入 |
 | `types.ts` | 0.8 四工具、worker、统一 WorkerReport、signal、handoff 与 wait 类型 |
 
+## 临时无输出诊断
+
+默认不采集。以 `DTEAM_DIAGNOSTICS=1` 启动 Pi 后，只有 worker 因没有 assistant 文本而失败时，`WorkerSnapshot` 与 `dteam_wait` 才附带脱敏、有界的 `noOutputDiagnostics`：候选模型、消息数量/角色、agent error、生命周期事件类型和耗时。它不含 prompt（提示词）、正文、工具参数或 provider（供应商）响应，也不会写入用量账本或持久日志。
+
 worker 只有提交合法 WorkerReport 才能进入 Manager `completed`；同档 candidate 的报告带 attempt token，候选切换后旧 token 与报告立即失效。该状态不承诺 `outcome=completed` 或 verification passed。完成事件只为 facts 附加真实 workerId provenance，verification 不进入 handoff。
 
 动态工具必须在首次 worker prompt 前完成候选注册和 active set 收窄。由于当前 Pi 公开 API 无法安全地只加载候选第三方 extension，0.8 先只开放 built-in 与 dteam 自定义工具候选，不全量发现或加载主会话 extension；外部来源由主代理选取并本地化后再交 T3 提取。
