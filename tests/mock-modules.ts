@@ -12,7 +12,6 @@ export const mockDiscoverAndLoadExtensions = mock();
 export const mockSessionManager = mock();
 export const mockSettingsManager = mock(() => ({}));
 export const mockCreateExtensionRuntime = mock(() => ({}));
-export const mockGetModel = mock();
 mock.module("../src/session.js", () => ({
   createWorkerSession: mockCreateWorkerSession,
 }));
@@ -24,5 +23,3 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
   SessionManager: { inMemory: mockSessionManager },
   SettingsManager: { inMemory: mockSettingsManager },
 }));
-
-mock.module("@earendil-works/pi-ai/providers/all", () => ({ getBuiltinModel: mockGetModel }));

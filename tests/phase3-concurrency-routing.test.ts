@@ -71,7 +71,7 @@ describe("AdaptiveConcurrency (Phase 3)", () => {
 });
 
 describe("resolveModelWithFallback (Phase 3 Multi-Provider)", () => {
-  // modelRegistry mock：getAll 返回空，find 只认特定串，让 resolveModelStr 走 find/getModel 都失败
+  // modelRegistry mock：getAll 返回空，find 只认特定串，让 resolveModelStr 的 find 与 getAll 扫描都失败
   const registry = {
     find: (provider: string, id: string) => {
       if (provider === "provider" && id === "good") return { id: "good", provider };
