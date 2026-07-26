@@ -183,11 +183,16 @@ describe("WorkerManager", () => {
   });
 
   it("同档候选失败后不得把前一候选的报告复用给未报告 fallback", async () => {
+    let workerId = "";
+    let manager!: WorkerManager;
     const primary = {
-      prompt: mock().mockResolvedValue(undefined),
+      prompt: mock(async () => {
+        manager.receiveReport(workerId, workerReport({ summary: "primary report" }));
+        throw new Error("primary transport failed after report");
+      }),
       abort: mock().mockResolvedValue(undefined),
       setActiveToolsByName: mock(),
-      messages: [{ role: "assistant", content: [{ type: "toolCall", name: "dteam_report", arguments: workerReport({ summary: "primary report" }) }] }],
+      messages: [],
     };
     const fallback = {
       prompt: mock().mockResolvedValue(undefined),
@@ -195,9 +200,10 @@ describe("WorkerManager", () => {
       setActiveToolsByName: mock(),
       messages: [{ role: "assistant", content: [{ type: "text", text: "fallback result without report" }] }],
     };
+    manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/primary", fallbackModels: ["ctx/fallback"] } } }));
     mockCreateWorkerSession.mockResolvedValueOnce(primary).mockResolvedValueOnce(fallback);
-    const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/primary", fallbackModels: ["ctx/fallback"] } } }));
     const [accepted] = manager.dispatch([{ title: "候选报告隔离", task: "任务", tier: "T3" }]);
+    workerId = accepted!.workerId;
     await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
     expect(mockCreateWorkerSession).toHaveBeenCalledTimes(2);
     expect(manager.get(accepted!.workerId)).toMatchObject({ terminalReason: "missing_report", error: expect.stringContaining("dteam_report") });

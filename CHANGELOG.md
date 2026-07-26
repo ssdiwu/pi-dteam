@@ -12,9 +12,11 @@
 
 ### Changed
 - 主代理证据驱动路由在技术路径不明时，可派有界候选探测；候选必须带主张、可复验证据、边界或风险与最小验证动作。主代理保留裁决与用户决策边界，Worker Manager（工作者管理器）不新增状态、自动派发或持久候选队列。
+- 开发依赖同步至 Pi 0.82.1：`dteam_report` 继续以 `strict: "prefer"` 使用上游严格 JSON Schema（严格 JSON 模式）能力，同时为不支持的模型保留普通工具调用回退。
 
 ### Fixed
 - 修复 `dteam_report` 在支持 strict JSON Schema（严格结构）的 Codex 模型上因对象层 `required` 不完整而被拒绝的问题；空 `remaining` / `uncertainties` 现在以空数组提交，非 strict 模型仍兼容旧的省略字段。
+- 修复 Pi 0.82 的 Codex 严格工具调用拒绝 `uniqueItems` / `oneOf` 导致 T3 零输出：`dteam_report` 改由内部 parser（解析器）保持重复 activity（活动）与 verification（验证）交叉校验；仅提交合法报告、未附正文的 worker 现在以报告摘要完成。
 - `writeScope`（写入范围）和 worker task（任务）的局部限制现在明确只约束对应 worker；完成事件、`dteam_wait`（显式等待）与 `/dteam`（管理视图）会标注该范围不代表父任务完成，避免局部限制被误用为总交付边界。
 - 主会话 compaction（压缩）后，dteam 会仅一次性把运行中、异常或带 `partial` / `remaining` / `uncertainties` 的 worker 有界证据摘要重注入下一次模型 context（上下文）；不保存 worker transcript（逐字记录），也不跨 reload（重载）恢复。
 - 主代理通过 `dteam_respond(cancel)` 或 `dteam_recover(stop)` 明确放弃 worker 时，现在会同步返回可写中断守卫并清除该 worker 已排队的 parent event，避免终态后仍在 idle / settled 阶段迟到回放旧 `request`、`write_interrupted` 或其他事件；用户经 `/dteam` 取消和未显式停止的 timeout 首次守卫保持原行为。

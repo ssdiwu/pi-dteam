@@ -20,7 +20,7 @@ export function makeReportSchema(): Record<string, unknown> {
     properties: {
       outcome: { type: "string", enum: [...REPORT_OUTCOMES] },
       summary: { type: "string", minLength: 1 },
-      activities: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", enum: [...WORKER_ACTIVITIES] } },
+      activities: { type: "array", minItems: 1, items: { type: "string", enum: [...WORKER_ACTIVITIES] } },
       facts: {
         type: "array",
         minItems: 1,
@@ -41,16 +41,6 @@ export function makeReportSchema(): Record<string, unknown> {
           remaining: { type: "array", items: { type: "string", minLength: 1 } },
         },
         required: ["depth", "status", "evidence", "remaining"],
-        oneOf: [
-          {
-            properties: { depth: { const: "none" }, status: { const: "not_run" }, evidence: { type: "array", maxItems: 0 } },
-            required: ["depth", "status", "evidence"],
-          },
-          {
-            properties: { depth: { enum: VERIFICATION_DEPTHS.filter((depth) => depth !== "none") }, status: { enum: VERIFICATION_STATUSES.filter((status) => status !== "not_run") }, evidence: { type: "array", minItems: 1 } },
-            required: ["depth", "status", "evidence"],
-          },
-        ],
       },
       uncertainties: { type: "array", items: { type: "string", minLength: 1 } },
     },

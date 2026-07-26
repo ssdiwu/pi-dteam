@@ -11,14 +11,17 @@ describe("WorkerReport contract", () => {
       required: ["outcome", "summary", "activities", "facts", "verification", "uncertainties"],
       properties: {
         outcome: { enum: ["completed", "partial"] },
-        activities: { minItems: 1, uniqueItems: true },
+        activities: { minItems: 1 },
         verification: { additionalProperties: false, required: ["depth", "status", "evidence", "remaining"] },
       },
     });
-    expect(schema.properties.verification.oneOf).toEqual([
-      expect.objectContaining({ properties: { depth: { const: "none" }, status: { const: "not_run" }, evidence: expect.objectContaining({ maxItems: 0 }) }, required: ["depth", "status", "evidence"] }),
-      expect.objectContaining({ properties: { depth: { enum: ["inspection", "automated", "runtime", "visual"] }, status: { enum: ["passed", "failed", "partial"] }, evidence: expect.objectContaining({ minItems: 1 }) }, required: ["depth", "status", "evidence"] }),
-    ]);
+  });
+
+  it("strict provider schema omits unsupported constraints while parser preserves semantics", () => {
+    const schema = makeReportSchema() as any;
+    expect(schema.properties.activities).not.toHaveProperty("uniqueItems");
+    expect(schema.properties.verification).not.toHaveProperty("oneOf");
+    expect(() => parseWorkerReport(workerReport({ activities: ["inspected", "inspected"] }))).toThrow("dteam_report");
   });
 
   it("strict Schema 关闭额外字段并要求每个 properties 键", () => {

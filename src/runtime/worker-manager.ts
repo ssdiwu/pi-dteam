@@ -512,6 +512,9 @@ export class WorkerManager {
       }
       const result = extractLastText(session.messages as any[]);
       if (result === "(no output)") {
+        // 严格工具调用可在合法 dteam_report 后直接结束，不必额外生成 text。
+        // report 已是完成契约和可见的结果摘要；仅缺二者时才视为无输出失败。
+        if (record.report) return record.report.summary;
         this.captureNoOutputDiagnostics(record, session, candidateModel);
         throw new WorkerNoOutputError("worker 未返回 assistant 文本");
       }

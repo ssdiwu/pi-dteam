@@ -29,6 +29,21 @@ describe("next-major worker protocol", () => {
     expect(session.dispose).toHaveBeenCalledTimes(1);
   });
 
+  it("合法 dteam_report 后没有 assistant 文本时以报告摘要完成", async () => {
+    const report = workerReport({ summary: "仅提交结构化报告" });
+    const session = {
+      prompt: mock().mockResolvedValue(undefined),
+      abort: mock().mockResolvedValue(undefined),
+      dispose: mock(),
+      messages: [{ role: "assistant", content: [{ type: "toolCall", name: "dteam_report", arguments: report }] }],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const manager = new WorkerManager(options());
+    const [accepted] = manager.dispatch([{ title: "仅报告", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+    expect(manager.get(accepted!.workerId)).toMatchObject({ result: "仅提交结构化报告", report: expect.objectContaining({ summary: "仅提交结构化报告" }) });
+  });
+
   it("Manager 报告边界也拒绝旧形状，不能绕过统一 parser", async () => {
     const hanging = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
     mockCreateWorkerSession.mockResolvedValue(hanging);
