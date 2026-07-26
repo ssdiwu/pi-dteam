@@ -1,16 +1,16 @@
 # dteam
 
-> A Pi extension: lets Pi gather facts and do mechanical work on cheap small models while your strong model only judges and closes — less token, less time.
+> A Pi extension: lets Pi gather facts, explore evidence-backed candidate paths, and do mechanical work on cheap small models while your strong model judges and closes — less token, less time.
 
 ## What it is
 
-dteam is an extension for [Pi](https://github.com/earendil-works/pi-mono). Once installed, when the main model faces a non-trivial coding task (reading code, gathering facts, making changes, running checks), it can dispatch the fact-finding and mechanical work to cheap, fast small models (T3) and get reports back, escalating to a standard model (T2) or flagship (T1) when stronger capability is needed. **The strong model you're using stays in charge of understanding the task, making decisions, and doing the final review** — it just no longer reads every file or runs every small check itself.
+dteam is an extension for [Pi](https://github.com/earendil-works/pi-mono). Once installed, when the main model faces a non-trivial coding task (reading code, gathering facts, exploring technical paths, making changes, running checks), it can dispatch fact-finding, evidence-backed candidate exploration, and mechanical work to cheap, fast small models (T3) and get reports back, escalating to a standard model (T2) or flagship (T1) when stronger capability is needed. **The strong model you're using stays in charge of understanding the task, making decisions, and doing the final review** — it just no longer reads every file or runs every small check itself.
 
 In one line: **small models do the work, the strong model makes the calls.**
 
 ## What you'll feel after installing
 
-- The same task, **cheaper and faster**: reading files, gathering facts, and mechanical changes go to cheap models; the strong model's call count and token use drop noticeably.
+- The same task, **cheaper and faster**: reading files, gathering facts, exploring evidence-backed candidate paths, and mechanical changes go to cheap models; the strong model's call count and token use drop noticeably.
 - The strong model **focuses on what actually needs it**: problem understanding, design decisions, conflict resolution, critical review.
 - You **don't pick models by hand**: dteam routes tiers by task need; use `/dteam` to inspect or take over.
 

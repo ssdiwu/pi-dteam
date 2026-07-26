@@ -10,6 +10,9 @@
 ### Added
 - 设置 `DTEAM_DIAGNOSTICS=1` 时，无 assistant 文本的 worker 失败会在 `dteam_wait`（显式等待）和 Worker Snapshot（worker 快照）中提供脱敏、有界的瞬时诊断；默认不采集或暴露，也不写入持久日志。
 
+### Changed
+- 主代理证据驱动路由在技术路径不明时，可派有界候选探测；候选必须带主张、可复验证据、边界或风险与最小验证动作。主代理保留裁决与用户决策边界，Worker Manager（工作者管理器）不新增状态、自动派发或持久候选队列。
+
 ### Fixed
 - 修复 `dteam_report` 在支持 strict JSON Schema（严格结构）的 Codex 模型上因对象层 `required` 不完整而被拒绝的问题；空 `remaining` / `uncertainties` 现在以空数组提交，非 strict 模型仍兼容旧的省略字段。
 - `writeScope`（写入范围）和 worker task（任务）的局部限制现在明确只约束对应 worker；完成事件、`dteam_wait`（显式等待）与 `/dteam`（管理视图）会标注该范围不代表父任务完成，避免局部限制被误用为总交付边界。
