@@ -53,6 +53,8 @@ interface WorkerRecord extends WorkerSnapshot {
   controller: AbortController;
   session?: any;
   policy: ReturnType<typeof createToolPolicy>;
+  /** dispatch 受理时冻结；运行期配置更新不得改写已派发 worker。 */
+  tierModelRoutes: TierModelRoutes;
   attemptBudgetMs: number;
   totalBudgetMs: number;
   attemptConsumedMs: number;
@@ -100,19 +102,29 @@ export class WorkerManager {
   readonly requestState = new RequestState();
   private readonly records = new Map<string, WorkerRecord>();
   private readonly options: WorkerManagerOptions;
+  private tierModelRoutes?: TierModelRoutes;
   private pendingParentEvents: QueuedParentEvent[] = [];
   private parentEventTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly waiters = new Set<Waiter>();
   private closed = false;
   private compactionResyncPending = false;
 
-  constructor(options: WorkerManagerOptions) { this.options = options; }
+  constructor(options: WorkerManagerOptions) {
+    this.options = options;
+    this.tierModelRoutes = options.tierModelRoutes && cloneTierModelRoutes(options.tierModelRoutes);
+  }
+
+  /** 仅更新后续 dispatch；已受理 worker 保留其 record 内的路由快照。 */
+  updateTierModelRoutes(routes: TierModelRoutes): void {
+    this.tierModelRoutes = cloneTierModelRoutes(routes);
+  }
 
   dispatch(requests: WorkerRequest[]): DispatchAccepted[] {
     if (this.closed) throw new Error("dteam: session runtime 已关闭");
     if (!Array.isArray(requests) || requests.length < 1 || requests.length > MAX_WORKERS_PER_DISPATCH) throw new Error("dteam: workers 数量必须是 1–32");
     const accepted: DispatchAccepted[] = [];
     const parentActiveTools = this.options.getParentActiveTools?.() ?? this.options.parentActiveTools;
+    const routeSnapshot = cloneTierModelRoutes(this.tierModelRoutes ?? tierModelRoutesFromEnv());
     const prepared = requests.map((request) => {
       this.validateRequest(request);
       const normalizedRequest = request.handoff ? { ...request, handoff: this.sanitizeHandoff(request.handoff) } : request;
@@ -126,7 +138,7 @@ export class WorkerManager {
       const record: WorkerRecord = {
         id, title: request.title.trim(), task: request.task.trim(), requestedTier: request.tier, activeTier: request.tier,
         fallbackTrail: [], state: "queued", activeTools: policy.initialActiveTools, controller: new AbortController(), policy,
-        handoff: request.handoff, writeScope: request.writeScope,
+        tierModelRoutes: cloneTierModelRoutes(routeSnapshot), handoff: request.handoff, writeScope: request.writeScope,
         attemptBudgetMs: Math.min(this.options.timeoutMs ?? DTEAM_CONFIG.dispatch.workerTimeoutMs, this.options.totalBudgetMs ?? this.options.timeoutMs ?? DTEAM_CONFIG.dispatch.workerTimeoutMs),
         totalBudgetMs: this.options.totalBudgetMs ?? this.options.timeoutMs ?? DTEAM_CONFIG.dispatch.workerTimeoutMs,
         attemptConsumedMs: 0,
@@ -424,7 +436,7 @@ export class WorkerManager {
   private async runTierCandidates(record: WorkerRecord): Promise<string> {
     const tier = record.activeTier;
     let lastError: unknown;
-    for (const candidate of tierModelCandidates(tier, this.options.model, this.options.tierModelRoutes ?? tierModelRoutesFromEnv())) {
+    for (const candidate of tierModelCandidates(tier, this.options.model, record.tierModelRoutes)) {
       const { modelStr, thinkingLevel } = parseTierModelCandidate(candidate, tier);
       const remainingBudget = record.attemptBudgetMs - record.attemptConsumedMs;
       if (remainingBudget <= 0) throw new WorkerTimeoutError(`worker 累计预算已用尽（${formatDuration(record.totalBudgetMs)}）`);
@@ -1017,6 +1029,15 @@ function isTerminal(state: WorkerSnapshot["state"]): boolean {
 
 function isNextTier(current: Tier, next: Tier): boolean {
   return (current === "T3" && next === "T2") || (current === "T2" && next === "T1");
+}
+
+function cloneTierModelRoutes(routes: TierModelRoutes): TierModelRoutes {
+  const copy: TierModelRoutes = {};
+  for (const tier of ["T1", "T2", "T3"] as const) {
+    const route = routes[tier];
+    if (route?.primary) copy[tier] = { primary: route.primary, ...(route.fallbackModels?.length ? { fallbackModels: [...route.fallbackModels] } : {}) };
+  }
+  return copy;
 }
 
 function toolCallBudgetForTier(tier: Tier): number {

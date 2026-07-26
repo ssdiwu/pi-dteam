@@ -16,7 +16,7 @@ npm test
 |---|---|
 | `index-dispatch.test.ts` | 四工具、同名 `/dteam` 命令、自包含独立 worker 契约、压缩后一次性 resync、紧凑渲染与参数 fail-closed |
 | `dynamic-tools.test.ts` | 首次 active set、候选工具、第三方降级 |
-| `worker-manager.dispatch.test.ts` | 请求校验、派发、档位候选、共享并发与工具额度 |
+| `worker-manager.dispatch.test.ts` | 请求校验、派发、档位候选、运行期路由更新与已受理 worker 路由快照、共享并发与工具额度 |
 | `worker-manager.recovery.test.ts` | timeout recovery、重试、升级、延长、恢复预算，以及主代理 stop 的守卫同步返回与旧事件清理 |
 | `worker-manager.lifecycle.test.ts` | 快照投影、事件与脱敏、取消、shutdown 和创建竞态 |
 | `signal-request.test.ts` | A/B/C signal、阻塞 request、原 session 恢复和 requestId 作用域 |
@@ -33,7 +33,8 @@ npm test
 | `cancel.test.ts` | 用户取消二次确认与 `user_cancelled` |
 | `dispatch-contract.test.ts` / `phase3-concurrency-routing.test.ts` | 0.7 保留的档位契约、模型路由和自适应并发回归 |
 | `extract.test.ts` | fresh worker 最后一条 assistant 文本提取 |
-| `model-config.test.ts` | `~/.pi/agent/pi-dteam.json` 的三档模型配置校验与候选链解析 |
+| `model-config.test.ts` | `~/.pi/agent/pi-dteam.json` 的三档模型配置校验、候选链解析与原子保存 |
+| `model-config-dialog.test.ts` | `/dteam` 模型配置草稿、thinking、候选排序、Pi 模型目录与有界渲染 |
 | `session.test.ts` | fresh `AgentSession` 与 Logical Isolation（逻辑隔离）创建边界 |
 
 真实 provider 与 TUI 体验不由 mock 测试替代，需在目标 Pi 环境另行冒烟。

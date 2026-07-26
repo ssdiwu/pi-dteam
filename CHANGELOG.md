@@ -9,10 +9,13 @@
 
 ### Added
 - 设置 `DTEAM_DIAGNOSTICS=1` 时，无 assistant 文本的 worker 失败会在 `dteam_wait`（显式等待）和 Worker Snapshot（worker 快照）中提供脱敏、有界的瞬时诊断；默认不采集或暴露，也不写入持久日志。
+- `/dteam`（管理浮窗）新增全局模型配置页：可编辑 T1/T2/T3 的有序候选链与每候选 thinking（思考强度），从 Pi 模型目录筛选添加；保存后立即影响后续派发，已受理 worker 保持原路由快照。
 
 ### Changed
 - 主代理证据驱动路由在技术路径不明时，可派有界候选探测；候选必须带主张、可复验证据、边界或风险与最小验证动作。主代理保留裁决与用户决策边界，Worker Manager（工作者管理器）不新增状态、自动派发或持久候选队列。
 - 开发依赖同步至 Pi 0.82.1：`dteam_report` 继续以 `strict: "prefer"` 使用上游严格 JSON Schema（严格 JSON 模式）能力，同时为不支持的模型保留普通工具调用回退。
+- `/dteam` 顶层改为始终可见的“运行中 / 历史记录 / 模型配置”标签栏，`▶` 指示当前视图；`←/→` 或 `h/l` 循环切换三个视图。
+- 修复 `/dteam` 模型目录误列 Pi 全量已知模型的问题：现在只显示当前用户已认证、可实际调用的模型。
 
 ### Fixed
 - 修复 `dteam_report` 在支持 strict JSON Schema（严格结构）的 Codex 模型上因对象层 `required` 不完整而被拒绝的问题；空 `remaining` / `uncertainties` 现在以空数组提交，非 strict 模型仍兼容旧的省略字段。

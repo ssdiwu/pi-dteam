@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { clampSelection, nextScrollOffset, nextWorkerSelection, renderWorkerDetail, renderWorkerFallback, renderWorkerList, workersForView } from "../src/tui/dteam-dialog.js";
+import { clampSelection, nextDteamView, nextScrollOffset, nextWorkerSelection, renderDteamTabs, renderWorkerDetail, renderWorkerFallback, renderWorkerList, workersForView } from "../src/tui/dteam-dialog.js";
 import type { WorkerSnapshot } from "../src/runtime/types.js";
 import { workerReport } from "./worker-report.fixture.js";
 
@@ -24,6 +24,20 @@ describe("/dteam dialog rendering", () => {
     expect(text).toContain("检查文件");
     expect(text).not.toContain("已完成");
     expect(lines.at(-1)).toContain("╰");
+  });
+
+  it("所有顶层内容以标签形式呈现当前选中态", () => {
+    const tabs = renderDteamTabs("models", 2, 1);
+    expect(tabs).toContain("[  运行中 (2)]");
+    expect(tabs).toContain("[  历史记录 (1)]");
+    expect(tabs).toContain("[▶ 模型配置]");
+  });
+
+  it("顶层标签以左右方向循环切换", () => {
+    expect(nextDteamView("active", 1)).toBe("history");
+    expect(nextDteamView("history", 1)).toBe("models");
+    expect(nextDteamView("models", 1)).toBe("active");
+    expect(nextDteamView("active", -1)).toBe("models");
   });
 
   it("历史视图倒序显示终态 worker，运行中 worker 不混入", () => {

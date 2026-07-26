@@ -245,6 +245,27 @@ describe("WorkerManager", () => {
     expect(mockCreateWorkerSession).toHaveBeenCalledWith(expect.objectContaining({ modelStr: "ctx/model", thinkingLevel: "high" }));
   });
 
+  it("运行期更新路由只影响之后 dispatch，已受理的 queued worker 保留旧快照", async () => {
+    const first = session("first");
+    first.prompt.mockImplementation(() => new Promise<void>(() => {}));
+    const second = session("second");
+    const third = session("third");
+    mockCreateWorkerSession.mockResolvedValueOnce(first).mockResolvedValueOnce(second).mockResolvedValueOnce(third);
+    const manager = new WorkerManager(options({
+      tierModelRoutes: { T3: { primary: "ctx/old:low" } },
+      concurrency: new AdaptiveConcurrency({ min: 1, max: 1, initial: 1, cooldownMs: 1_000, successStreakToRise: 99 }),
+    }));
+    const [running] = manager.dispatch([{ title: "旧路由运行中", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(first.prompt).toHaveBeenCalled());
+    const [queued] = manager.dispatch([{ title: "旧路由排队中", task: "任务", tier: "T3" }]);
+    manager.updateTierModelRoutes({ T3: { primary: "ctx/new:high" } });
+    const [future] = manager.dispatch([{ title: "新路由", task: "任务", tier: "T3" }]);
+    manager.cancel(running!.workerId);
+    await waitFor(() => expect(manager.get(queued!.workerId)?.state).toBe("completed"));
+    await waitFor(() => expect(manager.get(future!.workerId)?.state).toBe("completed"));
+    expect(mockCreateWorkerSession.mock.calls.map(([input]: any[]) => input.modelStr)).toEqual(["ctx/old", "ctx/old", "ctx/new"]);
+  });
+
   it("立即逐项受理并最终完成，成功结果短窗回传", async () => {
     const events: any[] = [];
     mockCreateWorkerSession.mockResolvedValue(session("完成"));

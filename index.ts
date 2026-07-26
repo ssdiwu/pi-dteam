@@ -5,9 +5,11 @@ import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "./src/dispatch/
 import { DTEAM_CONFIG } from "./src/config.js";
 import { WorkerManager } from "./src/runtime/worker-manager.js";
 import { sanitizeUnknown } from "./src/runtime/sanitize.js";
-import { formatDteamConfigWarning, loadDteamConfig, type DteamConfigStatus } from "./src/session/model-config.js";
+import { formatDteamConfigWarning, loadDteamConfig, saveDteamConfig, type DteamConfigStatus } from "./src/session/model-config.js";
+import type { Tier } from "./src/types/dispatch.js";
 import type { DteamDispatchParams, DteamRecoverParams, DteamRespondParams, DteamWaitParams, ParentEvent, RecoveryAction, WorkerRequest } from "./src/runtime/types.js";
-import { clampSelection, detailLineCount, nextScrollOffset, nextWorkerSelection, renderWorkerDetail, renderWorkerFallback, renderWorkerList, workersForView, type WorkerView } from "./src/tui/dteam-dialog.js";
+import { clampSelection, detailLineCount, nextDteamView, nextScrollOffset, nextWorkerSelection, renderDteamTabs, renderWorkerDetail, renderWorkerFallback, renderWorkerList, workersForView, type DteamView } from "./src/tui/dteam-dialog.js";
+import { catalogModels, createTierDrafts, cycleCandidateThinking, moveCandidate, renderCatalog, renderModelConfig, renderTierEditor, serializeTierDrafts, type CatalogModel, type TierDrafts } from "./src/tui/model-config-dialog.js";
 import { setupI18n, t } from "./src/tui/i18n.js";
 import { confirmWorkerCancellation } from "./src/tui/cancel.js";
 import { humanizeToolResult } from "./src/tui/tool-result.js";
@@ -239,46 +241,121 @@ export default function registerDteam(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("dteam", {
-    description: "查看、接管或取消 dteam worker",
+    description: "管理 dteam worker 与模型档位",
     handler: async (_args: string, ctx: ExtensionCommandContext) => {
       const config = runtime.config ?? loadDteamConfig();
       runtime.config = config;
       if (!config.valid) { ctx.ui.notify(formatDteamConfigWarning(config), "warning"); return; }
       const manager = managerFor(pi, runtime, ctx, config);
       if (!ctx.ui?.custom) { ctx.ui.notify(renderWorkerFallback(manager.list()).join("\n"), "info"); return; }
+      let models: CatalogModel[];
+      try {
+        models = await catalogModels(ctx.modelRegistry);
+      } catch {
+        ctx.ui.notify(t("models.unavailable"), "warning");
+        models = [];
+      }
       try {
         await ctx.ui.custom((tui, theme, _kb, done) => {
           runtime.render = () => tui.requestRender();
+          const tiers: Tier[] = ["T1", "T2", "T3"];
           let selected = 0;
           let detail = false;
           let detailOffset = 0;
           let selectedWorkerId: string | undefined;
-          let view: WorkerView = "active";
-          const visibleWorkers = () => workersForView(manager.list(), view);
-          const selectedWorker = () => {
-            const workers = visibleWorkers();
-            return workers[clampSelection(selected, workers.length)];
-          };
+          let view: DteamView = "active";
+          let drafts = createTierDrafts(config.routes);
+          let selectedTier = 0;
+          let selectedCandidate = 0;
+          let selectedCatalog = 0;
+          let modelMode: "list" | "tier" | "catalog" = "list";
+          let modelFilter = "";
+          let dirty = false;
+          const currentTier = () => tiers[selectedTier]!;
+          const visibleWorkers = () => workersForView(manager.list(), view === "models" ? "active" : view);
+          const selectedWorker = () => visibleWorkers()[clampSelection(selected, visibleWorkers().length)];
           const detailWorker = () => selectedWorkerId ? manager.get(selectedWorkerId) : undefined;
+          const topLevelTabs = () => {
+            const workers = manager.list();
+            return renderDteamTabs(view, workersForView(workers, "active").length, workersForView(workers, "history").length, t);
+          };
+          const updateDraft = (next: TierDrafts) => { drafts = next; dirty = true; };
+          const save = () => {
+            try {
+              const saved = saveDteamConfig(serializeTierDrafts(drafts), config.path);
+              runtime.config = saved;
+              manager.updateTierModelRoutes(saved.routes);
+              drafts = createTierDrafts(saved.routes);
+              dirty = false;
+              ctx.ui.notify(t("models.saved"), "info");
+            } catch (error) {
+              ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+            }
+          };
           return {
             render: (width: number) => {
-              const items = manager.list();
+              if (view === "models") {
+                const tabs = topLevelTabs();
+                if (modelMode === "catalog") return renderCatalog(models, selectedCatalog, modelFilter, width, t, tabs);
+                if (modelMode === "tier") return renderTierEditor(currentTier(), drafts[currentTier()], selectedCandidate, width, t, tabs);
+                return renderModelConfig(drafts, currentTier(), dirty, width, t, tabs);
+              }
               const worker = detail ? detailWorker() : selectedWorker();
-              if (detail && worker) return renderWorkerDetail(worker, theme, width, t, detailOffset);
-              return renderWorkerList(items, theme, selected, width, t, view);
+              if (detail && worker) return renderWorkerDetail(worker, theme, width, t, detailOffset, topLevelTabs());
+              return renderWorkerList(manager.list(), theme, selected, width, t, view);
             },
             invalidate: () => {},
             handleInput: (data: string) => {
-              const workers = visibleWorkers();
               const worker = detail ? detailWorker() : selectedWorker();
               if (matchesKey(data, "escape") || data === "q") {
-                if (detail) { detail = false; detailOffset = 0; selectedWorkerId = undefined; }
+                if (view === "models" && modelMode === "catalog") modelMode = "tier";
+                else if (view === "models" && modelMode === "tier") modelMode = "list";
+                else if (detail) { detail = false; detailOffset = 0; selectedWorkerId = undefined; }
                 else { done(undefined); return; }
-              } else if (!detail && (matchesKey(data, "left") || data === "h")) {
-                view = "active"; selected = 0;
-              } else if (!detail && (matchesKey(data, "right") || data === "l")) {
-                view = "history"; selected = 0;
+              } else if (!detail && modelMode === "list" && data === "m") {
+                view = "models"; selected = 0;
+              } else if (!detail && modelMode === "list" && (matchesKey(data, "left") || data === "h")) {
+                view = nextDteamView(view, -1); selected = 0;
+              } else if (!detail && modelMode === "list" && (matchesKey(data, "right") || data === "l")) {
+                view = nextDteamView(view, 1); selected = 0;
+              } else if (view === "models") {
+                if (modelMode === "list") {
+                  const next = nextWorkerSelection(data, selectedTier, tiers.length);
+                  if (next !== null) selectedTier = next;
+                  else if (data === "\r") { modelMode = "tier"; selectedCandidate = 0; }
+                  else if (data === "w") save();
+                } else if (modelMode === "tier") {
+                  const candidates = drafts[currentTier()];
+                  const next = nextWorkerSelection(data, selectedCandidate, candidates.length);
+                  if (next !== null) selectedCandidate = next;
+                  else if (data === "a") { modelMode = "catalog"; selectedCatalog = 0; }
+                  else if (data === "d" && candidates.length > 1) {
+                    updateDraft({ ...drafts, [currentTier()]: candidates.filter((_, index) => index !== selectedCandidate) });
+                    selectedCandidate = clampSelection(selectedCandidate, candidates.length - 1);
+                  } else if (data === "[") {
+                    updateDraft({ ...drafts, [currentTier()]: moveCandidate(candidates, selectedCandidate, -1) });
+                    selectedCandidate = Math.max(0, selectedCandidate - 1);
+                  } else if (data === "]") {
+                    updateDraft({ ...drafts, [currentTier()]: moveCandidate(candidates, selectedCandidate, 1) });
+                    selectedCandidate = Math.min(candidates.length - 1, selectedCandidate + 1);
+                  } else if (data === "t" && candidates[selectedCandidate]) {
+                    updateDraft({ ...drafts, [currentTier()]: candidates.map((candidate, index) => index === selectedCandidate ? cycleCandidateThinking(candidate) : candidate) });
+                  }
+                } else {
+                  const filtered = modelFilter ? models.filter((model) => model.label.toLowerCase().includes(modelFilter.toLowerCase())) : models;
+                  const next = nextWorkerSelection(data, selectedCatalog, filtered.length);
+                  if (next !== null) selectedCatalog = next;
+                  else if (data === "f") {
+                    void ctx.ui.input(t("models.filterTitle"), modelFilter).then((value) => { if (value !== undefined) { modelFilter = value; selectedCatalog = 0; tui.requestRender(); } });
+                  } else if (data === "\r" && filtered[selectedCatalog]) {
+                    const model = filtered[selectedCatalog]!;
+                    const candidates = drafts[currentTier()];
+                    if (candidates.some((candidate) => candidate.model === model.ref)) ctx.ui.notify(t("models.duplicate"), "warning");
+                    else { updateDraft({ ...drafts, [currentTier()]: [...candidates, { model: model.ref }] }); selectedCandidate = candidates.length; modelMode = "tier"; }
+                  }
+                }
               } else if (!detail) {
+                const workers = visibleWorkers();
                 const next = nextWorkerSelection(data, selected, workers.length);
                 if (next !== null) selected = next;
                 else if (data === "\r" && worker) { detail = true; detailOffset = 0; selectedWorkerId = worker.id; }
@@ -286,21 +363,15 @@ export default function registerDteam(pi: ExtensionAPI) {
                 const next = nextScrollOffset(data, detailOffset, detailLineCount(worker, t));
                 if (next !== null) detailOffset = next;
                 else if (data === "s" && ["queued", "running", "waiting"].includes(worker.state)) {
-                  void ctx.ui.input(t("steering.title"), t("steering.placeholder"))
-                    .then((instruction) => { if (instruction) return manager.steer(worker.id, instruction); })
-                    .catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
+                  void ctx.ui.input(t("steering.title"), t("steering.placeholder")).then((instruction) => { if (instruction) return manager.steer(worker.id, instruction); }).catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
                 } else if (data === "c" && ["queued", "running", "waiting"].includes(worker.state)) {
-                  void confirmWorkerCancellation(ctx.ui, manager, worker.id, worker.title, t)
-                    .catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
+                  void confirmWorkerCancellation(ctx.ui, manager, worker.id, worker.title, t).catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
                 }
               }
               tui.requestRender();
             },
           };
-        }, {
-          overlay: true,
-          overlayOptions: { anchor: "center", width: "100%", maxHeight: "85%", margin: 1 },
-        });
+        }, { overlay: true, overlayOptions: { anchor: "center", width: "100%", maxHeight: "85%", margin: 1 } });
       } finally {
         runtime.render = undefined;
       }

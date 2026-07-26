@@ -55,6 +55,21 @@ describe("dteam next-major extension entry", () => {
     expect(pi.on).toHaveBeenCalledWith("agent_settled", expect.any(Function));
   });
 
+  it("模型目录可用性解析失败时隐藏原始认证错误", async () => {
+    const { command } = register();
+    const ctx = context();
+    ctx.modelRegistry.getAvailable = mock(async () => { throw new Error("credential secret must not appear"); });
+    ctx.ui.custom = mock(async (factory: any) => {
+      const modal = factory({ requestRender: mock() }, {}, {}, mock());
+      modal.render(80);
+    });
+
+    await command.handler("", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith("无法读取当前可用模型；目录为空。", "warning");
+    expect(ctx.ui.notify).not.toHaveBeenCalledWith(expect.stringContaining("credential secret"), "warning");
+  });
+
   it("工具描述表达分级、报告、交接、写入守卫和显式等待", () => {
     const { tools } = register();
     expect(tools.dteam_dispatch.description).toContain("dteam_report");

@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { TIERS, type Tier, type TierModelRoutes } from "../types/dispatch.js";
 import { isModelReference, parseModelCandidate } from "./model-candidate.js";
@@ -30,7 +31,29 @@ export function loadDteamConfig(path = DTEAM_CONFIG_PATH): DteamConfigStatus {
   } catch (error) {
     return { path, exists: true, valid: false, routes: {}, missingTiers: [...TIERS], errors: [`配置文件不是有效 JSON：${errorMessage(error)}`] };
   }
+  return parseDteamConfig(raw, path, true);
+}
 
+/** 校验完整候选链，并以原子 rename 持久化全局路由配置。 */
+export function saveDteamConfig(tiers: DteamConfigFile["tiers"], path = DTEAM_CONFIG_PATH): DteamConfigStatus {
+  const raw = { tiers };
+  const checked = parseDteamConfig(raw, path, true);
+  if (!checked.valid) throw new Error(formatDteamConfigWarning(checked));
+
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporaryPath = join(dirname(path), `.${path.split("/").at(-1)}.${process.pid}.${randomUUID()}.tmp`);
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(raw, null, 2)}\n`, { mode: 0o600 });
+    chmodSync(temporaryPath, 0o600);
+    renameSync(temporaryPath, path);
+    chmodSync(path, 0o600);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+  return checked;
+}
+
+function parseDteamConfig(raw: unknown, path: string, exists: boolean): DteamConfigStatus {
   const errors: string[] = [];
   const routes: TierModelRoutes = {};
   const missingTiers: Tier[] = [];
@@ -47,7 +70,7 @@ export function loadDteamConfig(path = DTEAM_CONFIG_PATH): DteamConfigStatus {
     routes[tier] = { primary: candidates[0], ...(candidates.length > 1 ? { fallbackModels: candidates.slice(1) } : {}) };
   }
 
-  return { path, exists: true, valid: errors.length === 0 && missingTiers.length === 0, routes, missingTiers, errors };
+  return { path, exists, valid: errors.length === 0 && missingTiers.length === 0, routes, missingTiers, errors };
 }
 
 export function formatDteamConfigWarning(status: DteamConfigStatus): string {

@@ -8,6 +8,7 @@ type ThemeLike = Pick<Theme, "fg" | "bold">;
 type ThemeColor = Parameters<Theme["fg"]>[0];
 
 export type WorkerView = "active" | "history";
+export type DteamView = WorkerView | "models";
 
 const ACTIVE_STATES = new Set<WorkerSnapshot["state"]>(["queued", "running", "waiting"]);
 const LIST_VIEWPORT_ROWS = 14;
@@ -16,6 +17,22 @@ const DETAIL_VIEWPORT_ROWS = 16;
 export function workersForView(items: WorkerSnapshot[], view: WorkerView): WorkerSnapshot[] {
   const matching = items.filter((item) => ACTIVE_STATES.has(item.state) === (view === "active"));
   return view === "history" ? matching.sort((left, right) => terminalTimestamp(right) - terminalTimestamp(left)) : matching;
+}
+
+/** 三个顶层视图都共享的终端标签栏；▶ 标出当前可见内容。 */
+export function renderDteamTabs(view: DteamView, activeCount: number, historyCount: number, translate: Translate = t): string {
+  const tab = (selected: boolean, label: string) => `[${selected ? "▶" : " "} ${label}]`;
+  return [
+    tab(view === "active", translate("dialog.tabActive", { count: activeCount })),
+    tab(view === "history", translate("dialog.tabHistory", { count: historyCount })),
+    tab(view === "models", translate("dialog.tabModels")),
+  ].join(" ");
+}
+
+export function nextDteamView(view: DteamView, direction: -1 | 1): DteamView {
+  const views: DteamView[] = ["active", "history", "models"];
+  const index = views.indexOf(view);
+  return views[(index + direction + views.length) % views.length]!;
 }
 
 export function clampSelection(selected: number, count: number): number {
@@ -51,8 +68,8 @@ export function renderWorkerList(items: WorkerSnapshot[], theme?: ThemeLike, sel
   const visibleItems = view === "active" ? active : history;
   const safeSelected = clampSelection(selected, visibleItems.length);
   const offset = scrollOffsetForSelection(safeSelected, visibleItems.length);
-  const tab = `${view === "active" ? "●" : "○"} ${translate("dialog.tabActive", { count: active.length })}   ${view === "history" ? "●" : "○"} ${translate("dialog.tabHistory", { count: history.length })}`;
-  const lines = [tab, paint(theme, "muted", translate("dialog.count", { count: visibleItems.length, active: active.length })), ""];
+  const tabs = renderDteamTabs(view, active.length, history.length, translate);
+  const lines = [tabs, paint(theme, "muted", translate("dialog.count", { count: visibleItems.length, active: active.length })), ""];
 
   if (visibleItems.length === 0) {
     lines.push(paint(theme, "muted", translate(view === "active" ? "dialog.noActiveWorkers" : "dialog.noHistoryWorkers")));
@@ -74,7 +91,7 @@ export function renderWorkerFallback(items: WorkerSnapshot[], theme?: ThemeLike,
   ];
 }
 
-export function renderWorkerDetail(item: WorkerSnapshot, theme?: ThemeLike, width = 80, translate: Translate = t, offset = 0): string[] {
+export function renderWorkerDetail(item: WorkerSnapshot, theme?: ThemeLike, width = 80, translate: Translate = t, offset = 0, tabs = ""): string[] {
   const active = ACTIVE_STATES.has(item.state);
   const content = [
     translate("dialog.id", { value: safeText(item.id) }),
@@ -95,7 +112,7 @@ export function renderWorkerDetail(item: WorkerSnapshot, theme?: ThemeLike, widt
     ...(item.error ? [translate("dialog.error", { value: safeText(item.error) })] : []),
   ];
   const safeOffset = Math.min(Math.max(0, offset), Math.max(0, content.length - DETAIL_VIEWPORT_ROWS));
-  const lines = [...content.slice(safeOffset, safeOffset + DETAIL_VIEWPORT_ROWS), "", rangeLabel(safeOffset, content.length, DETAIL_VIEWPORT_ROWS, translate), paint(theme, "dim", translate(active ? "dialog.controls.running" : "dialog.controls.archive"))];
+  const lines = [...(tabs ? [tabs, ""] : []), ...content.slice(safeOffset, safeOffset + DETAIL_VIEWPORT_ROWS), "", rangeLabel(safeOffset, content.length, DETAIL_VIEWPORT_ROWS, translate), paint(theme, "dim", translate(active ? "dialog.controls.running" : "dialog.controls.archive"))];
   return frame(lines, translate("dialog.detailTitle", { title: safeText(item.title) || translate("dialog.untitled") }), theme, width);
 }
 

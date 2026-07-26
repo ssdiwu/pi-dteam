@@ -60,7 +60,7 @@ pi install "$(pwd)"
 
 ## 四个工具（主模型用，你一般不用直接碰）
 
-`dteam_dispatch`（派发）、`dteam_respond`（回应 worker 请求，含取消）、`dteam_recover`（超时恢复）、`dteam_wait`（等依赖的 worker）。你用 `/dteam` 查看和管理后台 worker。
+`dteam_dispatch`（派发）、`dteam_respond`（回应 worker 请求，含取消）、`dteam_recover`（超时恢复）、`dteam_wait`（等依赖的 worker）。你用 `/dteam` 查看和管理后台 worker；在浮窗中按 `m` 可编辑全局 T1/T2/T3 候选链，保存只影响后续派发。
 
 ## 深入
 

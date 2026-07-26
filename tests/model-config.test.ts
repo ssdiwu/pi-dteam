@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-const { loadDteamConfig } = await import("../src/session/model-config.ts?model-config-test");
+const { loadDteamConfig, saveDteamConfig } = await import("../src/session/model-config.ts?model-config-test");
 
 const root = join(tmpdir(), `pi-dteam-config-${process.pid}`);
 
@@ -29,6 +29,21 @@ describe("pi-dteam.json model configuration", () => {
         T3: { primary: "openai-codex/gpt-5.3-codex-spark:low" },
       },
     });
+  });
+
+  it("原子保存完整候选链，并返回可立即用于未来派发的路由", () => {
+    const path = join(root, "nested", "pi-dteam.json");
+    const saved = saveDteamConfig({
+      T1: ["anthropic/opus:xhigh", "amazon-bedrock/opus:high"],
+      T2: ["openai/standard:medium"],
+      T3: ["llama.cpp/local:low"],
+    }, path);
+    expect(saved).toMatchObject({ valid: true, path, routes: { T1: { primary: "anthropic/opus:xhigh", fallbackModels: ["amazon-bedrock/opus:high"] } } });
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ tiers: {
+      T1: ["anthropic/opus:xhigh", "amazon-bedrock/opus:high"],
+      T2: ["openai/standard:medium"],
+      T3: ["llama.cpp/local:low"],
+    } });
   });
 
   it("拒绝无效 provider/id", () => {

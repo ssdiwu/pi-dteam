@@ -6,7 +6,7 @@
 |---|---|
 | `model-candidate.ts` | `provider/model[:thinking]` 的唯一后缀解析与基础引用校验 |
 | `tier-config.ts` | T1/T2/T3 默认 prompt、thinking、工具白名单；把候选解析结果与档位默认值合并 |
-| `model-config.ts` | 加载并校验 `~/.pi/agent/pi-dteam.json` 的 T1/T2/T3 模型候选链 |
+| `model-config.ts` | 加载、校验并原子保存 `~/.pi/agent/pi-dteam.json` 的 T1/T2/T3 模型候选链 |
 | `model-resolver.ts` | 解析 `provider/id` 到 Pi `Model` |
 | `resource-loader.ts` | system prompt 与受控扩展资源加载 |
 

@@ -60,7 +60,7 @@ If the config is missing or incomplete, dteam warns at startup and refuses to di
 
 ## The four tools (used by the main model; you usually don't touch them directly)
 
-`dteam_dispatch` (dispatch), `dteam_respond` (respond to worker requests, including cancel), `dteam_recover` (timeout recovery), `dteam_wait` (wait for a worker you depend on). You use `/dteam` to inspect and manage background workers.
+`dteam_dispatch` (dispatch), `dteam_respond` (respond to worker requests, including cancel), `dteam_recover` (timeout recovery), `dteam_wait` (wait for a worker you depend on). You use `/dteam` to inspect and manage background workers, and press `m` in its modal to edit the global T1/T2/T3 candidate chains; saving affects future dispatches only.
 
 ## Going deeper
 
