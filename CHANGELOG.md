@@ -7,6 +7,7 @@
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-07-27
 ### Added
 - 设置 `DTEAM_DIAGNOSTICS=1` 时，无 assistant 文本的 worker 失败会在 `dteam_wait`（显式等待）和 Worker Snapshot（worker 快照）中提供脱敏、有界的瞬时诊断；默认不采集或暴露，也不写入持久日志。
 - `/dteam`（管理浮窗）新增全局模型配置页：可编辑 T1/T2/T3 的有序候选链与每候选 thinking（思考强度），从 Pi 模型目录筛选添加；保存后立即影响后续派发，已受理 worker 保持原路由快照。
