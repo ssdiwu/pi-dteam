@@ -13,7 +13,7 @@
        │   ├─ dteam-usage.jsonl numeric ledger
        │   └─ shared AdaptiveConcurrency
        └─ createWorkerSession() [session.ts]
-            └─ fresh AgentSession + Logical Isolation + tool policy
+            └─ fresh AgentSession + selected provider ModelRuntime + Logical Isolation + tool policy
 ```
 
 ## 文件职责
@@ -31,7 +31,7 @@
 | `tui/dteam-dialog.ts` | `/dteam` 列表、详情和终态只读渲染 |
 | `tui/tool-result.ts` | 公开工具的摘要与 Ctrl+O 人类可读详情投影 |
 | `tui/cancel.ts` | 用户取消二次确认 |
-| `session.ts` | fresh worker session、候选注册和首次 active set 收窄 |
+| `session.ts` | fresh worker session、所选 provider runtime/config 传播、候选注册和首次 active set 收窄 |
 | `session/*` | 模型配置、候选解析、档位默认值和受控资源加载 |
 | `dispatch/*` | 模型路由和 Adaptive Concurrency |
 | `types/dispatch.ts` | T1/T2/T3、模型路由与候选解析契约 |
@@ -42,7 +42,7 @@
 1. 模型侧真实工具是 `dteam_dispatch`、`dteam_respond`、`dteam_recover` 与 `dteam_wait`；`/dteam` 是独立管理命令。
 2. Worker Manager 不保存 batch、依赖图、dgoal ID 或下一轮派发决定。
 3. worker 只经 Manager 与主代理协作，不 P2P。
-4. 所有档位默认只读；写工具必须经每次 `addTools` 最小授权并声明 `writeScope`。动态工具必须先注册再激活；未知名 fail-closed。第三方 extension 当前降级拒绝。
+4. 所有档位默认只读；写工具必须经每次 `addTools` 最小授权并声明 `writeScope`。动态工具必须先注册再激活；未知名 fail-closed。worker 只复制所选模型的 provider runtime/config，不加载该 provider 扩展的工具；第三方 extension 工具当前降级拒绝。
 5. shutdown / reload 中止活跃 worker，不 resume；completed/failed/timed_out/cancelled/shutdown 只读封存。
 6. worker 结束前必须经 `dteam_report` 区分任务 outcome、实际 activities、facts 与 verification；缺报告或旧/非法形状失败。Manager completed 不代表任务或验证通过。facts 在 completed event 注入真实 workerId，verification 不进入 handoff。可写 worker 中断回传 `write_interrupted`，由主 LLM 派 fresh T3 检查。
 7. 实时流只投影到 Snapshot 并经节流上抛，不用 `display: true` 原样写入主对话；用户通过 `/dteam` 查看实时状态。
