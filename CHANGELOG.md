@@ -7,6 +7,7 @@
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-07-31
 ### Changed
 - 开发依赖同步至 Pi 0.83.0，并记录 `ModelRuntime` 取代旧 session 模型/认证参数的兼容边界。
 
