@@ -8,6 +8,7 @@
 import {
   createAgentSession,
   discoverAndLoadExtensions,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -36,6 +37,23 @@ export interface CreateSessionOptions {
   logicalIsolation?: boolean;
 }
 
+/**
+ * 为 fresh worker 创建独立模型运行时，并只复制当前所选的扩展 provider。
+ * provider runtime 不携带扩展工具，Logical Isolation 的工具边界保持不变。
+ */
+async function createWorkerModelRuntime(modelRegistry: any, providerId: string) {
+  const modelRuntime = await ModelRuntime.create();
+  const nativeProvider = modelRegistry.getRegisteredNativeProvider?.(providerId);
+  if (nativeProvider) {
+    modelRuntime.registerNativeProvider(nativeProvider);
+    return modelRuntime;
+  }
+
+  const providerConfig = modelRegistry.getRegisteredProviderConfig?.(providerId);
+  if (providerConfig) modelRuntime.registerProvider(providerId, providerConfig);
+  return modelRuntime;
+}
+
 /** 装配 fresh session；每次使用独立内存 SessionManager。 */
 export async function createWorkerSession(options: CreateSessionOptions) {
   const {
@@ -55,6 +73,7 @@ export async function createWorkerSession(options: CreateSessionOptions) {
   const builtInTools = explicitTools ?? (tier ? getTierTools(tier) : []);
   const thinkingLevel = explicitThinking ?? (tier ? getTierThinking(tier) : "off");
   const model = resolveModelStr(modelStr, modelRegistry);
+  const modelRuntime = await createWorkerModelRuntime(modelRegistry, model.provider);
   const resourceLoader = options.logicalIsolation
     ? makeResourceLoader(systemPrompt)
     : makeResourceLoader(systemPrompt, await discoverAndLoadExtensions(loadConfiguredPackages(cwd), cwd));
@@ -65,9 +84,8 @@ export async function createWorkerSession(options: CreateSessionOptions) {
   const { session } = await createAgentSession({
     cwd,
     model,
+    modelRuntime,
     thinkingLevel,
-    authStorage: modelRegistry.authStorage,
-    modelRegistry,
     resourceLoader,
     tools: activeToolNames,
     customTools,

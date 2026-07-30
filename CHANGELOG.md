@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### Changed
+- 开发依赖同步至 Pi 0.83.0，并记录 `ModelRuntime` 取代旧 session 模型/认证参数的兼容边界。
+
+### Fixed
+- 修复 Pi 0.83 下 fresh worker 只能解析、却无法调用 parent 扩展注册自定义 provider 的问题；worker 现在只把所选 provider 的 native runtime 或 config 复制到独立 `ModelRuntime`，不加载第三方扩展工具。
+
 ## [0.9.2] - 2026-07-27
 ### Added
 - 设置 `DTEAM_DIAGNOSTICS=1` 时，无 assistant 文本的 worker 失败会在 `dteam_wait`（显式等待）和 Worker Snapshot（worker 快照）中提供脱敏、有界的瞬时诊断；默认不采集或暴露，也不写入持久日志。

@@ -35,6 +35,6 @@ npm test
 | `extract.test.ts` | fresh worker 最后一条 assistant 文本提取 |
 | `model-config.test.ts` | `~/.pi/agent/pi-dteam.json` 的三档模型配置校验、候选链解析与原子保存 |
 | `model-config-dialog.test.ts` | `/dteam` 模型配置草稿、thinking、候选排序、Pi 模型目录与有界渲染 |
-| `session.test.ts` | fresh `AgentSession` 与 Logical Isolation（逻辑隔离）创建边界 |
+| `session.test.ts` | fresh `AgentSession`、所选 provider runtime/config 传播与 Logical Isolation（逻辑隔离）创建边界 |
 
 真实 provider 与 TUI 体验不由 mock 测试替代，需在目标 Pi 环境另行冒烟。
