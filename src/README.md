@@ -20,7 +20,7 @@
 
 | 路径 | 职责 |
 |---|---|
-| `runtime/worker-manager.ts` | 生命周期、后台派发、显式依赖等待、同档候选、timeout recovery、实时 Snapshot、finding/parent event、主动控制、聚合、取消和 session shutdown |
+| `runtime/worker-manager.ts` | 生命周期、后台派发、显式依赖等待、同档候选、timeout recovery、candidate-scoped Snapshot/context usage、finding/parent event、control 投递状态、聚合、取消和 session shutdown |
 | `runtime/signal-log.ts` | append-only Signal Log 与 Snapshot 投影 |
 | `runtime/request-state.ts` | workerId/requestId 作用域的 deferred request |
 | `runtime/signal-tool.ts` | worker 专用 `dteam_signal` |
@@ -44,7 +44,9 @@
 3. worker 只经 Manager 与主代理协作，不 P2P。
 4. 所有档位默认只读；写工具必须经每次 `addTools` 最小授权并声明 `writeScope`。动态工具必须先注册再激活；未知名 fail-closed。worker 只复制所选模型的 provider runtime/config，不加载该 provider 扩展的工具；第三方 extension 工具当前降级拒绝。
 5. shutdown / reload 中止活跃 worker，不 resume；completed/failed/timed_out/cancelled/shutdown 只读封存。
-6. worker 结束前必须经 `dteam_report` 区分任务 outcome、实际 activities、facts 与 verification；缺报告或旧/非法形状失败。Manager completed 不代表任务或验证通过。facts 在 completed event 注入真实 workerId，verification 不进入 handoff。可写 worker 中断回传 `write_interrupted`，由主 LLM 派 fresh T3 检查。
-7. 实时流只投影到 Snapshot 并经节流上抛，不用 `display: true` 原样写入主对话；用户通过 `/dteam` 查看实时状态。只有带证据且可能改变路径的 finding 进入 parent event；普通 progress 不唤醒主模型。
-8. parent event 先进入 Manager 待消费队列；`dteam_wait` 消费后即删除，或在主代理 idle / settled 后异步回放，二者单次消费。无 writeScope 且没有 assistant 文本和 WorkerReport 的失败仅供后续 wait 消费，仍可在 `/dteam` 查看；主动 cancel/stop 的旧事件会按协议清理。
-9. worker session 继续保持 in-memory；每条 assistant message 只把脱敏数字 usage 写入 `~/.pi/agent/dteam-usage.jsonl`，不持久化 worker transcript。
+6. 每个 candidate 的 `dteam_signal` 与 `dteam_report` 都绑定创建它们的 `candidateId`；同档 fallback 或 timeout fresh recovery 后，旧 session 的迟到 signal / report 会在写入 Signal Log、Snapshot、Request State 或 parent event 前 fail-closed。worker 结束前必须经 `dteam_report` 区分任务 outcome、实际 activities、facts 与 verification；缺报告或旧/非法形状失败。Manager completed 不代表任务或验证通过。facts 在 completed event 注入真实 workerId，verification 不进入 handoff。可写 worker 中断回传 `write_interrupted`，由主 LLM 派 fresh T3 检查。
+7. Worker Manager 独占逻辑隔离 worker session 的 control queue：新 steer / graceful_stop 会移除该 worker 尚未注入的旧 control，分别记录 `queued / injected / superseded / expired`。`injected` 只表示指令离开 Pi queue，不表示 worker 已执行；缺 `clearQueue()` 时第二条 latest-wins control fail-closed。
+8. Snapshot 的 context usage 只读且 candidate-scoped；Pi 返回 `null`、缺 API 或 getter 异常时不沿用旧值。pending request 只投影脱敏摘要、精确 response type 与 requestId，不复制原始 payload。
+9. 实时流只投影到 Snapshot 并经节流上抛，不用 `display: true` 原样写入主对话；用户通过 `/dteam` 查看实时状态。只有带证据且可能改变路径的 finding 进入 parent event；普通 progress 不唤醒主模型。
+10. parent event 先进入 Manager 待消费队列；`dteam_wait` 消费后即删除，或在主代理 idle / settled 后异步回放，二者单次消费。无 writeScope 且没有 assistant 文本和 WorkerReport 的失败仅供后续 wait 消费，仍可在 `/dteam` 查看；主动 cancel/stop 的旧事件会按协议清理。wait 的 tool content 与 details 只含有界投影，不携带 worker task、完整 Snapshot 或原始 request/event payload。
+11. worker session 继续保持 in-memory；每条 assistant message 只把脱敏数字 usage 写入 `~/.pi/agent/dteam-usage.jsonl`，不持久化 worker transcript。

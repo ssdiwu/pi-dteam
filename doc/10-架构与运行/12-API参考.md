@@ -67,6 +67,8 @@ dteam_control({
 - `steer`：向同一个 worker session（会话）追加有界纠偏或上下文指令；不改变工具权限、`writeScope` 或报告合同。
 - `graceful_stop`：优先要求 worker 停止扩展并提交 `outcome="partial"` 的合法报告；重复请求 fail-closed。
 - `cancel`：主代理认为任务已失去价值或优雅收敛未及时完成时强制取消，返回 `cancelInitiator="main"`；有 `writeScope` 时同步返回 `writeInterrupted`，并清除该 worker 的旧待回放事件。
+- `steer` / `graceful_stop` 的结果可含内部 `commandId` 与 `deliveryState`：`queued` 表示已交给 Pi 队列，`injected` 表示已离开该队列，`superseded` 表示尚未注入的旧 control 已被新 control 移除，`expired` 表示 worker 在注入前结束或切换 candidate。它们都**不表示** worker 已理解或执行指令。
+- Worker Manager 独占逻辑隔离 worker session；连续 control 使用该 session 的 `clearQueue()` 只清除此 worker 尚未注入的 control。若运行时没有该 API，第二条要求 latest-wins 的 control fail-closed，而不是让旧指令静默迟到生效。
 
 `dteam_control` 不是 `dteam_respond` 的替代品：`dteam_respond({ response: { type: "cancel" } })` 仍只用于回应 `waiting` worker 的已有 request；timeout recovery 仍使用 `dteam_recover`。
 
@@ -99,15 +101,16 @@ dteam_wait({
 
 - `timeoutMs` 必须是 1–300000 的整数；timeout 只结束本次等待，不取消 worker、不触发 recovery。
 - `events` 是本次实际消费的 `completed / failed / cancelled / finding / request / write_interrupted`，也是判断“本轮发生了什么”的事实来源。事件被 wait 捕获后立即从待回放队列删除，即使 wait 晚于事件发生也不会重复 follow-up；同一次迟到 wait 可以返回同一 worker 已排队的 finding 与 completed。
-- `reason="worker_event"` 时，`ready` 只包含本次 `events` 涉及的 worker 快照；`reason="timeout"` 时，`ready` 包含当时已进入 `waiting` 或终态的目标 worker。`pendingWorkerIds` 只是本轮未进入 `ready` 的目标 ID，**不表示 worker 仍在运行，也不表示必须继续等待**；终态事件若已被前一次 wait 消费，该 worker 仍可能在后续 `worker_event` 结果的 `pendingWorkerIds` 中。主代理必须结合 `events`、`ready.state`、request 和真实后续依赖决定是否再次 wait，不能机械复制 pending 列表。
+- `reason="worker_event"` 时，`ready` 只包含本次 `events` 涉及的 worker 有界 view；`reason="timeout"` 时，`ready` 包含当时已进入 `waiting` 或终态的目标 worker 有界 view。该 view 只保留 worker 识别、状态、局部 `writeScope`、报告、错误或超时活动；不含 task、完整 Snapshot 或实时文本。`pendingWorkerIds` 只是本轮未进入 `ready` 的目标 ID，**不表示 worker 仍在运行，也不表示必须继续等待**；终态事件若已被前一次 wait 消费，该 worker 仍可能在后续 `worker_event` 结果的 `pendingWorkerIds` 中。主代理必须结合 `events`、`ready.state`、request 和真实后续依赖决定是否再次 wait，不能机械复制 pending 列表。
 - 主代理通过 `dteam_respond(cancel)`、`dteam_control(cancel)` 或 `dteam_recover(stop)` 明确放弃 worker 时，该 worker 尚未消费的事件会原子清除；迟到 wait 不会把旧终态冒充成新事件。无 `writeScope` 且没有 assistant 文本和 `WorkerReport` 的失败仅供后续 wait 消费、不异步回放；其余未消费事件在主代理 idle / settled 后回放。可行动 finding 的展开详情显示 summary、evidence 与 impact；Signal Log 与 `/dteam` 仍保留记录。
 - 进入 `waiting` 时先用 `dteam_respond` 或 `dteam_recover` 处理，再决定是否继续 wait，避免死锁。
 - 默认显示目标 worker、已等待时长（`s`/`m+s`）与 timeout 上限，以及“本轮返回 / 本轮无事件”数量；执行中每秒刷新计时。`Ctrl+O` 再展开事件、worker、report、request 与本轮无事件列表。
+- 展开的 request 还会给出不使用原始 JSON 的精确回应提示：`workerId`、`requestId`、脱敏摘要、首选 `response.type` 与待填字段；`timeout_recovery` 则提示使用 `dteam_recover`。tool content 与 details 也使用同一投影：request 仅含 `requestId / kind / summary / responseTypes`，event 不含 payload。`/dteam` Snapshot 同样只显示脱敏请求摘要与允许的 response type。
 - Pi 主会话 compaction（压缩）后，Manager 只会向下一次模型 context（上下文）一次性重注入内存中未收口 worker 的有界摘要：运行中/等待中/异常终态 worker，或 `partial`、有 `remaining` / `uncertainties` 的 completed worker。摘要包含局部 `writeScope`、验证与未收口风险；不保存 worker transcript（逐字记录）、不跨 reload（重载）恢复。
 
 ## 6. Worker 内部工具
 
-`dteam_signal` 仍处理 progress、finding 和阻塞 request。每个 worker 结束前必须恰好调用一次统一的 `dteam_report`：
+`dteam_signal` 仍处理 progress、finding 和阻塞 request。每个 candidate 都获得绑定其 `candidateId` 的专属 `dteam_signal` 与 `dteam_report`；同档 fallback 或 timeout fresh recovery 后，旧 session 的迟到 signal / report 会在改变 Signal Log、Snapshot、Request State 或 parent event 前被拒绝。每个 worker 结束前必须恰好调用一次统一的 `dteam_report`：
 
 ```ts
 dteam_report({
@@ -153,8 +156,8 @@ worker session 仍使用 `SessionManager.inMemory()`，不会写入 Pi session J
 
 ## 9. 工具结果投影与不提供
 
-所有用户可见工具默认显示紧凑摘要；`Ctrl+O` 展开完整但仍为人类可读的文字、列表和诊断。完成 worker 的展开详情显示 outcome、activities、verification、facts、remaining 与 uncertainties，不显示原始 JSON。完整结构只保留在模型上下文、内部 `details` 与测试。
-完成事件与 `dteam_wait` 的 ready Snapshot 还会显示 Manager 派生的 workerBoundary：`writeScope` 仅代表该 worker 的局部范围，不能被当作父任务已覆盖的工件清单。
+所有用户可见工具默认显示紧凑摘要；`Ctrl+O` 展开完整但仍为人类可读的文字、列表和诊断。完成 worker 的展开详情显示 outcome、activities、verification、facts、remaining 与 uncertainties，不显示原始 JSON。`dteam_wait` 的 tool content 与 details 同样只保留其有界 view：不含 worker task、完整 Snapshot 或原始 request/event payload；完整结构仅保留在 Manager 内存与测试。
+完成事件与 `dteam_wait` 的 ready view 还会显示 Manager 派生的 workerBoundary：`writeScope` 仅代表该 worker 的局部范围，不能被当作父任务已覆盖的工件清单。
 
 不提供：
 

@@ -60,7 +60,7 @@ If the config is missing or incomplete, dteam warns at startup and refuses to di
 
 ## The five tools (used by the main model; you usually don't touch them directly)
 
-`dteam_dispatch` (dispatch), `dteam_respond` (respond to worker requests), `dteam_control` (steer, gracefully stop, or force-cancel a running worker), `dteam_recover` (timeout recovery), and `dteam_wait` (wait for a worker event). `dteam_control` needs no `requestId`, does not grant tools or widen `writeScope`, and only targets `running` workers. You use `/dteam` to inspect and manage background workers; press `m` in its modal to edit the global T1/T2/T3 candidate chains; saving affects future dispatches only.
+`dteam_dispatch` (dispatch), `dteam_respond` (respond to worker requests), `dteam_control` (steer, gracefully stop, or force-cancel a running worker), `dteam_recover` (timeout recovery), and `dteam_wait` (wait for a worker event). `dteam_control` needs no `requestId`, does not grant tools or widen `writeScope`, and only targets `running` workers. Its steer/graceful-stop result distinguishes queued, injected, superseded, and expired control; `injected` only means Pi removed the instruction from its queue, never that the worker understood or executed it. `dteam_wait` returns only a bounded, sanitized view: no worker task, full Snapshot, or raw request/event payload enters the tool result. `/dteam` also shows context usage and exact pending-request reply types; press `m` in its modal to edit the global T1/T2/T3 candidate chains, affecting future dispatches only.
 
 ## Going deeper
 

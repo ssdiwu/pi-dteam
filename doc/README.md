@@ -32,18 +32,19 @@
 
 需要了解外部系统时：
 
-13. `20-能力参考/30-Wayfinder-Ponytail与证据驱动路由参考.md` — Wayfinder 动态前沿、Ponytail 最小方案搜索与 Critical / Fetch / Deep / Review 证据闭环；重评主代理路由协议与已推翻机制的移层复用
-14. `20-能力参考/22-多worker编排系统参考.md` — SwarmFlow / MiMo Code / pi-subagents / rpiv-todo 启发
-15. `20-能力参考/29-zcode-swarm蜂群插件参考.md` — zcode-swarm 蜂群插件一手源；按 0008 重评 coordinator 派发、模型档位、fresh 验收与明确不借项
-16. `20-能力参考/28-skill-mas编排经验进化参考.md` — Skill-MAS 编排经验进化；按 0008 重评为核心路线不适用、无新增候选
-17. `20-能力参考/20-Pi版本兼容性与影响分析.md` — 上游 Pi 更新影响
-18. `20-能力参考/21-扩展API参考.md` — Pi 扩展 API（接口）表面速查
-19. `20-能力参考/23-Routa任务协议与DoD参考.md` — Routa 任务协议、门禁、DoD
-20. `20-能力参考/24-harness-团队架构工厂参考.md` — L3 Meta-Factory 模式参考
-21. `20-能力参考/25-swarm-ide蜂群IM编排参考.md` — 蜂群 IM 编排、双层事件总线、spells 模式库
-22. `20-能力参考/26-gemma-concurrent本地多agent并行参考.md` — Gemma concurrent 本地多 agent 并行
-23. `20-能力参考/27-openteams可视化多agent工作区参考.md` — OpenTeams 可视化多 agent 工作区
-24. `90-归档/能力参考/` — 单包调研长文，仅在需要追溯原始材料时阅读
+13. `20-能力参考/31-pi-intercom跨会话通信与协议可靠性参考.md` — pi-intercom 跨顶层 Pi 会话通信、可靠投递、attempt-scoped signal、control queue lifecycle、context usage 与 request/reply 投影参考；记录 B/C/D 已实施、E 未实施以及不并入 Worker Manager 的边界
+14. `20-能力参考/30-Wayfinder-Ponytail与证据驱动路由参考.md` — Wayfinder 动态前沿、Ponytail 最小方案搜索与 Critical / Fetch / Deep / Review 证据闭环；重评主代理路由协议与已推翻机制的移层复用
+15. `20-能力参考/22-多worker编排系统参考.md` — SwarmFlow / MiMo Code / pi-subagents / rpiv-todo 启发
+16. `20-能力参考/29-zcode-swarm蜂群插件参考.md` — zcode-swarm 蜂群插件一手源；按 0008 重评 coordinator 派发、模型档位、fresh 验收与明确不借项
+17. `20-能力参考/28-skill-mas编排经验进化参考.md` — Skill-MAS 编排经验进化；按 0008 重评为核心路线不适用、无新增候选
+18. `20-能力参考/20-Pi版本兼容性与影响分析.md` — 上游 Pi 更新影响
+19. `20-能力参考/21-扩展API参考.md` — Pi 扩展 API（接口）表面速查
+20. `20-能力参考/23-Routa任务协议与DoD参考.md` — Routa 任务协议、门禁、DoD
+21. `20-能力参考/24-harness-团队架构工厂参考.md` — L3 Meta-Factory 模式参考
+22. `20-能力参考/25-swarm-ide蜂群IM编排参考.md` — 蜂群 IM 编排、双层事件总线、spells 模式库
+23. `20-能力参考/26-gemma-concurrent本地多agent并行参考.md` — Gemma concurrent 本地多 agent 并行
+24. `20-能力参考/27-openteams可视化多agent工作区参考.md` — OpenTeams 可视化多 agent 工作区
+25. `90-归档/能力参考/` — 单包调研长文，仅在需要追溯原始材料时阅读
 
 历史内容：
 

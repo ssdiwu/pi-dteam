@@ -60,7 +60,7 @@ pi install "$(pwd)"
 
 ## 五个工具（主模型使用，你一般不用直接碰）
 
-`dteam_dispatch`（派发）、`dteam_respond`（回应 worker 请求）、`dteam_control`（向运行中 worker 发送 steer、要求优雅停止或强制取消）、`dteam_recover`（超时恢复）、`dteam_wait`（等待 worker 事件）。`dteam_control` 不需要 `requestId`，不授予工具、不扩大 `writeScope`，只作用于 `running` worker。你可以用 `/dteam` 查看和管理后台 worker；在浮窗中按 `m` 编辑全局 T1/T2/T3 候选链，保存只影响后续派发。
+`dteam_dispatch`（派发）、`dteam_respond`（回应 worker 请求）、`dteam_control`（向运行中 worker 发送 steer、要求优雅停止或强制取消）、`dteam_recover`（超时恢复）、`dteam_wait`（等待 worker 事件）。`dteam_control` 不需要 `requestId`，不授予工具、不扩大 `writeScope`，只作用于 `running` worker。其 steer / graceful-stop 结果区分 `queued`、`injected`、`superseded`、`expired`；`injected` 只表示指令已离开 Pi 队列，绝不表示 worker 已理解或执行。`dteam_wait` 只返回有界、脱敏投影：worker task、完整 Snapshot 和原始 request/event payload 都不会进入 tool result。`/dteam` 同时显示 context usage 与待回应请求的精确 response type；在浮窗中按 `m` 编辑全局 T1/T2/T3 候选链，保存只影响后续派发。
 
 ## 深入
 
