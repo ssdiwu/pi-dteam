@@ -164,8 +164,8 @@ fresh check 已从失败的对抗式合议中移到验收层；同理，frontier
 | Map 是索引、按需 zoom（放大） | bounded handoff 只传事实、约束、不确定性与来源，不传 transcript（逐字记录） |
 | Fetch 后再综合 | ADR 0014 的 T3 探测 + 主代理综合 |
 | 小而聚焦的 agent | 每个 worker 是 fresh、自包含、有限工具 / 时间 / 调用额度 |
-| Structured next step（结构化下一步） | 四个公开工具 + `dteam_signal` / `dteam_report`，不用自由文本解析控制流 |
-| Own control flow（掌握控制流） | 主代理决定 dispatch / respond / recover / wait；Manager 只执行 |
+| Structured next step（结构化下一步） | 五个公开工具 + `dteam_signal` / `dteam_report`，不用自由文本解析控制流 |
+| Own control flow（掌握控制流） | 主代理决定 dispatch / respond / control / recover / wait；Manager 只执行 |
 | Fresh evidence before claims | ADR 0016 的递增成本 fresh verification |
 | 运行中发现回到决策者 | `request_context`、`request_decision`、`blocked` 与 `dteam_respond` |
 | 错误紧凑化后 fresh 恢复 | timeout diagnostic（超时诊断）+ 裁剪恢复摘要，不 resume 旧 session |

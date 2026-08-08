@@ -1,9 +1,9 @@
 # dteam 重定位为模型分级路由执行层
 
-> **状态：✅ 有效（模型分级执行层权威；主代理路由与结果模型由 ADR 0020、0021 补充）**
+> **状态：✅ 有效（模型分级执行层权威；主代理路由、结果模型与运行中主动协调分别由 ADR 0020、0021、0024 补充）**
 > **推翻**：[ADR 0006](./0006-dteam重定位为对抗式合议.md)（对抗式合议）+ [ADR 0007](./0007-对抗回合结构与积分制.md)（对抗回合结构与积分制）——经原型验证"繁琐且无用"（积分制成本与收益不成正比，git `78e03a7`）。
 > **保留有效**：0001（有立场替代层）、0002 精神（角色收敛）、0004（不做 resume）。0005 的执行基底（进程内 `AgentSession` + Logical Isolation、Multi-Provider Routing、Adaptive Concurrency）保留并承载新定位；0005 的 Signal Store 与 Orchestrator Loop 在本 ADR 砍掉。
-> **实施状态**：模型分级定位已生效；0.8 的 T1/T2/T3 fresh worker、档位路由、同档候选、五分钟 attempt、十分钟 timeout recovery、主代理相邻升级、会话级后台运行时和 dispatch / respond / recover / wait 四公开工具已实现并有测试。旧 Orchestrator Loop、五角色与 Signal Store 已删除；当前运行态由 Worker Snapshot、Signal Log 和 `/dteam` 展示。
+> **实施状态**：模型分级定位已生效；0.8 的 T1/T2/T3 fresh worker、档位路由、同档候选、五分钟 attempt、十分钟 timeout recovery、主代理相邻升级和会话级后台运行时已实现。这里的 `dispatch / respond / recover / wait` 早期四项工具形态是本 ADR 当时的决策时序，后续已由 ADR 0018、0024 演进为当前五工具；旧 Orchestrator Loop、五角色与 Signal Store 已删除，当前运行态由 Worker Snapshot、Signal Log 和 `/dteam` 展示。
 
 ## 1. 一句话决定
 
@@ -51,7 +51,7 @@ dteam 从「对抗式合议」重定位为：**模型分级路由执行层——
 
 ### 4.2 当时的单工具形态（已被 ADR 0013 + 0018 更新）
 
-本 ADR 当时决定暴露单工具 `dteam({ type: "dispatch" | "respond", ... })`；当前实现已拆为 `dteam_dispatch / dteam_respond / dteam_recover / dteam_wait` 四工具，以下只保留决策时序：
+本 ADR 当时决定暴露单工具 `dteam({ type: "dispatch" | "respond", ... })`；随后 ADR 0013/0018/0024 将公开工具演进为当前 `dteam_dispatch / dteam_respond / dteam_control / dteam_recover / dteam_wait` 五工具，以下只保留决策时序：
 - `dispatch` 创建 fresh 进程内 worker session（Logical Isolation，不继承主会话），立即返回接收状态，结果通过 parent event/follow-up 通知。
 - `respond` 回应 waiting worker 的结构化请求；timeout recovery 支持 `retry`、相邻 `escalate`、`extend`、`stop`，恢复使用 fresh session 和裁剪摘要。
 - **执行 / 验收 / 恢复都是 dteam 的不同用法**；主代理并发调用多个 dispatch = 并行 fan-out；`/dteam` 展示 Worker Snapshot 实时状态。
