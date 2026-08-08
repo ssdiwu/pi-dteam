@@ -58,9 +58,9 @@ If the config is missing or incomplete, dteam warns at startup and refuses to di
 - **Read-only by default**; any write must be explicitly authorized via `addTools` at dispatch with a project-relative `writeScope`.
 - Each worker has an initial work-tool budget (T3 60 / T2 120 / T1 180); `dteam_signal` and the final `dteam_report` don't count against it.
 
-## The four tools (used by the main model; you usually don't touch them directly)
+## The five tools (used by the main model; you usually don't touch them directly)
 
-`dteam_dispatch` (dispatch), `dteam_respond` (respond to worker requests, including cancel), `dteam_recover` (timeout recovery), `dteam_wait` (wait for a worker you depend on). You use `/dteam` to inspect and manage background workers, and press `m` in its modal to edit the global T1/T2/T3 candidate chains; saving affects future dispatches only.
+`dteam_dispatch` (dispatch), `dteam_respond` (respond to worker requests), `dteam_control` (steer, gracefully stop, or force-cancel a running worker), `dteam_recover` (timeout recovery), and `dteam_wait` (wait for a worker event). `dteam_control` needs no `requestId`, does not grant tools or widen `writeScope`, and only targets `running` workers. You use `/dteam` to inspect and manage background workers; press `m` in its modal to edit the global T1/T2/T3 candidate chains; saving affects future dispatches only.
 
 ## Going deeper
 

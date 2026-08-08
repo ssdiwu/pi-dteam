@@ -4,27 +4,27 @@
 
 ## 一句话
 
-dteam 是 **模型分级路由执行层 + 主代理证据驱动多轮路由协议**——主代理定义证据问题、分轮派 T3、综合报告并明确路由，Worker Manager 只执行已派发 worker；思考跟随档位，搞不定走 fresh 验收 → 回退强模型。与 [`pi-dgoal`](../pi-dgoal) 独立并列：dteam = 多模型分级路由，dgoal = 单模型建检循环。代码组织见 `src/README.md`。
+dteam 是 **模型分级路由执行层 + 主代理证据驱动多轮路由协议**——主代理定义证据问题、分轮派 T3、综合报告、运行中消费可行动发现并主动协调，Worker Manager 只执行已派发 worker；思考跟随档位，搞不定走 fresh 验收 → 回退强模型。与 [`pi-dgoal`](../pi-dgoal) 独立并列：dteam = 多模型分级路由，dgoal = 单模型建检循环。代码组织见 `src/README.md`。
 
 **先读 [`doc/README.md`](./doc/README.md)、[`doc/术语表.md`](./doc/术语表.md)，再读 [`src/README.md`](./src/README.md) 后动手。**
 
-涉及架构、模型档位、路由、回退、验收、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**定位基底是 ADR 0008，主代理路由与报告当前权威是 [ADR 0020](./doc/决策档案/0020-主代理证据驱动多轮路由协议.md) + [ADR 0021](./doc/决策档案/0021-结构化工作报告区分动作完成度与验证深度.md)**。
+涉及架构、模型档位、路由、回退、验收、主动协调、边界收敛时，先读 [`doc/决策档案/`](./doc/决策档案/) 里的 ADR（架构决策记录）——**定位基底是 ADR 0008，主代理路由、报告与主动协调当前权威是 [ADR 0020](./doc/决策档案/0020-主代理证据驱动多轮路由协议.md) + [ADR 0021](./doc/决策档案/0021-结构化工作报告区分动作完成度与验证深度.md) + [ADR 0024](./doc/决策档案/0024-主代理运行中主动协调成为默认能力.md)**。
 
-> **当前实现**：T1/T2/T3、fresh dispatch、会话级 Worker Manager、四公开工具、有类型 signal、受限动态工具、统一 WorkerReport、parent event 单次消费、独立 `dteam-usage.jsonl` 数字账本、`/dteam` 管理和确认取消已实现；0.6 loop/signals/五角色已删除。
+> **当前实现**：T1/T2/T3、fresh dispatch、会话级 Worker Manager、五个公开工具、有类型 signal、带证据 finding、受限动态工具、统一 WorkerReport、parent event 单次消费、独立 `dteam-usage.jsonl` 数字账本、`/dteam` 管理和确认取消已实现；主代理可对 running worker 执行 steer / graceful_stop / cancel；0.6 loop/signals/五角色已删除。
 
 ## 项目结构速查
 
 | 路径 | 用途 | 重要性 |
 |------|------|--------|
 | `doc/README.md` | 文档导航与阅读顺序 | **必读** |
-| `doc/术语表.md` | 项目术语定义 | **必读** |
-| `doc/决策档案/` | 架构决策记录；改边界前必读（定位 0008，路由/报告 0020/0021） | **必读** |
+| `doc/术语表.md` | 项目术语定义与主动协调边界 | **必读** |
+| `doc/决策档案/` | 架构决策记录；改边界前必读（定位 0008，路由/报告/主动协调 0020/0021/0024） | **必读** |
 | `src/README.md` | 当前实现地图 | **必读** |
-| `src/runtime/types.ts` | worker、统一报告、signal、handoff 与四工具类型中心 | **必读** |
-| `src/runtime/worker-manager.ts` | 会话级 worker 生命周期、signal、报告、等待、单次事件消费、用量记录与恢复 | **必读** |
+| `src/runtime/types.ts` | worker、统一报告、signal、finding、control、handoff 与五工具类型中心 | **必读** |
+| `src/runtime/worker-manager.ts` | 会话级 worker 生命周期、signal、finding、主动控制、报告、等待、单次事件消费、用量记录与恢复 | **必读** |
 | `src/runtime/usage-ledger.ts` | 独立 dteam worker 脱敏数字用量账本 | 按需必读 |
 | `src/session.ts` | fresh worker session 工厂（tier/thinking/Logical Isolation） | 必读 |
-| `./index.ts` | Pi 四工具与 `/dteam` 扩展入口 | **必读** |
+| `./index.ts` | Pi 五工具与 `/dteam` 扩展入口 | **必读** |
 
 
 ## 开发规范
@@ -47,7 +47,7 @@ dteam 是 **模型分级路由执行层 + 主代理证据驱动多轮路由协�
 
 ## 设计收敛纪律
 
-- dteam 的默认方向是收敛到「主代理证据驱动多轮路由 + T1/T2/T3 + 会话级后台 Worker Manager + 四公开工具 + 统一 WorkerReport + 回退 + fresh 验收」，不是继续扩展成通用多 agent 平台，也不是回到对抗式合议/自发生长。
+- dteam 的默认方向是收敛到「主代理证据驱动多轮路由 + T1/T2/T3 + 会话级后台 Worker Manager + 五个公开工具 + actionable finding + 主代理主动控制 + 统一 WorkerReport + 回退 + fresh 验收」，不是继续扩展成通用多 agent 平台，也不是回到对抗式合议/自发生长。
 - 新增概念前先写真实失败样例：哪个现有机制承载不了、会造成什么错误、如何验证新机制降低复杂度；没有证据就不新增。
 - 涉及角色市场、持久化、resume、编排循环、信号系统等扩展型设计时，默认先拒绝或降级为文档观察，除非 ADR 级别拷问通过。
 - 文档也要防术语膨胀：术语表只收稳定、反复使用、会影响实现命名的词；临时想法不要写进术语表。
@@ -67,7 +67,7 @@ git diff --check
 # 按 /reload
 
 # 4. 实际调 dteam
-# 调 dteam_dispatch({ workers: [{ title: "...", task: "...", tier: "T3" }] })，并检查新 WorkerReport 与 /dteam 展示。
+# 调 dteam_dispatch({ workers: [{ title: "...", task: "...", tier: "T3" }] })，检查 finding、dteam_control、WorkerReport、dteam_wait 与 /dteam 展示。
 ```
 
 **如果测试失败，必须先修。**
@@ -75,15 +75,15 @@ git diff --check
 
 ## 改动的边界
 
-> 0008 执行层、0020 主代理协议与 0021 报告合同已落。下表是按当前边界迭代时该改哪里。
+> 0008 执行层、0020 主代理协议、0021 报告合同与 0024 主动协调合同已落。下表是按当前边界迭代时该改哪里。
 
 | 想加什么 | 怎么办 |
 |----------|--------|
 | 改 dispatch / lifecycle | 改 `src/runtime/worker-manager.ts` / `src/session.ts` |
 | 改 WorkerReport | 改 `src/runtime/types.ts` + `src/runtime/report-tool.ts`，同步 Manager、TUI、测试、API 与术语表 |
 | 改模型档位配置 | 改 `src/session/model-config.ts` 与 `~/.pi/agent/pi-dteam.json`；档位默认见 `src/session/tier-config.ts` |
-| 改对外工具 | 改 `./index.ts` + `src/runtime/types.ts`，保持 dispatch / respond / recover / wait 分工 |
-| 加新工具 | **不推荐**——先证明四工具与现有 signal 无法承载，再走 ADR 级对齐 |
+| 改对外工具 | 改 `./index.ts` + `src/runtime/types.ts`，保持 dispatch / respond / control / recover / wait 分工 |
+| 加新工具 | **不推荐**——先证明现有五工具与 signal 无法承载，再走 ADR 级对齐 |
 
 
 ## 状态机提醒
@@ -103,7 +103,7 @@ git diff --check
 
 ## 提交规范
 
-每次 `Git commit`（Git 提交）只做一件事。
+每次 `Git commit`（Git 提交）只做一件事。边界按同一用户可感知能力、行为合同、变化原因和可独立回滚性判断，不按文件数量机械切割；同一行为的实现、直接回归与必要契约文档可以一起提交。禁止为了满足数量上限，拆出脱离实现就无法独立理解的测试或文档提交。
 
 示例：
 - `feat: 实现 dteam 分级路由`
@@ -112,7 +112,7 @@ git diff --check
 
 **提交前**：
 - `npm test` 与 `git diff --check` 通过
-- 改动的文件数 ≤ 5
+- 精确暂存并复核 staged diff（暂存差异）；有关联的多文件可以同 commit，无关改动必须分开保留
 
 ## 联系 / 上下文
 

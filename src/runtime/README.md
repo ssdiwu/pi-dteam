@@ -1,18 +1,18 @@
 # runtime/
 
-0.8 的会话级后台运行时。这里仅管理当前 Pi 会话内已提交 worker 的生命周期、signal、候选工具和回传；主代理的多轮证据路由留在对话层，不保存轮次、batch、依赖图、外部地图、dgoal 状态或跨 reload 恢复数据。每次 attempt 默认五分钟，timeout recovery 独立累计上限十分钟；同档候选自动尝试，跨档仅由主代理经 `dteam_recover` 相邻升级。工作工具额度按初始档位为 T3=60、T2=120、T1=180，`dteam_signal` 与最终 `dteam_report` 不计入；worker 可申请一次由主代理批准的 +60～+120（10 的倍数），再次耗尽由主代理重新 dispatch fresh worker。实时文本、thinking、工具活动和 timeout 诊断投影到 Worker Snapshot，供 `/dteam` 消费。`writeScope` 只约束对应 worker；其局部限制、范围外 remaining（剩余验证）和 uncertainties（不确定性）不能被提升为父任务完成依据。parent event 先进入待消费队列；wait 已消费的事件不会再 follow-up；主代理显式 `cancel` / `stop` 时同步取得必要写入守卫并清除该 worker 尚未消费的事件；用户取消和其他未消费事件仍按既有渠道通知。无 writeScope 且没有 assistant 文本和 WorkerReport 的失败仅供后续 wait 消费，不回放到主对话。主会话 compaction（压缩）后，Manager 仅一次性将未收口 worker 的有界摘要注入下一次模型 context，不保存 worker 正文或跨 reload 状态。每条 worker assistant message 的纯数字 usage 另写独立账本，不持久化 worker 正文。
+0.8 的会话级后台运行时。这里仅管理当前 Pi 会话内已提交 worker 的生命周期、signal、可行动 finding、候选工具、主动控制和回传；主代理的多轮证据路由留在对话层，不保存轮次、batch、依赖图、外部地图、dgoal 状态或跨 reload 恢复数据。每次 attempt 默认五分钟，timeout recovery 独立累计上限十分钟；同档候选自动尝试，跨档仅由主代理经 `dteam_recover` 相邻升级。工作工具额度按初始档位为 T3=60、T2=120、T1=180，`dteam_signal` 与最终 `dteam_report` 不计入；worker 可申请一次由主代理批准的 +60～+120（10 的倍数），再次耗尽由主代理重新 dispatch fresh worker。实时文本、thinking、工具活动和 timeout 诊断投影到 Worker Snapshot，供 `/dteam` 消费；只有带 summary/evidence/impact 且可能改变路径的 finding 进入 parent event，普通 progress 不唤醒主模型。`dteam_control` 只允许 `running` worker，支持 steer / graceful_stop / cancel，不扩大工具权限或 `writeScope`。`writeScope` 只约束对应 worker；其局部限制、范围外 remaining（剩余验证）和 uncertainties（不确定性）不能被提升为父任务完成依据。parent event 先进入待消费队列；wait 已消费的事件不会再 follow-up；主代理显式 `cancel` / `stop` 时同步取得必要写入守卫并清除该 worker 尚未消费的事件；用户取消和其他未消费事件仍按既有渠道通知。无 writeScope 且没有 assistant 文本和 WorkerReport 的失败仅供后续 wait 消费，不回放到主对话。主会话 compaction（压缩）后，Manager 仅一次性将未收口 worker 的有界摘要注入下一次模型 context，不保存 worker 正文或跨 reload 状态。每条 worker assistant message 的纯数字 usage 另写独立账本，不持久化 worker 正文。
 
 | 文件 | 职责 |
 |---|---|
 | `tool-policy.ts` | 校验 `addTools` 候选与 fail-closed 工具边界；当前第三方 extension 候选明确降级拒绝 |
-| `worker-manager.ts` | worker 生命周期、共享并发、同档候选、timeout recovery、信号转发、单次事件消费、局部 writeScope 边界、压缩后一次性未收口证据 resync（重新同步）、显式放弃的原子收口，以及集中 attempt 启动、恢复重置和 AgentSession 释放 |
+| `worker-manager.ts` | worker 生命周期、共享并发、同档候选、timeout recovery、信号与 finding 转发、单次事件消费、主动控制、局部 writeScope 边界、压缩后一次性未收口证据 resync（重新同步）、显式放弃的原子收口，以及集中 attempt 启动、恢复重置和 AgentSession 释放 |
 | `signal-log.ts` | append-only Signal Log 与 Worker Snapshot 投影 |
 | `request-state.ts` | workerId/requestId 作用域的阻塞请求 deferred |
 | `signal-tool.ts` | worker 专用 `dteam_signal` custom tool |
 | `report-tool.ts` | `dteam_report` 的唯一 schema / parser；验证 outcome、activities、facts 与 verification |
 | `sanitize.ts` | 脱敏、递归边界和字符串截断；供运行时与入口事件序列化共用 |
 | `usage-ledger.ts` | `~/.pi/agent/dteam-usage.jsonl` 的纯数字白名单、去重键与 `0600` append-only 写入 |
-| `types.ts` | 0.8 四工具、worker、统一 WorkerReport、signal、handoff 与 wait 类型 |
+| `types.ts` | 0.8 五工具、worker、统一 WorkerReport、signal、finding、control、handoff 与 wait 类型 |
 
 ## 临时无输出诊断
 

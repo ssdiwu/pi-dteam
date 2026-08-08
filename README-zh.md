@@ -58,9 +58,9 @@ pi install "$(pwd)"
 - 默认**只读**；任何写入都要在派发时显式 `addTools` 授权并声明项目相对 `writeScope`。
 - 每个 worker 有初始工作工具调用额度（T3 60 / T2 120 / T1 180）；`dteam_signal` 与最终 `dteam_report` 不计入。
 
-## 四个工具（主模型用，你一般不用直接碰）
+## 五个工具（主模型使用，你一般不用直接碰）
 
-`dteam_dispatch`（派发）、`dteam_respond`（回应 worker 请求，含取消）、`dteam_recover`（超时恢复）、`dteam_wait`（等依赖的 worker）。你用 `/dteam` 查看和管理后台 worker；在浮窗中按 `m` 可编辑全局 T1/T2/T3 候选链，保存只影响后续派发。
+`dteam_dispatch`（派发）、`dteam_respond`（回应 worker 请求）、`dteam_control`（向运行中 worker 发送 steer、要求优雅停止或强制取消）、`dteam_recover`（超时恢复）、`dteam_wait`（等待 worker 事件）。`dteam_control` 不需要 `requestId`，不授予工具、不扩大 `writeScope`，只作用于 `running` worker。你可以用 `/dteam` 查看和管理后台 worker；在浮窗中按 `m` 编辑全局 T1/T2/T3 候选链，保存只影响后续派发。
 
 ## 深入
 
