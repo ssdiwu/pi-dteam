@@ -1,13 +1,14 @@
 import { formatDuration } from "../duration.js";
 import type { DteamWaitResult, WorkerReport, WorkerSnapshot } from "../runtime/types.js";
 
-export type DteamToolResultKind = "dispatch" | "respond" | "recover" | "wait";
+export type DteamToolResultKind = "dispatch" | "respond" | "recover" | "wait" | "control";
 
 /** ADR 0019：工具 UI 只渲染摘要或人类可读详情，绝不回退到原始 JSON。 */
 export function humanizeToolResult(kind: DteamToolResultKind, result: any, expanded: boolean): string {
   if (result?.isError) return humanError(result);
   if (kind === "dispatch") return dispatchText(result?.details?.accepted, expanded);
   if (kind === "wait") return result?.details?.result ? waitText(result.details.result, expanded) : waitProgressText(result?.details?.waiting);
+  if (kind === "control") return controlText(result?.details, expanded);
   return actionText(kind, result?.details, expanded);
 }
 
@@ -26,6 +27,23 @@ function actionText(kind: "respond" | "recover", details: any, expanded: boolean
   if (!expanded) return `${summary}（Ctrl+O 展开）`;
   const detail = kind === "respond" ? responseText(details?.response) : recoveryText(details?.action);
   return [summary, `- worker：${text(value?.workerId) || "无"}`, `- request：${text(value?.requestId) || "无"}`, `- ${detail}`, `- 当前状态：${text(value?.state) || "未知"}`].join("\n");
+}
+
+function controlText(details: any, expanded: boolean): string {
+  const value = details?.result;
+  const action = details?.action;
+  const type = text(action?.action) || "未知控制";
+  const summary = `已控制 worker · ${type} · ${text(value?.state) || "已受理"}`;
+  if (!expanded) return `${summary}（Ctrl+O 展开）`;
+  const detail = type === "steer"
+    ? `纠偏：${text(action?.instruction) || "未说明"}`
+    : type === "graceful_stop"
+      ? `停止：优雅收敛（${text(action?.reason) || "未说明"}）`
+      : `停止：强制取消（${text(action?.reason) || "未说明"}）`;
+  const lines = [summary, `- worker：${text(value?.workerId) || "无"}`, `- ${detail}`, `- 当前状态：${text(value?.state) || "未知"}`];
+  if (value?.cancelInitiator) lines.push(`- 取消发起方：${text(value.cancelInitiator)}`);
+  if (value?.writeInterrupted) lines.push(`- 写入守卫：${arrayText(value.writeInterrupted.writeScope) || "未声明"}${value.writeInterrupted.reason ? ` · 原因：${text(value.writeInterrupted.reason)}` : ""}`);
+  return lines.join("\n");
 }
 
 function responseText(response: any): string {
@@ -58,19 +76,25 @@ function waitText(value: DteamWaitResult | undefined, expanded: boolean): string
   const reason = value?.reason === "timeout" ? "等待超时" : "worker 有新事件";
   const targets = waitTargetText(value?.targetWorkers);
   const timing = value ? `已等 ${formatDuration(value.waitedMs)} / 最多 ${formatDuration(value.timeoutMs)}` : "无等待数据";
-  const summary = `等待 ${targets} · ${timing} · ${reason} · 已就绪 ${ready.length} · 仍等待 ${pending.length}`;
+  const summary = `等待 ${targets} · ${timing} · ${reason} · 本轮返回 ${ready.length} · 本轮无事件 ${pending.length}`;
   if (!expanded) return `${summary}（Ctrl+O 展开）`;
   const lines = [summary];
   for (const event of value?.events ?? []) lines.push(`- 事件 · ${text(event.workerId)} · ${text(event.type)}${parentEventDetail(event.payload)}`);
   for (const worker of ready) lines.push(...workerLines(worker));
   for (const request of value?.requests ?? []) lines.push(`- 需要回应 · ${text(request.workerId)} · ${text(request.kind)} · request ${text(request.requestId)}${requestDetail(request.payload)}`);
-  if (pending.length) lines.push(`- 仍等待：${pending.map(text).join(", ")}`);
+  if (pending.length) lines.push(`- 本轮无事件：${pending.map(text).join(", ")}`);
   return lines.join("\n");
 }
 
 function parentEventDetail(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
   const value = payload as Record<string, unknown>;
+  if (Array.isArray(value.findings)) {
+    return value.findings
+      .filter((finding): finding is Record<string, unknown> => !!finding && typeof finding === "object")
+      .map((finding) => ` · 摘要：${text(finding.summary)} · 证据：${text(finding.evidence)} · 影响：${text(finding.impact)}`)
+      .join("\n  ");
+  }
   if (Array.isArray(value.writeScope)) return ` · 写入范围：${arrayText(value.writeScope) || "无"}${typeof value.reason === "string" ? ` · 原因：${text(value.reason)}` : ""}`;
   if (typeof value.reason === "string") return ` · 原因：${text(value.reason)}`;
   if (typeof value.error === "string") return ` · 错误：${text(value.error)}`;

@@ -1,4 +1,4 @@
-/** dteam — 四个模型工具与用户管理命令 `/dteam`。 */
+/** dteam — 五个模型工具与用户管理命令 `/dteam`。 */
 import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, Text } from "@earendil-works/pi-tui";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "./src/dispatch/concurrency.js";
@@ -7,7 +7,7 @@ import { WorkerManager } from "./src/runtime/worker-manager.js";
 import { sanitizeUnknown } from "./src/runtime/sanitize.js";
 import { formatDteamConfigWarning, loadDteamConfig, saveDteamConfig, type DteamConfigStatus } from "./src/session/model-config.js";
 import type { Tier } from "./src/types/dispatch.js";
-import type { DteamDispatchParams, DteamRecoverParams, DteamRespondParams, DteamWaitParams, ParentEvent, RecoveryAction, WorkerRequest } from "./src/runtime/types.js";
+import type { ControlAction, DteamControlParams, DteamDispatchParams, DteamRecoverParams, DteamRespondParams, DteamWaitParams, ParentEvent, RecoveryAction, WorkerRequest } from "./src/runtime/types.js";
 import { clampSelection, detailLineCount, nextDteamView, nextScrollOffset, nextWorkerSelection, renderDteamTabs, renderWorkerDetail, renderWorkerFallback, renderWorkerList, workersForView, type DteamView } from "./src/tui/dteam-dialog.js";
 import { catalogModels, createTierDrafts, cycleCandidateThinking, moveCandidate, renderCatalog, renderModelConfig, renderTierEditor, serializeTierDrafts, type CatalogModel, type TierDrafts } from "./src/tui/model-config-dialog.js";
 import { setupI18n, t } from "./src/tui/i18n.js";
@@ -20,7 +20,7 @@ function errorResult(message: string) {
 
 function managerFor(
   pi: ExtensionAPI,
-  current: { manager?: WorkerManager; render?: () => void },
+  current: { manager?: WorkerManager; render?: () => void; idleParentEventTimer?: ReturnType<typeof setTimeout> },
   ctx: ExtensionContext,
   config: DteamConfigStatus,
 ): WorkerManager {
@@ -34,6 +34,13 @@ function managerFor(
     ctx.ui?.setStatus?.("dteam", active > 0 ? t("status.active", { count: active }) : undefined);
   };
   let manager!: WorkerManager;
+  const scheduleIdleParentFlush = () => {
+    if (!ctx.isIdle() || current.idleParentEventTimer) return;
+    current.idleParentEventTimer = setTimeout(() => {
+      current.idleParentEventTimer = undefined;
+      if (ctx.isIdle()) manager.flushParentEvents();
+    }, 500);
+  };
   manager = new WorkerManager({
     cwd: ctx.cwd || process.cwd(),
     modelRegistry: ctx.modelRegistry,
@@ -44,9 +51,7 @@ function managerFor(
     concurrency: new AdaptiveConcurrency(DEFAULT_CONCURRENCY_CONFIG),
     usageLedger: { agentDir: getAgentDir(), parentSessionId: ctx.sessionManager.getSessionId() },
     onParentEvent: (event) => sendParentEvent(pi, event, ctx.hasUI),
-    onParentEventAvailable: () => {
-      if (ctx.isIdle()) manager.flushParentEvents();
-    },
+    onParentEventAvailable: scheduleIdleParentFlush,
     onChange: () => {
       syncStatus();
       current.render?.();
@@ -90,11 +95,24 @@ function validateRecovery(raw: unknown): { ok: true; value: RecoveryAction } | {
   return { ok: false, error: "recover action 字段不符合对应 schema" };
 }
 
+function validateControl(raw: unknown): { ok: true; value: ControlAction } | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object") return { ok: false, error: "需要 workerId 和 action" };
+  const value = raw as Record<string, unknown>;
+  if (typeof value.workerId !== "string" || !value.workerId.trim() || typeof value.action !== "string") return { ok: false, error: "需要 workerId 和 action" };
+  const allowed = new Set(["workerId", "action", "instruction", "reason"]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) return { ok: false, error: "control 不允许额外字段" };
+  if (value.action === "steer" && typeof value.instruction === "string" && value.instruction.trim() && value.reason === undefined) return { ok: true, value: { action: "steer", instruction: value.instruction } };
+  if ((value.action === "graceful_stop" || value.action === "cancel") && value.instruction === undefined && (value.reason === undefined || (typeof value.reason === "string" && value.reason.trim()))) return { ok: true, value: { action: value.action, ...(typeof value.reason === "string" ? { reason: value.reason } : {}) } };
+  return { ok: false, error: "control action 字段不符合对应 schema" };
+}
+
 export default function registerDteam(pi: ExtensionAPI) {
-  const runtime: { manager?: WorkerManager; config?: DteamConfigStatus; render?: () => void } = {};
+  const runtime: { manager?: WorkerManager; config?: DteamConfigStatus; render?: () => void; idleParentEventTimer?: ReturnType<typeof setTimeout> } = {};
   setupI18n(pi, () => runtime.render?.());
 
   pi.on("session_start", (_event, ctx) => {
+    if (runtime.idleParentEventTimer) clearTimeout(runtime.idleParentEventTimer);
+    runtime.idleParentEventTimer = undefined;
     runtime.manager?.shutdown();
     runtime.manager = undefined;
     runtime.config = loadDteamConfig();
@@ -105,6 +123,8 @@ export default function registerDteam(pi: ExtensionAPI) {
     managerFor(pi, runtime, ctx, runtime.config);
   });
   pi.on("session_shutdown", (_event, ctx) => {
+    if (runtime.idleParentEventTimer) clearTimeout(runtime.idleParentEventTimer);
+    runtime.idleParentEventTimer = undefined;
     runtime.manager?.shutdown();
     runtime.manager = undefined;
     runtime.config = undefined;
@@ -156,7 +176,7 @@ export default function registerDteam(pi: ExtensionAPI) {
     },
     required: ["title", "task", "tier"],
   };
-  const renderResult = (kind: "dispatch" | "respond" | "recover" | "wait") => (result: any, { expanded }: { expanded: boolean }) => new Text(humanizeToolResult(kind, result, expanded), 0, 0);
+  const renderResult = (kind: "dispatch" | "respond" | "recover" | "wait" | "control") => (result: any, { expanded }: { expanded: boolean }) => new Text(humanizeToolResult(kind, result, expanded), 0, 0);
   const toolManager = (ctx: ExtensionContext) => {
     const config = runtime.config ?? loadDteamConfig();
     runtime.config = config;
@@ -195,6 +215,27 @@ export default function registerDteam(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "dteam_control",
+    label: "dteam control",
+    description: "主动控制 running worker：steer 纠偏、graceful_stop 要求优雅提交 partial 报告，或 cancel 强制取消。无需 requestId；不授予工具、不扩大 writeScope；waiting request 请用 dteam_respond，timeout recovery 请用 dteam_recover。",
+    parameters: { type: "object", additionalProperties: false, properties: {
+      workerId: { type: "string" },
+      action: { type: "string", enum: ["steer", "graceful_stop", "cancel"] },
+      instruction: { type: "string" },
+      reason: { type: "string" },
+    }, required: ["workerId", "action"] } as any,
+    async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+      const action = validateControl(rawParams);
+      if (!action.ok) return errorResult(action.error);
+      try {
+        const result = await toolManager(ctx).control((rawParams as DteamControlParams).workerId, action.value);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { result, action: action.value } };
+      } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
+    },
+    renderResult: renderResult("control"),
+  });
+
+  pi.registerTool({
     name: "dteam_recover", label: "dteam recover", description: "只回应 worker 的 timeout recovery：选择 fresh retry、相邻 escalate、有限 extend 或 stop。Worker Manager 强制 fresh session、相邻升级和恢复预算上限。",
     parameters: { type: "object", properties: {
       workerId: { type: "string" }, requestId: { type: "string" },
@@ -212,7 +253,7 @@ export default function registerDteam(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "dteam_wait", label: "dteam wait", description: "仅在后续工作依赖指定 worker 时等待其下一可消费事件。任一目标 worker 完成、失败、终态或进入 waiting 时立即返回；timeout 仅结束本次等待，不取消 worker。匹配事件只通过本工具结果交付，不重复 follow-up。",
+    name: "dteam_wait", label: "dteam wait", description: "仅在后续工作依赖指定 worker 时等待其下一可消费事件（finding、request 或终态）。调用时会一次消费全部已排队的匹配事件；否则任一目标产生事件时立即返回。timeout 只结束本次等待，不取消 worker；pendingWorkerIds 只表示本轮未返回，不代表仍在运行或必须继续等待。匹配事件不重复 follow-up。",
     parameters: { type: "object", properties: { workerIds: { type: "array", minItems: 1, maxItems: 32, items: { type: "string" } }, timeoutMs: { type: "integer", minimum: 1, maximum: DTEAM_CONFIG.dispatch.maxWaitMs } }, required: ["workerIds", "timeoutMs"] } as any,
     async execute(_toolCallId, rawParams, _signal, onUpdate, ctx) {
       if (!rawParams || typeof rawParams !== "object" || !Array.isArray((rawParams as any).workerIds) || typeof (rawParams as any).timeoutMs !== "number") return errorResult("需要 workerIds 和 timeoutMs");

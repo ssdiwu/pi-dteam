@@ -17,6 +17,19 @@ export type RecoveryAction =
   | { action: "escalate"; tier: Tier }
   | { action: "extend"; additionalMs: number }
   | { action: "stop"; reason?: string };
+export type ControlAction =
+  | { action: "steer"; instruction: string }
+  | { action: "graceful_stop"; reason?: string }
+  | { action: "cancel"; reason?: string };
+
+export type DteamControlParams = { workerId: string } & ControlAction;
+export interface DteamControlResult {
+  workerId: string;
+  action: ControlAction["action"];
+  state: WorkerState;
+  cancelInitiator?: "main";
+  writeInterrupted?: { reason?: string; writeScope: string[] };
+}
 
 export const REPORT_OUTCOMES = ["completed", "partial"] as const;
 export const WORKER_ACTIVITIES = ["inspected", "modified", "tested", "executed", "captured_visual"] as const;
@@ -27,7 +40,6 @@ export type ReportOutcome = typeof REPORT_OUTCOMES[number];
 export type WorkerActivity = typeof WORKER_ACTIVITIES[number];
 export type VerificationDepth = typeof VERIFICATION_DEPTHS[number];
 export type VerificationStatus = typeof VERIFICATION_STATUSES[number];
-
 export interface ReportFact { claim: string; evidence: string }
 export interface WorkerVerification {
   depth: VerificationDepth;
@@ -50,6 +62,12 @@ export interface Handoff {
   uncertainties?: string[];
 }
 
+export interface ActionableFinding {
+  summary: string;
+  evidence: string;
+  impact: string;
+}
+
 export interface WorkerRequest {
   title: string;
   task: string;
@@ -69,7 +87,7 @@ export interface DispatchAccepted {
 
 export type WorkerSignal =
   | { kind: "progress"; message: string; percent?: number }
-  | { kind: "finding"; summary: string; evidence?: string }
+  | ({ kind: "finding" } & ActionableFinding)
   | { kind: "request_context"; requestId: string; question: string; contextNeeded?: string }
   | { kind: "request_tools"; requestId: string; tools: string[]; reason: string }
   | { kind: "request_tool_budget"; requestId: string; reason: string }
@@ -131,12 +149,13 @@ export interface WorkerSnapshot {
   result?: string;
   error?: string;
   cancelReason?: string;
+  cancelInitiator?: "user" | "main" | "system";
   terminalReason?: "user_cancelled" | "session_shutdown" | "timeout" | "error" | "missing_report";
   noOutputDiagnostics?: WorkerNoOutputDiagnostics;
 }
 
 export interface ParentEvent {
-  type: "completed" | "failed" | "cancelled" | "request" | "write_interrupted";
+  type: "completed" | "failed" | "cancelled" | "finding" | "request" | "write_interrupted";
   workerId: string;
   title: string;
   payload: unknown;
@@ -157,10 +176,12 @@ export interface DteamWaitResult {
   targetWorkers: WaitTarget[];
   waitedMs: number;
   timeoutMs: number;
-  /** 本次 wait 实际消费的 parent events；timeout 时为空。 */
+  /** 本次 wait 实际消费的 parent events；迟到 wait 会一次返回全部匹配的已排队事件，timeout 时为空。 */
   events: ParentEvent[];
+  /** worker_event 时是本次 events 涉及的 worker 快照；timeout 时是当时 waiting 或终态的目标 worker 快照。 */
   ready: WorkerSnapshot[];
   requests: WaitRequest[];
+  /** 本轮未进入 ready 的目标 ID；尤其在 worker_event 时不表示仍在运行或仍需继续等待。 */
   pendingWorkerIds: string[];
 }
 

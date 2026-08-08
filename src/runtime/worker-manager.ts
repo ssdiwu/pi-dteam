@@ -13,7 +13,7 @@ import { makeSignalTool } from "./signal-tool.js";
 import { makeReportTool, parseWorkerReport } from "./report-tool.js";
 import { sanitizeSensitive, sanitizeUnknown, truncate } from "./sanitize.js";
 import { appendUsageLedger } from "./usage-ledger.js";
-import { MAX_WORKERS_PER_DISPATCH, REPORT_TOOL_NAME, SIGNAL_TOOL_NAME, type DispatchAccepted, type DteamWaitResult, type ParentEvent, type ParentResponse, type RecoveryAction, type TimeoutDiagnostic, type WaitRequest, type WorkerNoOutputDiagnostics, type WorkerReport, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
+import { MAX_WORKERS_PER_DISPATCH, REPORT_TOOL_NAME, SIGNAL_TOOL_NAME, type ActionableFinding, type ControlAction, type DispatchAccepted, type DteamControlResult, type DteamWaitResult, type ParentEvent, type ParentResponse, type RecoveryAction, type TimeoutDiagnostic, type WaitRequest, type WorkerNoOutputDiagnostics, type WorkerReport, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
 
 interface Waiter {
   workerIds: Set<string>;
@@ -24,6 +24,7 @@ interface Waiter {
 }
 
 type ParentEventDelivery = "follow_up" | "wait_only";
+const MAX_FINDINGS_PER_EVENT = 8;
 
 interface WriteInterruptedGuard {
   reason?: string;
@@ -75,6 +76,7 @@ interface WorkerRecord extends WorkerSnapshot {
   handoff?: WorkerRequest["handoff"];
   writeScope?: string[];
   writeInterrupted?: boolean;
+  gracefulStopRequested?: boolean;
   diagnosticLifecycleEvents?: string[];
 }
 
@@ -185,7 +187,7 @@ export class WorkerManager {
     } else if (response.type === "cancel") {
       this.signal(record, "cancel", response);
       this.requestState.respond(workerId, requestId, response);
-      const writeInterrupted = this.cancel(workerId, response.reason, false);
+      const writeInterrupted = this.cancel(workerId, response.reason, false, "main");
       return { workerId, requestId, state: record.state, ...(writeInterrupted ? { writeInterrupted } : {}) };
     } else {
       this.signal(record, response.type, response);
@@ -242,6 +244,33 @@ export class WorkerManager {
     record.toolBudgetExtensionCount += 1;
   }
 
+  async control(workerId: string, action: ControlAction): Promise<DteamControlResult> {
+    const record = this.records.get(workerId);
+    if (!record || isTerminal(record.state)) throw new Error("dteam: worker 已结束或不存在");
+    if (record.state !== "running") throw new Error("dteam: 主动控制只允许 running worker");
+    if (action.action === "steer") {
+      const instruction = controlText(action.instruction, "steering 指令");
+      await this.steer(workerId, instruction);
+      return { workerId, action: action.action, state: record.state };
+    }
+    if (action.action === "graceful_stop") {
+      if (record.gracefulStopRequested) throw new Error("dteam: worker 已请求优雅收敛");
+      const reason = optionalControlText(action.reason, "主代理要求优雅收敛");
+      record.gracefulStopRequested = true;
+      try {
+        await this.steer(workerId, gracefulStopInstruction(reason));
+      } catch (error) {
+        record.gracefulStopRequested = false;
+        throw error;
+      }
+      this.signal(record, "graceful_stop_requested", { reason });
+      return { workerId, action: action.action, state: record.state };
+    }
+    const reason = optionalControlText(action.reason, "主代理强制取消");
+    const writeInterrupted = this.cancel(workerId, reason, false, "main");
+    return { workerId, action: action.action, state: record.state, cancelInitiator: "main", ...(writeInterrupted ? { writeInterrupted } : {}) };
+  }
+
   async steer(workerId: string, instruction: string): Promise<void> {
     const record = this.records.get(workerId);
     if (!record || isTerminal(record.state)) throw new Error("dteam: worker 已结束或不存在");
@@ -251,10 +280,11 @@ export class WorkerManager {
     this.signal(record, "steer", { instruction });
   }
 
-  cancel(workerId: string, reason = "user_cancelled", notifyParent = true): WriteInterruptedGuard | undefined {
+  cancel(workerId: string, reason = "user_cancelled", notifyParent = true, initiator: "user" | "main" | "system" = "user"): WriteInterruptedGuard | undefined {
     const record = this.records.get(workerId);
     if (!record || isTerminal(record.state)) throw new Error("dteam: worker 已结束或不存在");
     record.cancelReason = reason;
+    record.cancelInitiator = initiator;
     record.terminalReason = "user_cancelled";
     record.state = "cancelled";
     record.endedAt ??= Date.now();
@@ -262,9 +292,9 @@ export class WorkerManager {
     record.controller.abort();
     this.clearRenderTimer(record);
     void closeSession(record.session);
-    this.signal(record, "worker_cancelled", { reason });
+    this.signal(record, "worker_cancelled", { reason, cancelInitiator: initiator });
     const delivery: ParentEventDelivery = notifyParent ? "follow_up" : "wait_only";
-    this.emit({ type: "cancelled", workerId, title: record.title, payload: { reason, state: record.state } }, delivery);
+    this.emit({ type: "cancelled", workerId, title: record.title, payload: { reason, state: record.state, cancelInitiator: initiator } }, delivery);
     const writeInterrupted = this.emitWriteInterrupted(record, reason, false, delivery);
     if (!notifyParent) this.discardPendingEventsFor(workerId);
     return writeInterrupted;
@@ -273,6 +303,7 @@ export class WorkerManager {
   private shutdownWorker(record: WorkerRecord): void {
     if (isTerminal(record.state)) return;
     record.cancelReason = "session_shutdown";
+    record.cancelInitiator = "system";
     record.terminalReason = "session_shutdown";
     record.state = "shutdown";
     record.endedAt ??= Date.now();
@@ -280,7 +311,7 @@ export class WorkerManager {
     record.controller.abort();
     this.clearRenderTimer(record);
     void closeSession(record.session);
-    this.signal(record, "worker_shutdown", { reason: "session_shutdown" });
+    this.signal(record, "worker_shutdown", { reason: "session_shutdown", cancelInitiator: "system" });
     this.emit({ type: "cancelled", workerId: record.id, title: record.title, payload: { reason: "session_shutdown", state: record.state } });
     this.emitWriteInterrupted(record, "session_shutdown");
   }
@@ -364,8 +395,10 @@ export class WorkerManager {
     }
     if (signal.kind === "progress") return { ok: true };
     if (signal.kind === "finding") {
-      record.latestFinding = truncate(sanitizeSensitive(signal.summary), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
+      const finding = sanitizeFinding(signal);
+      record.latestFinding = finding.summary;
       this.signalLog.setSnapshot(this.snapshot(record)!);
+      this.emit({ type: "finding", workerId: record.id, title: record.title, payload: { findings: [finding] } });
       return { ok: true };
     }
     if (this.requestState.get(workerId, signal.requestId)) {
@@ -901,7 +934,7 @@ export class WorkerManager {
     if (!record) return undefined;
     const safe = (value?: string) => value === undefined ? undefined : truncate(sanitizeSensitive(value), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
     const diagnostic = record.timeoutDiagnostic ? { ...record.timeoutDiagnostic, lastActivity: safe(record.timeoutDiagnostic.lastActivity) ?? "", currentTool: safe(record.timeoutDiagnostic.currentTool) ?? "", outputSummary: safe(record.timeoutDiagnostic.outputSummary) ?? "" } : undefined;
-    return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], handoff: record.handoff, writeScope: record.writeScope, report: record.report, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), terminalReason: record.terminalReason, ...(record.noOutputDiagnostics ? { noOutputDiagnostics: record.noOutputDiagnostics } : {}) };
+    return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], handoff: record.handoff, writeScope: record.writeScope, report: record.report, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), ...(record.cancelInitiator ? { cancelInitiator: record.cancelInitiator } : {}), terminalReason: record.terminalReason, ...(record.noOutputDiagnostics ? { noOutputDiagnostics: record.noOutputDiagnostics } : {}) };
   }
   private emit(event: ParentEvent, delivery: ParentEventDelivery = "follow_up"): void {
     const safeEvent: ParentEvent = {
@@ -910,7 +943,7 @@ export class WorkerManager {
       payload: sanitizeUnknown(event.payload),
     };
     if (this.consumeWaiterFor(safeEvent)) return;
-    this.pendingParentEvents.push({ event: safeEvent, delivery });
+    if (!this.mergePendingFinding(safeEvent, delivery)) this.pendingParentEvents.push({ event: safeEvent, delivery });
     if (delivery === "wait_only") return;
     if (this.options.onParentEventAvailable) {
       try { this.options.onParentEventAvailable(); } catch { /* 可用性通知失败不能改变 worker 业务状态 */ }
@@ -919,6 +952,14 @@ export class WorkerManager {
     } else {
       this.flushParentEvents();
     }
+  }
+
+  private mergePendingFinding(event: ParentEvent, delivery: ParentEventDelivery): boolean {
+    if (event.type !== "finding") return false;
+    const queued = this.pendingParentEvents.find((item) => item.delivery === delivery && item.event.type === "finding" && item.event.workerId === event.workerId);
+    if (!queued) return false;
+    queued.event = { ...queued.event, payload: mergeFindingPayload(queued.event.payload, event.payload) };
+    return true;
   }
 
   private discardPendingEventsFor(workerId: string): void {
@@ -1027,6 +1068,43 @@ function isTerminal(state: WorkerSnapshot["state"]): boolean {
   return ["completed", "failed", "timed_out", "cancelled", "shutdown"].includes(state);
 }
 
+function sanitizeFinding(finding: ActionableFinding): ActionableFinding {
+  const safe = (value: string) => truncate(sanitizeSensitive(value.trim()), DTEAM_CONFIG.dispatch.maxHandoffFieldChars);
+  return { summary: safe(finding.summary), evidence: safe(finding.evidence), impact: safe(finding.impact) };
+}
+
+function mergeFindingPayload(current: unknown, incoming: unknown): { findings: ActionableFinding[] } {
+  const findings = [...findingItems(current), ...findingItems(incoming)];
+  const unique: ActionableFinding[] = [];
+  const seen = new Set<string>();
+  for (const finding of findings) {
+    const key = `${finding.summary}\u0000${finding.evidence}\u0000${finding.impact}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(finding);
+  }
+  return { findings: unique.slice(-MAX_FINDINGS_PER_EVENT) };
+}
+
+function findingItems(payload: unknown): ActionableFinding[] {
+  if (!payload || typeof payload !== "object" || !Array.isArray((payload as any).findings)) return [];
+  return (payload as any).findings.filter((item: any): item is ActionableFinding =>
+    !!item && typeof item.summary === "string" && typeof item.evidence === "string" && typeof item.impact === "string",
+  );
+}
+function controlText(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`dteam: ${label} 不能为空`);
+  return truncate(sanitizeSensitive(value.trim()), DTEAM_CONFIG.dispatch.maxHandoffFieldChars);
+}
+
+function optionalControlText(value: unknown, fallback: string): string {
+  return value === undefined ? fallback : controlText(value, "reason");
+}
+
+function gracefulStopInstruction(reason: string): string {
+  return `主代理要求你优雅收敛。立即停止新的探索、扩展和无关工具调用；保留已经取得的事实与验证，并在当前安全点恰好提交一次合法 dteam_report，outcome="partial"，如实填写 activities、facts、verification、remaining 和 uncertainties。原因：${reason}`;
+}
+
 function isNextTier(current: Tier, next: Tier): boolean {
   return (current === "T3" && next === "T2") || (current === "T2" && next === "T1");
 }
@@ -1071,7 +1149,7 @@ function formatCompactionResyncRecord(record: WorkerRecord): string[] {
 }
 
 function workerSystemPrompt(tier: Tier, toolCallBudget: number): string {
-  return `${getTierPrompt(tier)}\n\n本 worker 的工作工具调用额度为 ${toolCallBudget} 次；dteam_signal 和 dteam_report 不计入。若预计额度不足，必须在耗尽前调用 dteam_signal(kind=\"request_tool_budget\", requestId, reason) 请求主代理决定。主代理最多只会追加一次，且追加后再次不足时会结束本 worker，由主代理重新 dispatch fresh worker。\n\n若发现缺少完成任务所需的核心能力（如写文件或执行命令的工具），应立即调用 dteam_signal(kind=\"blocked\", requestId, reason) 报告并等待主代理决策；不要在能力缺失时空转或反复尝试。\n\n结束前必须恰好调用一次 dteam_report({ outcome, summary, activities, facts, verification, uncertainties })。outcome 只表达任务本身 completed/partial；activities 只列本轮实际做过的 inspected/modified/tested/executed/captured_visual；facts 至少一项且每项包含 claim 与可核验 evidence；verification 必须传 depth(none/inspection/automated/runtime/visual)、status(passed/failed/partial/not_run)、evidence[] 与 remaining[]；无剩余验证传 remaining: []，无不确定性传 uncertainties: []。没有验证时必须使用 none + not_run + 空 evidence；inspection/automated/runtime/visual 分别要求 inspected/tested/executed/(executed + captured_visual)。不要把人工复测或期望深度写进报告。未提交合法报告会按失败处理。`;
+  return `${getTierPrompt(tier)}\n\n本 worker 的工作工具调用额度为 ${toolCallBudget} 次；dteam_signal 和 dteam_report 不计入。若预计额度不足，必须在耗尽前调用 dteam_signal(kind="request_tool_budget", requestId, reason) 请求主代理决定。主代理最多只会追加一次，且追加后再次不足时会结束本 worker，由主代理重新 dispatch fresh worker。\n\n普通进度用 dteam_signal(kind="progress", message, percent) 报告，只更新可观察状态；只有可能改变其他任务、当前路径、风险判断或下一步路由的事实，才用 dteam_signal(kind="finding", summary, evidence, impact) 报告，三个字段都必须非空且带可核验依据。不要把普通过程文本或无证据意见升级为 finding。\n\n主代理可能在任务运行中发送 steer 或优雅收敛指令；它只改变执行方向，不会增加工具权限。收到优雅收敛要求时，停止新的扩展，在当前安全点提交一次 outcome="partial" 的合法 dteam_report，并如实填写 remaining/uncertainties。\n\n若发现缺少完成任务所需的核心能力（如写文件或执行命令的工具），应立即调用 dteam_signal(kind="blocked", requestId, reason) 报告并等待主代理决策；不要在能力缺失时空转或反复尝试。\n\n结束前必须恰好调用一次 dteam_report({ outcome, summary, activities, facts, verification, uncertainties })。outcome 只表达任务本身 completed/partial；activities 只列本轮实际做过的 inspected/modified/tested/executed/captured_visual；facts 至少一项且每项包含 claim 与可核验 evidence；verification 必须传 depth(none/inspection/automated/runtime/visual)、status(passed/failed/partial/not_run)、evidence[] 与 remaining[]；无剩余验证传 remaining: []，无不确定性传 uncertainties: []。没有验证时必须使用 none + not_run + 空 evidence；inspection/automated/runtime/visual 分别要求 inspected/tested/executed/(executed + captured_visual)。不要把人工复测或期望深度写进报告。未提交合法报告会按失败处理。`;
 }
 
 function toolBudgetExhaustedMessage(record: WorkerRecord): string {

@@ -1,6 +1,6 @@
 # tests/
 
-测试通过四工具公开 API、Worker Manager、统一 WorkerReport、signal/wait、动态工具策略和 `/dteam` 管理状态验证当前行为。
+测试通过五工具公开 API、Worker Manager、统一 WorkerReport、finding/signal/wait、动态工具策略和 `/dteam` 管理状态验证当前行为。
 
 ## 运行
 
@@ -14,20 +14,20 @@ npm test
 
 | 文件 | 关注点 |
 |---|---|
-| `index-dispatch.test.ts` | 四工具、同名 `/dteam` 命令、自包含独立 worker 契约、压缩后一次性 resync、紧凑渲染与参数 fail-closed |
+| `index-dispatch.test.ts` | 五工具、同名 `/dteam` 命令、自包含独立 worker 契约、压缩后一次性 resync、紧凑渲染与参数 fail-closed；含 A finding → dteam_control → B 报告的端到端场景 |
 | `dynamic-tools.test.ts` | 首次 active set、候选工具、第三方降级 |
 | `worker-manager.dispatch.test.ts` | 请求校验、派发、档位候选、运行期路由更新与已受理 worker 路由快照、共享并发与工具额度 |
 | `worker-manager.recovery.test.ts` | timeout recovery、重试、升级、延长、恢复预算，以及主代理 stop 的守卫同步返回与旧事件清理 |
-| `worker-manager.lifecycle.test.ts` | 快照投影、事件与脱敏、取消、shutdown 和创建竞态 |
-| `signal-request.test.ts` | A/B/C signal、阻塞 request、原 session 恢复和 requestId 作用域 |
+| `worker-manager.lifecycle.test.ts` | 快照投影、事件与脱敏、steer / graceful_stop / 主代理 cancel、shutdown 和创建竞态 |
+| `signal-request.test.ts` | A/B/C signal、progress/finding 降噪、阻塞 request、原 session 恢复和 requestId 作用域 |
 | `worker-manager.protocol.test.ts` | Manager 报告回收、handoff provenance、verification 不进入 handoff、writeScope/write_interrupted、局部范围语义、压缩 resync 与 respond/recover 边界 |
 | `respond-cancel.test.ts` | 主代理受限 cancel 的同步守卫、旧事件清理，以及用户 `/dteam` 取消的 follow-up 边界 |
 | `worker-manager.report.test.ts` | WorkerReport 枚举、字段与交叉不变量、旧形状 fail-closed 及统一 parser/tool 契约 |
 | `worker-report.fixture.ts` | 跨测试复用的最小合法 WorkerReport 工厂；不是测试入口 |
 | `test-helpers.ts` / `mock-modules.ts` | Bun 原生 `waitFor`（等待断言）和跨文件模块 mock；不是测试入口 |
-| `worker-manager.wait.test.ts` | 指定 worker 的事件等待、事件后置消费、未消费 flush 与 timeout 部分结果 |
+| `worker-manager.wait.test.ts` | 指定 worker 的单次事件消费、迟到 wait 一次返回全部匹配事件、pending 与运行态区分、未消费 flush 和 timeout 部分结果 |
 | `worker-usage-ledger.test.ts` | 独立 dteam usage 的数字白名单、稳定去重键、JSONL 追加与 `0600` 权限 |
-| `tool-result.test.ts` | 默认摘要与 Ctrl+O 人类可读展开、局部 writeScope 投影，不展示 JSON |
+| `tool-result.test.ts` | 默认摘要与 Ctrl+O 人类可读展开、wait 的“本轮返回 / 本轮无事件”、局部 writeScope 投影，不展示 JSON |
 | `tui-dialog.test.ts` | `/dteam` 列表、详情、实时文本/thinking/工具、timeout 诊断、局部 writeScope、WorkerReport 人类可读投影、包边、i18n 文案和运行/历史只读状态 |
 | `i18n.test.ts` | `pi.i18n.v1` bundle 注册与多通道 API 去重 |
 | `cancel.test.ts` | 用户取消二次确认与 `user_cancelled` |

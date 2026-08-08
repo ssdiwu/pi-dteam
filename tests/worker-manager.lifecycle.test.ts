@@ -98,6 +98,69 @@ describe("WorkerManager", () => {
     manager.shutdown();
   });
 
+  it("dteam_control steer 与 graceful_stop 复用同一 running session", async () => {
+    const activeSession: any = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), steer: mock().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(activeSession);
+    const manager = new WorkerManager(options());
+    const [accepted] = manager.dispatch([{ title: "主动协调", task: "任务", tier: "T1" }]);
+    await waitFor(() => expect(activeSession.prompt).toHaveBeenCalled());
+    await expect(manager.control(accepted!.workerId, { action: "steer", instruction: "只核对入口，不要扩展范围" })).resolves.toMatchObject({ action: "steer", state: "running" });
+    expect(activeSession.steer).toHaveBeenCalledWith("只核对入口，不要扩展范围");
+    await expect(manager.control(accepted!.workerId, { action: "graceful_stop", reason: "事实已足够" })).resolves.toMatchObject({ action: "graceful_stop", state: "running" });
+    expect(activeSession.steer).toHaveBeenLastCalledWith(expect.stringContaining("outcome=\"partial\""));
+    expect(activeSession.steer).toHaveBeenLastCalledWith(expect.stringContaining("事实已足够"));
+    expect(manager.signalLog.eventsFor(accepted!.workerId).map((event) => event.kind)).toContain("graceful_stop_requested");
+    manager.shutdown();
+  });
+
+  it("graceful_stop 不扩大权限并允许 partial report", async () => {
+    const activeSession: any = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), steer: mock().mockResolvedValue(undefined), setActiveToolsByName: mock(), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(activeSession);
+    const manager = new WorkerManager(options());
+    const [accepted] = manager.dispatch([{ title: "优雅收敛", task: "任务", tier: "T1", addTools: ["edit"], writeScope: ["src/feature.ts"] }]);
+    await waitFor(() => expect(activeSession.prompt).toHaveBeenCalled());
+    const before = manager.get(accepted!.workerId)!;
+    await manager.control(accepted!.workerId, { action: "graceful_stop", reason: "路由已确定" });
+    expect(manager.get(accepted!.workerId)).toMatchObject({ state: "running", activeTools: before.activeTools, writeScope: ["src/feature.ts"] });
+    manager.receiveReport(accepted!.workerId, workerReport({ outcome: "partial", summary: "已在安全点收敛", verification: { status: "partial", remaining: ["尚未运行完整测试"] } }));
+    expect(manager.get(accepted!.workerId)).toMatchObject({ report: { outcome: "partial", summary: "已在安全点收敛", verification: { status: "partial", remaining: ["尚未运行完整测试"] } } });
+    manager.shutdown();
+  });
+
+  it("dteam_control 只允许 running worker", async () => {
+    const first: any = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(first);
+    const manager = new WorkerManager(options({ concurrency: new AdaptiveConcurrency({ min: 1, max: 1, initial: 1, cooldownMs: 1000, successStreakToRise: 99 }) }));
+    const accepted = manager.dispatch([{ title: "运行", task: "任务", tier: "T1" }, { title: "排队", task: "任务", tier: "T1" }]);
+    await waitFor(() => expect(first.prompt).toHaveBeenCalled());
+    await expect(manager.control(accepted[1]!.workerId, { action: "cancel", reason: "未运行" })).rejects.toThrow("只允许 running");
+    const waiting = manager.receiveSignal(accepted[0]!.workerId, { kind: "request_context", requestId: "ctx", question: "需要上下文" });
+    await waitFor(() => expect(manager.get(accepted[0]!.workerId)?.state).toBe("waiting"));
+    await expect(manager.control(accepted[0]!.workerId, { action: "steer", instruction: "不应发送" })).rejects.toThrow("只允许 running");
+    manager.respond(accepted[0]!.workerId, "ctx", { type: "deny", reason: "测试结束" });
+    await expect(waiting).resolves.toMatchObject({ type: "deny" });
+    manager.shutdown();
+  });
+
+  it("dteam_control cancel 区分主代理来源并清理旧事件", async () => {
+    const events: any[] = [];
+    const available = mock();
+    const hanging = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(hanging);
+    const limiter = new AdaptiveConcurrency({ min: 1, max: 1, initial: 1, cooldownMs: 1000, successStreakToRise: 99 });
+    const manager = new WorkerManager(options({ concurrency: limiter, onParentEvent: (event: any) => events.push(event), onParentEventAvailable: available }));
+    const [accepted] = manager.dispatch([{ title: "主动取消", task: "任务", tier: "T1", addTools: ["edit"], writeScope: ["src/"] }]);
+    await waitFor(() => expect(hanging.prompt).toHaveBeenCalled());
+    await manager.receiveSignal(accepted!.workerId, { kind: "finding", summary: "旧发现", evidence: "a.ts:1", impact: "已失去价值" });
+    const result = await manager.control(accepted!.workerId, { action: "cancel", reason: "主代理接管" });
+    expect(result).toMatchObject({ action: "cancel", state: "cancelled", cancelInitiator: "main", writeInterrupted: { reason: "主代理接管", writeScope: ["src/"] } });
+    expect(manager.get(accepted!.workerId)).toMatchObject({ state: "cancelled", cancelInitiator: "main" });
+    await waitFor(() => expect(limiter.flying).toBe(0));
+    manager.flushParentEvents();
+    expect(events).toEqual([]);
+    await expect(manager.wait([accepted!.workerId], 10)).resolves.toMatchObject({ reason: "timeout", events: [] });
+  });
+
   it("取消会立即打断 hanging prompt 并释放并发槽", async () => {
     const hanging = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
     const limiter = new AdaptiveConcurrency({ min: 1, max: 1, initial: 1, cooldownMs: 1000, successStreakToRise: 99 });

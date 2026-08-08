@@ -4,13 +4,14 @@ import { beforeEach, describe, expect, it , mock } from "bun:test";
 
 import { RequestState } from "../src/runtime/request-state.js";
 import { SignalLog } from "../src/runtime/signal-log.js";
+import { makeSignalTool } from "../src/runtime/signal-tool.js";
 import { WorkerManager } from "../src/runtime/worker-manager.js";
 import { AdaptiveConcurrency } from "../src/dispatch/concurrency.js";
 import { workerReport } from "./worker-report.fixture.js";
 
 beforeEach(() => mockCreateWorkerSession.mockReset());
 
-function manager(onParentEvent: (event: any) => void = () => {}) {
+function manager(onParentEvent: (event: any) => void = () => {}, overrides: any = {}) {
   mockCreateWorkerSession.mockResolvedValue({ prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), setActiveToolsByName: mock(), messages: [] });
   return new WorkerManager({
     cwd: "/workspace",
@@ -19,6 +20,7 @@ function manager(onParentEvent: (event: any) => void = () => {}) {
     parentActiveTools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
     concurrency: new AdaptiveConcurrency({ min: 1, max: 1, initial: 1, cooldownMs: 1000, successStreakToRise: 99 }),
     onParentEvent,
+    ...overrides,
   });
 }
 
@@ -48,14 +50,50 @@ describe("SignalLog and RequestState", () => {
   });
 });
 
+describe("dteam_signal finding parser", () => {
+  it("要求 finding 提供非空 evidence 和 impact", async () => {
+    const host = { receiveSignal: mock(async (_workerId: string, signal: any) => ({ ok: true, signal })) };
+    const tool = makeSignalTool("w", host);
+    await expect(tool.execute("call", { kind: "finding", summary: "发现", evidence: "证据" })).rejects.toThrow("finding.impact");
+    await expect(tool.execute("call", { kind: "finding", summary: "发现", evidence: "证据", impact: "改变路由" })).resolves.toMatchObject({ details: { signal: { ok: true } } });
+    expect(host.receiveSignal).toHaveBeenCalledWith("w", { kind: "finding", summary: "发现", evidence: "证据", impact: "改变路由" });
+  });
+
+  it("拒绝 finding 的额外字段和超长字段，并与公开 schema 一致", async () => {
+    const host = { receiveSignal: mock(async (_workerId: string, signal: any) => ({ ok: true, signal })) };
+    const tool = makeSignalTool("w", host);
+    expect(tool.parameters.additionalProperties).toBe(false);
+    expect(tool.parameters.properties.summary).toMatchObject({ minLength: 1, maxLength: 1000 });
+    await expect(tool.execute("call", { kind: "finding", summary: "发现", evidence: "证据", impact: "改变路由", extra: "拒绝" })).rejects.toThrow("不允许字段");
+    await expect(tool.execute("call", { kind: "finding", summary: "发现", evidence: "证据", impact: "改变路由", message: "进度字段" })).rejects.toThrow("finding 不允许字段 message");
+    await expect(tool.execute("call", { kind: "finding", summary: "发现", evidence: "证据", impact: "改变路由", requestId: "跨类型" })).rejects.toThrow("finding 不允许字段 requestId");
+    await expect(tool.execute("call", { kind: "finding", summary: "x".repeat(1001), evidence: "证据", impact: "改变路由" })).rejects.toThrow("字符上限");
+    await expect(tool.execute("call", { kind: "finding", summary: "发现", evidence: "x".repeat(1001), impact: "改变路由" })).rejects.toThrow("字符上限");
+    await expect(tool.execute("call", { kind: "finding", summary: "发现", evidence: "证据", impact: "x".repeat(1001) })).rejects.toThrow("字符上限");
+    expect(host.receiveSignal).not.toHaveBeenCalled();
+  });
+});
+
 describe("worker signal protocol", () => {
-  it("progress/finding 不打断主代理，阻塞 request 可由 respond 恢复", async () => {
+  it("progress 不打断主代理，带证据 finding 进入事件且阻塞 request 可由 respond 恢复", async () => {
     const events: any[] = [];
     const managerInstance = manager((event) => { events.push(event); });
     const accepted = managerInstance.dispatch([{ title: "signal", task: "task", tier: "T1" }])[0]!;
     await managerInstance.receiveSignal(accepted.workerId, { kind: "progress", message: "half" });
-    await managerInstance.receiveSignal(accepted.workerId, { kind: "finding", summary: "found password=hunter2" });
+    await managerInstance.receiveSignal(accepted.workerId, {
+      kind: "finding",
+      summary: "found password=hunter2",
+      evidence: "config.ts:12",
+      impact: "必须调整后续路由",
+    });
     expect(events.filter((event) => event.type === "request")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "finding")).toHaveLength(1);
+    expect(events.find((event) => event.type === "finding")?.payload.findings[0]).toMatchObject({
+      summary: "found password=[REDACTED_SECRET]",
+      evidence: "config.ts:12",
+      impact: "必须调整后续路由",
+    });
+    expect(managerInstance.get(accepted.workerId)?.state).toBe("running");
     expect(JSON.stringify(managerInstance.signalLog.eventsFor(accepted.workerId))).not.toContain("hunter2");
     expect(managerInstance.signalLog.snapshot(accepted.workerId)?.latestFinding).toBe("found password=[REDACTED_SECRET]");
 
@@ -65,6 +103,24 @@ describe("worker signal protocol", () => {
     managerInstance.respond(accepted.workerId, "r1", { type: "provide_context", context: "provided" });
     await expect(waiting).resolves.toEqual({ type: "provide_context", context: "provided" });
     managerInstance.shutdown();
+  });
+
+  it("短窗 finding 按 worker 有界合并并去重", async () => {
+    const events: any[] = [];
+    const available = mock();
+    const instance = manager((event) => events.push(event), { onParentEventAvailable: available });
+    const accepted = instance.dispatch([{ title: "合并", task: "task", tier: "T1" }])[0]!;
+    const finding = { kind: "finding" as const, summary: "同一发现", evidence: "a.ts:1", impact: "改路由" };
+    await instance.receiveSignal(accepted.workerId, finding);
+    await instance.receiveSignal(accepted.workerId, finding);
+    await instance.receiveSignal(accepted.workerId, { ...finding, summary: "第二发现", evidence: "b.ts:2" });
+    expect(events).toEqual([]);
+    instance.flushParentEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "finding", workerId: accepted.workerId });
+    expect(events[0].payload.findings).toHaveLength(2);
+    expect(available).toHaveBeenCalled();
+    instance.shutdown();
   });
 
   it("重复 requestId 被拒绝且不破坏原 pending request", async () => {

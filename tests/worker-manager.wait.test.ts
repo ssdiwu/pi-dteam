@@ -69,6 +69,72 @@ describe("WorkerManager explicit dependency wait", () => {
     await request;
     manager.shutdown();
   });
+  it("finding 事件可被显式 wait 单次消费且不把 worker 变成 waiting", async () => {
+    const events: any[] = [];
+    const hanging = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValue(hanging);
+    const manager = new WorkerManager(options({ onParentEvent: (event: any) => events.push(event) }));
+    const [accepted] = manager.dispatch([{ title: "发现等待", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(hanging.prompt).toHaveBeenCalled());
+    const waiting = manager.wait([accepted!.workerId], 100);
+    await manager.receiveSignal(accepted!.workerId, { kind: "finding", summary: "影响 B", evidence: "a.ts:1", impact: "B 必须改走安全路径" });
+    await expect(waiting).resolves.toMatchObject({
+      reason: "worker_event",
+      events: [expect.objectContaining({ type: "finding", workerId: accepted!.workerId, payload: { findings: [{ summary: "影响 B", evidence: "a.ts:1", impact: "B 必须改走安全路径" }] } })],
+      ready: [expect.objectContaining({ id: accepted!.workerId, state: "running" })],
+      pendingWorkerIds: [],
+    });
+    expect(events).toEqual([]);
+    await expect(manager.wait([accepted!.workerId], 10)).resolves.toMatchObject({ reason: "timeout", events: [] });
+    manager.shutdown();
+  });
+
+  it("迟到 wait 一次消费同一 worker 已排队的 finding 与 completed", async () => {
+    let finish!: () => void;
+    const session: any = {
+      prompt: mock(() => new Promise<void>((resolve) => { finish = resolve; })),
+      abort: mock().mockResolvedValue(undefined),
+      messages: [],
+    };
+    mockCreateWorkerSession.mockResolvedValue(session);
+    const manager = new WorkerManager(options({ onParentEventAvailable: mock() }));
+    const [accepted] = manager.dispatch([{ title: "合并消费", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(session.prompt).toHaveBeenCalled());
+    await manager.receiveSignal(accepted!.workerId, { kind: "finding", summary: "先到发现", evidence: "a.ts:1", impact: "改变后续路由" });
+    manager.receiveReport(accepted!.workerId, workerReport({ summary: "随后完成" }));
+    session.messages = [{ role: "assistant", content: [{ type: "text", text: "done" }] }];
+    finish();
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
+
+    const result = await manager.wait([accepted!.workerId], 100);
+    expect(result.events.map((event) => event.type)).toEqual(["finding", "completed"]);
+    expect(result.ready).toEqual([expect.objectContaining({ id: accepted!.workerId, state: "completed" })]);
+    expect(result.pendingWorkerIds).toEqual([]);
+    await expect(manager.wait([accepted!.workerId], 10)).resolves.toMatchObject({ reason: "timeout", events: [] });
+  });
+
+  it("pendingWorkerIds 可包含终态事件已被先前 wait 消费的 worker", async () => {
+    const first = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
+    const second = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const manager = new WorkerManager(options());
+    const accepted = manager.dispatch([{ title: "已终态", task: "任务", tier: "T3" }, { title: "新事件", task: "任务", tier: "T3" }]);
+    await waitFor(() => { expect(first.prompt).toHaveBeenCalled(); expect(second.prompt).toHaveBeenCalled(); });
+
+    const firstWait = manager.wait([accepted[0]!.workerId], 100);
+    manager.cancel(accepted[0]!.workerId);
+    await expect(firstWait).resolves.toMatchObject({ events: [expect.objectContaining({ type: "cancelled" })], pendingWorkerIds: [] });
+    expect(manager.get(accepted[0]!.workerId)?.state).toBe("cancelled");
+
+    const mixedWait = manager.wait(accepted.map((item) => item.workerId), 100);
+    await manager.receiveSignal(accepted[1]!.workerId, { kind: "finding", summary: "B 有新事件", evidence: "b.ts:2", impact: "需要主代理处理" });
+    await expect(mixedWait).resolves.toMatchObject({
+      ready: [expect.objectContaining({ id: accepted[1]!.workerId, state: "running" })],
+      pendingWorkerIds: [accepted[0]!.workerId],
+    });
+    expect(manager.get(accepted[0]!.workerId)?.state).toBe("cancelled");
+    manager.shutdown();
+  });
 
   it("完成后才调用 wait 仍会消费待回放事件", async () => {
     let finish!: () => void;
