@@ -99,7 +99,7 @@ describe("WorkerManager", () => {
   });
 
   it("dteam_control steer 与 graceful_stop 复用同一 running session", async () => {
-    const activeSession: any = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), steer: mock().mockResolvedValue(undefined), messages: [] };
+    const activeSession: any = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), steer: mock().mockResolvedValue(undefined), clearQueue: mock(() => ({ steering: [], followUp: [] })), messages: [] };
     mockCreateWorkerSession.mockResolvedValue(activeSession);
     const manager = new WorkerManager(options());
     const [accepted] = manager.dispatch([{ title: "主动协调", task: "任务", tier: "T1" }]);
@@ -300,5 +300,84 @@ describe("WorkerManager", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(manager.get(accepted[1]!.workerId)).toMatchObject({ state: "shutdown", cancelReason: "session_shutdown", terminalReason: "session_shutdown" });
     expect(mockCreateWorkerSession).toHaveBeenCalledTimes(1);
+  });
+  it("control 使用 worker 专属队列取代旧指令，并只在离开队列后标为 injected", async () => {
+    let listener!: (event: any) => void;
+    let steering: string[] = [];
+    const activeSession: any = {
+      prompt: mock(() => new Promise<void>(() => {})),
+      abort: mock().mockResolvedValue(undefined),
+      messages: [],
+      subscribe: mock((callback: (event: any) => void) => { listener = callback; return () => {}; }),
+      steer: mock(async (instruction: string) => {
+        steering.push(instruction);
+        listener({ type: "queue_update", steering: [...steering], followUp: [] });
+      }),
+      clearQueue: mock(() => {
+        const cleared = { steering: [...steering], followUp: [] };
+        steering = [];
+        listener({ type: "queue_update", steering: [], followUp: [] });
+        return cleared;
+      }),
+    };
+    mockCreateWorkerSession.mockResolvedValue(activeSession);
+    const manager = new WorkerManager(options());
+    const [accepted] = manager.dispatch([{ title: "最新纠偏优先", task: "任务", tier: "T1" }]);
+    await waitFor(() => expect(activeSession.prompt).toHaveBeenCalled());
+
+    const first: any = await manager.control(accepted!.workerId, { action: "steer", instruction: "先检查旧路径" });
+    expect(first).toMatchObject({ deliveryState: "queued", commandId: expect.any(String) });
+    const second: any = await manager.control(accepted!.workerId, { action: "steer", instruction: "改查新路径" });
+    expect(second).toMatchObject({ deliveryState: "queued", commandId: expect.any(String), supersededCommandIds: [first.commandId] });
+    expect(activeSession.clearQueue).toHaveBeenCalledTimes(1);
+    expect(manager.signalLog.eventsFor(accepted!.workerId)).toContainEqual(expect.objectContaining({ kind: "control_superseded", payload: expect.objectContaining({ commandId: first.commandId }) }));
+    expect(manager.get(accepted!.workerId)?.latestControl).toMatchObject({ commandId: second.commandId, action: "steer", deliveryState: "queued" });
+
+    steering = [];
+    listener({ type: "queue_update", steering: [], followUp: [] });
+    expect(manager.get(accepted!.workerId)?.latestControl).toMatchObject({ commandId: second.commandId, deliveryState: "injected" });
+    manager.shutdown();
+  });
+
+  it("未注入的 control 会在取消时标为 expired", async () => {
+    let listener!: (event: any) => void;
+    const activeSession: any = {
+      prompt: mock(() => new Promise<void>(() => {})),
+      abort: mock().mockResolvedValue(undefined),
+      messages: [],
+      subscribe: mock((callback: (event: any) => void) => { listener = callback; return () => {}; }),
+      steer: mock(async () => listener({ type: "queue_update", steering: ["待发送指令"], followUp: [] })),
+    };
+    mockCreateWorkerSession.mockResolvedValue(activeSession);
+    const manager = new WorkerManager(options());
+    const [accepted] = manager.dispatch([{ title: "取消过期控制", task: "任务", tier: "T1" }]);
+    await waitFor(() => expect(activeSession.prompt).toHaveBeenCalled());
+    const command: any = await manager.control(accepted!.workerId, { action: "steer", instruction: "待发送指令" });
+    await manager.control(accepted!.workerId, { action: "cancel", reason: "不再需要" });
+    expect(manager.get(accepted!.workerId)?.latestControl).toMatchObject({ commandId: command.commandId, deliveryState: "expired" });
+  });
+
+  it("context usage 只读投影，并在 compaction 返回 unknown 时清除旧值", async () => {
+    let listener!: (event: any) => void;
+    let resolvePrompt!: () => void;
+    let usage: any = { tokens: 81_234, contextWindow: 262_144, percent: 31 };
+    const activeSession: any = session("完成");
+    activeSession.prompt = mock(() => new Promise<void>((resolve) => { resolvePrompt = resolve; }));
+    activeSession.subscribe = mock((callback: (event: any) => void) => { listener = callback; return () => {}; });
+    activeSession.getContextUsage = mock(() => { if (usage instanceof Error) throw usage; return usage; });
+    mockCreateWorkerSession.mockResolvedValue(activeSession);
+    const manager = new WorkerManager(options());
+    const [accepted] = manager.dispatch([{ title: "上下文", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(listener).toBeTypeOf("function"));
+    listener({ type: "message_end", message: { role: "assistant" } });
+    expect(manager.get(accepted!.workerId)?.contextUsage).toMatchObject({ tokens: 81_234, contextWindow: 262_144, percent: 31, sampledAt: expect.any(Number) });
+    usage = { tokens: null, contextWindow: 262_144, percent: null };
+    listener({ type: "compaction_end" });
+    expect(manager.get(accepted!.workerId)?.contextUsage).toMatchObject({ tokens: null, contextWindow: 262_144, percent: null });
+    usage = new Error("usage unavailable");
+    listener({ type: "compaction_end" });
+    expect(manager.get(accepted!.workerId)?.contextUsage).toBeUndefined();
+    resolvePrompt();
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("completed"));
   });
 });

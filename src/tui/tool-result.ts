@@ -1,5 +1,5 @@
 import { formatDuration } from "../duration.js";
-import type { DteamWaitResult, WorkerReport, WorkerSnapshot } from "../runtime/types.js";
+import type { DteamWaitView, DteamWaitWorkerView, WorkerReport } from "../runtime/types.js";
 
 export type DteamToolResultKind = "dispatch" | "respond" | "recover" | "wait" | "control";
 
@@ -42,6 +42,8 @@ function controlText(details: any, expanded: boolean): string {
       : `停止：强制取消（${text(action?.reason) || "未说明"}）`;
   const lines = [summary, `- worker：${text(value?.workerId) || "无"}`, `- ${detail}`, `- 当前状态：${text(value?.state) || "未知"}`];
   if (value?.cancelInitiator) lines.push(`- 取消发起方：${text(value.cancelInitiator)}`);
+  if (value?.commandId && value?.deliveryState) lines.push(`- 控制命令：${text(value.commandId)} · 投递：${text(value.deliveryState)}（尚未证明 worker 已执行）`);
+  if (Array.isArray(value?.supersededCommandIds) && value.supersededCommandIds.length) lines.push(`- 已取代 ${value.supersededCommandIds.length} 条排队指令`);
   if (value?.writeInterrupted) lines.push(`- 写入守卫：${arrayText(value.writeInterrupted.writeScope) || "未声明"}${value.writeInterrupted.reason ? ` · 原因：${text(value.writeInterrupted.reason)}` : ""}`);
   return lines.join("\n");
 }
@@ -65,12 +67,12 @@ function recoveryText(action: any): string {
   return `恢复：${type}`;
 }
 
-function waitProgressText(value: Pick<DteamWaitResult, "targetWorkers" | "waitedMs" | "timeoutMs"> | undefined): string {
+function waitProgressText(value: Pick<DteamWaitView, "targetWorkers" | "waitedMs" | "timeoutMs"> | undefined): string {
   if (!value) return "正在等待 worker…";
   return `正在等待 ${waitTargetText(value.targetWorkers)} · 已等 ${formatDuration(value.waitedMs)} / 最多 ${formatDuration(value.timeoutMs)}`;
 }
 
-function waitText(value: DteamWaitResult | undefined, expanded: boolean): string {
+function waitText(value: DteamWaitView | undefined, expanded: boolean): string {
   const ready = Array.isArray(value?.ready) ? value.ready : [];
   const pending = Array.isArray(value?.pendingWorkerIds) ? value.pendingWorkerIds : [];
   const reason = value?.reason === "timeout" ? "等待超时" : "worker 有新事件";
@@ -79,43 +81,55 @@ function waitText(value: DteamWaitResult | undefined, expanded: boolean): string
   const summary = `等待 ${targets} · ${timing} · ${reason} · 本轮返回 ${ready.length} · 本轮无事件 ${pending.length}`;
   if (!expanded) return `${summary}（Ctrl+O 展开）`;
   const lines = [summary];
-  for (const event of value?.events ?? []) lines.push(`- 事件 · ${text(event.workerId)} · ${text(event.type)}${parentEventDetail(event.payload)}`);
+  for (const event of value?.events ?? []) lines.push(`- 事件 · ${text(event.workerId)} · ${text(event.type)}${parentEventDetail(event)}`);
   for (const worker of ready) lines.push(...workerLines(worker));
-  for (const request of value?.requests ?? []) lines.push(`- 需要回应 · ${text(request.workerId)} · ${text(request.kind)} · request ${text(request.requestId)}${requestDetail(request.payload)}`);
+  for (const request of value?.requests ?? []) {
+    lines.push(`- 需要回应 · ${text(request.workerId)} · ${text(request.kind)} · request ${text(request.requestId)}${request.summary ? ` · 请提供：${text(request.summary)}` : ""}`);
+    lines.push(`  ${replyHint(request.workerId, request.requestId, request.kind)}`);
+  }
   if (pending.length) lines.push(`- 本轮无事件：${pending.map(text).join(", ")}`);
   return lines.join("\n");
 }
 
-function parentEventDetail(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "";
-  const value = payload as Record<string, unknown>;
-  if (Array.isArray(value.findings)) {
-    return value.findings
-      .filter((finding): finding is Record<string, unknown> => !!finding && typeof finding === "object")
+function parentEventDetail(event: DteamWaitView["events"][number]): string {
+  if (event.findings?.length) {
+    return event.findings
       .map((finding) => ` · 摘要：${text(finding.summary)} · 证据：${text(finding.evidence)} · 影响：${text(finding.impact)}`)
       .join("\n  ");
   }
-  if (Array.isArray(value.writeScope)) return ` · 写入范围：${arrayText(value.writeScope) || "无"}${typeof value.reason === "string" ? ` · 原因：${text(value.reason)}` : ""}`;
-  if (typeof value.reason === "string") return ` · 原因：${text(value.reason)}`;
-  if (typeof value.error === "string") return ` · 错误：${text(value.error)}`;
+  if (event.writeScope?.length) return ` · 写入范围：${arrayText(event.writeScope) || "无"}${event.reason ? ` · 原因：${text(event.reason)}` : ""}`;
+  if (event.reason) return ` · 原因：${text(event.reason)}`;
+  if (event.error) return ` · 错误：${text(event.error)}`;
   return "";
 }
 
-function requestDetail(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "";
-  const value = payload as Record<string, unknown>;
-  if (typeof value.question === "string") return ` · 请提供：${text(value.question)}`;
-  if (typeof value.reason === "string") return ` · 原因：${text(value.reason)}`;
-  if (Array.isArray(value.tools)) return ` · 工具：${arrayText(value.tools) || "无"}`;
-  return "";
+function replyHint(workerId: string, requestId: string, kind: string): string {
+  const field = kind === "request_context"
+    ? "context"
+    : kind === "request_tools"
+      ? "tools"
+      : kind === "request_tool_budget"
+        ? "additionalCalls"
+        : kind === "request_decision" || kind === "blocked"
+          ? "decision"
+          : undefined;
+  if (!field) return `恢复提示：dteam_recover · workerId=${text(workerId)} · requestId=${text(requestId)} · action=retry | escalate | extend | stop`;
+  const type = kind === "request_context"
+    ? "provide_context"
+    : kind === "request_tools"
+      ? "grant_tools"
+      : kind === "request_tool_budget"
+        ? "grant_tool_budget"
+        : "decision";
+  return `回应提示：dteam_respond · workerId=${text(workerId)} · requestId=${text(requestId)} · response.type=${type} · ${field}=…`;
 }
 
-function waitTargetText(targets: DteamWaitResult["targetWorkers"] | undefined): string {
+function waitTargetText(targets: DteamWaitView["targetWorkers"] | undefined): string {
   if (!targets?.length) return "未知 worker";
   return targets.map((worker) => `${text(worker.title) || "未命名"} (${text(worker.id) || "无 ID"})`).join("、");
 }
 
-function workerLines(worker: WorkerSnapshot): string[] {
+function workerLines(worker: DteamWaitWorkerView): string[] {
   const lines = [`- ${text(worker.title) || "未命名"} · ${text(worker.id)} · ${text(worker.state)}`];
   if (worker.writeScope?.length) lines.push(`  本 worker 写入范围：${arrayText(worker.writeScope)}（不代表父任务完成）`);
   if (worker.report) lines.push(...reportLines(worker.report));

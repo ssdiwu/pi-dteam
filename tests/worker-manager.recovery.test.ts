@@ -189,6 +189,81 @@ describe("WorkerManager", () => {
     expect(manager.get(accepted!.workerId)).toMatchObject({ activeTier: "T3", fallbackTrail: ["T3"], result: "重试完成" });
   });
 
+  it("timeout recovery 等待期间旧 attempt 的 signal tool 已失效", async () => {
+    let staleSignalTool: any;
+    const first = {
+      prompt: mock(() => new Promise<void>(() => {})),
+      abort: mock().mockResolvedValue(undefined),
+      messages: [],
+    };
+    mockCreateWorkerSession.mockImplementationOnce(async (input: any) => {
+      staleSignalTool = input.customTools[0];
+      return first;
+    });
+    const manager = new WorkerManager(options({ timeoutMs: 20, totalBudgetMs: 100 }));
+    const [accepted] = manager.dispatch([{ title: "超时等待窗口隔离", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
+    await expect(staleSignalTool.execute("stale-during-recovery", {
+      kind: "finding",
+      summary: "stale recovery finding",
+      evidence: "first.ts:1",
+      impact: "不得污染 recovery waiting",
+    })).rejects.toThrow("候选已失效");
+    expect(manager.get(accepted!.workerId)?.latestFinding).toBeUndefined();
+    manager.shutdown();
+  });
+
+  it("timeout fresh retry 后旧 attempt 的 signal tool 失效", async () => {
+    let resolveFirst!: () => void;
+    let finishSecond!: () => void;
+    let staleSignalTool: any;
+    let currentSignalTool: any;
+    const first = {
+      prompt: mock(() => new Promise<void>((resolve) => { resolveFirst = resolve; })),
+      abort: mock(() => { resolveFirst(); return Promise.resolve(); }),
+      messages: [],
+    };
+    const second = {
+      prompt: mock(() => new Promise<void>((resolve) => { finishSecond = resolve; })),
+      abort: mock().mockResolvedValue(undefined),
+      messages: [{ role: "assistant", content: [{ type: "text", text: "retry result without report" }] }],
+    };
+    mockCreateWorkerSession
+      .mockImplementationOnce(async (input: any) => {
+        staleSignalTool = input.customTools[0];
+        return first;
+      })
+      .mockImplementationOnce(async (input: any) => {
+        currentSignalTool = input.customTools[0];
+        return second;
+      });
+    const manager = new WorkerManager(options({ timeoutMs: 50, totalBudgetMs: 200 }));
+    const [accepted] = manager.dispatch([{ title: "重试信号隔离", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("waiting"));
+    const requestId = manager.get(accepted!.workerId)?.timeoutDiagnostic?.requestId!;
+    manager.recover(accepted!.workerId, requestId, { action: "retry" });
+    await waitFor(() => expect(second.prompt).toHaveBeenCalled());
+
+    await expect(staleSignalTool.execute("stale-retry", {
+      kind: "finding",
+      summary: "stale attempt finding",
+      evidence: "first.ts:1",
+      impact: "不得污染 retry",
+    })).rejects.toThrow("候选已失效");
+    expect(manager.get(accepted!.workerId)?.latestFinding).toBeUndefined();
+    await expect(currentSignalTool.execute("current-retry", {
+      kind: "finding",
+      summary: "current retry finding",
+      evidence: "second.ts:1",
+      impact: "当前 attempt 可用",
+    })).resolves.toMatchObject({ details: { signal: { ok: true } } });
+    expect(manager.get(accepted!.workerId)?.latestFinding).toBe("current retry finding");
+
+    finishSecond();
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+    manager.shutdown();
+  });
+
   it("主代理只能相邻升级 T3→T2", async () => {
     let resolvePrompt!: () => void;
     const first = { prompt: mock(() => new Promise<void>((resolve) => { resolvePrompt = resolve; })), abort: mock(() => { resolvePrompt(); return Promise.resolve(); }), messages: [] };

@@ -13,7 +13,7 @@ import { makeSignalTool } from "./signal-tool.js";
 import { makeReportTool, parseWorkerReport } from "./report-tool.js";
 import { sanitizeSensitive, sanitizeUnknown, truncate } from "./sanitize.js";
 import { appendUsageLedger } from "./usage-ledger.js";
-import { MAX_WORKERS_PER_DISPATCH, REPORT_TOOL_NAME, SIGNAL_TOOL_NAME, type ActionableFinding, type ControlAction, type DispatchAccepted, type DteamControlResult, type DteamWaitResult, type ParentEvent, type ParentResponse, type RecoveryAction, type TimeoutDiagnostic, type WaitRequest, type WorkerNoOutputDiagnostics, type WorkerReport, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
+import { MAX_WORKERS_PER_DISPATCH, REPORT_TOOL_NAME, SIGNAL_TOOL_NAME, type ActionableFinding, type ControlCommandSnapshot, type ControlAction, type DispatchAccepted, type DteamControlResult, type DteamWaitResult, type DteamWaitView, type ParentEvent, type ParentResponse, type PendingRequestSnapshot, type RecoveryAction, type TimeoutDiagnostic, type WaitRequest, type WorkerNoOutputDiagnostics, type WorkerReport, type WorkerRequest, type WorkerSignal, type WorkerSnapshot } from "./types.js";
 
 interface Waiter {
   workerIds: Set<string>;
@@ -50,6 +50,16 @@ interface QueuedParentEvent {
   delivery: ParentEventDelivery;
 }
 
+interface ControlCommand extends ControlCommandSnapshot {
+  candidateId: string;
+  instruction: string;
+}
+
+interface ControlEnqueueResult {
+  command: ControlCommandSnapshot;
+  supersededCommandIds: string[];
+}
+
 interface WorkerRecord extends WorkerSnapshot {
   controller: AbortController;
   session?: any;
@@ -78,6 +88,7 @@ interface WorkerRecord extends WorkerSnapshot {
   writeInterrupted?: boolean;
   gracefulStopRequested?: boolean;
   diagnosticLifecycleEvents?: string[];
+  controlCommands: Map<string, ControlCommand>;
 }
 
 export interface WorkerManagerOptions {
@@ -151,6 +162,7 @@ export class WorkerManager {
         toolCallBudget: toolCallBudgetForTier(request.tier),
         toolBudgetExtensionCount: 0,
         toolLimitReached: false,
+        controlCommands: new Map(),
       };
       this.records.set(id, record);
       this.signal(record, "worker_queued", {});
@@ -249,35 +261,88 @@ export class WorkerManager {
     if (!record || isTerminal(record.state)) throw new Error("dteam: worker 已结束或不存在");
     if (record.state !== "running") throw new Error("dteam: 主动控制只允许 running worker");
     if (action.action === "steer") {
+      if (record.gracefulStopRequested) throw new Error("dteam: worker 已请求优雅收敛");
       const instruction = controlText(action.instruction, "steering 指令");
-      await this.steer(workerId, instruction);
-      return { workerId, action: action.action, state: record.state };
+      const { command, supersededCommandIds } = await this.steer(workerId, instruction, "steer");
+      return { workerId, action: action.action, state: record.state, commandId: command.commandId, deliveryState: command.deliveryState, ...(supersededCommandIds.length ? { supersededCommandIds } : {}) };
     }
     if (action.action === "graceful_stop") {
       if (record.gracefulStopRequested) throw new Error("dteam: worker 已请求优雅收敛");
       const reason = optionalControlText(action.reason, "主代理要求优雅收敛");
       record.gracefulStopRequested = true;
       try {
-        await this.steer(workerId, gracefulStopInstruction(reason));
+        const { command, supersededCommandIds } = await this.steer(workerId, gracefulStopInstruction(reason), "graceful_stop");
+        this.signal(record, "graceful_stop_requested", { reason, commandId: command.commandId, deliveryState: command.deliveryState });
+        return { workerId, action: action.action, state: record.state, commandId: command.commandId, deliveryState: command.deliveryState, ...(supersededCommandIds.length ? { supersededCommandIds } : {}) };
       } catch (error) {
         record.gracefulStopRequested = false;
         throw error;
       }
-      this.signal(record, "graceful_stop_requested", { reason });
-      return { workerId, action: action.action, state: record.state };
     }
     const reason = optionalControlText(action.reason, "主代理强制取消");
     const writeInterrupted = this.cancel(workerId, reason, false, "main");
     return { workerId, action: action.action, state: record.state, cancelInitiator: "main", ...(writeInterrupted ? { writeInterrupted } : {}) };
   }
 
-  async steer(workerId: string, instruction: string): Promise<void> {
+  async steer(workerId: string, instruction: string, action: "steer" | "graceful_stop" = "steer"): Promise<ControlEnqueueResult> {
     const record = this.records.get(workerId);
     if (!record || isTerminal(record.state)) throw new Error("dteam: worker 已结束或不存在");
     if (!instruction.trim()) throw new Error("dteam: steering 指令不能为空");
     if (!record.session?.steer) throw new Error("dteam: worker session 尚未可接管");
-    await record.session.steer(instruction);
-    this.signal(record, "steer", { instruction });
+    const supersededCommandIds = this.supersedeQueuedControls(record);
+    const command: ControlCommand = {
+      commandId: crypto.randomUUID(),
+      action,
+      deliveryState: "queued",
+      createdAt: Date.now(),
+      candidateId: record.activeCandidateId ?? "",
+      instruction,
+    };
+    record.controlCommands.set(command.commandId, command);
+    record.latestControl = controlSnapshot(command);
+    try {
+      await record.session.steer(instruction);
+    } catch (error) {
+      record.controlCommands.delete(command.commandId);
+      if (record.latestControl?.commandId === command.commandId) record.latestControl = undefined;
+      this.signal(record, "control_enqueue_failed", { commandId: command.commandId, action, error: errorMessage(error) });
+      throw error;
+    }
+    this.signal(record, "control_queued", { commandId: command.commandId, action, ...(supersededCommandIds.length ? { supersededCommandIds } : {}) });
+    return { command: controlSnapshot(command), supersededCommandIds };
+  }
+
+  private supersedeQueuedControls(record: WorkerRecord): string[] {
+    const queued = [...record.controlCommands.values()].filter((command) => command.deliveryState === "queued" && command.candidateId === record.activeCandidateId);
+    if (!queued.length) return [];
+    if (typeof record.session?.clearQueue !== "function") throw new Error("dteam: worker session 不支持 control 队列取代");
+    for (const command of queued) {
+      command.deliveryState = "superseded";
+      if (record.latestControl?.commandId === command.commandId) record.latestControl = controlSnapshot(command);
+    }
+    record.session.clearQueue();
+    for (const command of queued) this.signal(record, "control_superseded", { commandId: command.commandId, action: command.action });
+    return queued.map((command) => command.commandId);
+  }
+
+  private expireQueuedControls(record: WorkerRecord, reason: string): void {
+    for (const command of record.controlCommands.values()) {
+      if (command.deliveryState !== "queued") continue;
+      command.deliveryState = "expired";
+      if (record.latestControl?.commandId === command.commandId) record.latestControl = controlSnapshot(command);
+      this.signal(record, "control_expired", { commandId: command.commandId, action: command.action, reason });
+    }
+  }
+
+  private updateControlQueue(record: WorkerRecord, candidateId: string, steering: unknown): void {
+    if (candidateId !== record.activeCandidateId || !Array.isArray(steering)) return;
+    const queuedMessages = new Set(steering.filter((message): message is string => typeof message === "string"));
+    for (const command of record.controlCommands.values()) {
+      if (command.candidateId !== candidateId || command.deliveryState !== "queued" || queuedMessages.has(command.instruction)) continue;
+      command.deliveryState = "injected";
+      if (record.latestControl?.commandId === command.commandId) record.latestControl = controlSnapshot(command);
+      this.signal(record, "control_injected", { commandId: command.commandId, action: command.action });
+    }
   }
 
   cancel(workerId: string, reason = "user_cancelled", notifyParent = true, initiator: "user" | "main" | "system" = "user"): WriteInterruptedGuard | undefined {
@@ -288,6 +353,7 @@ export class WorkerManager {
     record.terminalReason = "user_cancelled";
     record.state = "cancelled";
     record.endedAt ??= Date.now();
+    this.expireQueuedControls(record, "worker_cancelled");
     this.requestState.cancelWorker(workerId, reason);
     record.controller.abort();
     this.clearRenderTimer(record);
@@ -310,6 +376,7 @@ export class WorkerManager {
     this.requestState.cancelWorker(record.id, "session_shutdown");
     record.controller.abort();
     this.clearRenderTimer(record);
+    this.expireQueuedControls(record, "session_shutdown");
     void closeSession(record.session);
     this.signal(record, "worker_shutdown", { reason: "session_shutdown", cancelInitiator: "system" });
     this.emit({ type: "cancelled", workerId: record.id, title: record.title, payload: { reason: "session_shutdown", state: record.state } });
@@ -375,9 +442,10 @@ export class WorkerManager {
     });
   }
 
-  async receiveSignal(workerId: string, signal: WorkerSignal): Promise<unknown> {
+  async receiveSignal(workerId: string, signal: WorkerSignal, candidateId?: string): Promise<unknown> {
     const record = this.records.get(workerId);
     if (!record || isTerminal(record.state)) throw new Error("dteam_signal: worker 已结束或不存在");
+    if (candidateId !== undefined && candidateId !== record.activeCandidateId) throw new Error("dteam_signal: worker 候选已失效");
     this.signal(record, signal.kind, signal);
     if (signal.kind === "request_tools") {
       try {
@@ -407,8 +475,8 @@ export class WorkerManager {
       return { type: "deny", reason };
     }
     record.state = "waiting";
-    this.signal(record, "worker_waiting", { requestId: signal.requestId, kind: signal.kind });
     const waiting = this.requestState.wait({ workerId, requestId: signal.requestId, kind: signal.kind, payload: signal });
+    this.signal(record, "worker_waiting", { requestId: signal.requestId, kind: signal.kind });
     const payload = signal.kind === "request_tool_budget"
       ? { ...signal, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount }
       : signal;
@@ -430,6 +498,7 @@ export class WorkerManager {
       if (isTerminal(record.state)) return;
       if (!record.report) throw new Error("worker 未提交必需的 dteam_report");
       record.state = "completed"; record.result = result; record.endedAt = Date.now();
+      this.expireQueuedControls(record, "worker_completed");
       await this.releaseSession(record);
       this.signal(record, "worker_completed", { result });
       this.emit({ type: "completed", workerId: record.id, title: record.title, payload: { result, report: this.reportWithProvenance(record), tier: record.activeTier, fallbackTrail: record.fallbackTrail, workerBoundary: { writeScope: [...(record.writeScope ?? [])], localOnly: true } } });
@@ -442,6 +511,7 @@ export class WorkerManager {
       record.state = "failed";
       record.terminalReason = errorMessage(error).includes("dteam_report") ? "missing_report" : "error";
       record.error = truncate(sanitizeSensitive(errorMessage(error)), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars); record.endedAt = Date.now();
+      this.expireQueuedControls(record, "worker_failed");
       await this.releaseSession(record);
       this.signal(record, "worker_failed", { error: record.error });
       const delivery: ParentEventDelivery = error instanceof WorkerNoOutputError && !record.report && !record.writeScope?.length ? "wait_only" : "follow_up";
@@ -475,6 +545,10 @@ export class WorkerManager {
       if (remainingBudget <= 0) throw new WorkerTimeoutError(`worker 累计预算已用尽（${formatDuration(record.totalBudgetMs)}）`);
       const attemptBudgetMs = Math.min(record.attemptBudgetMs, remainingBudget);
       const candidateId = crypto.randomUUID();
+      this.expireQueuedControls(record, "candidate_replaced");
+      record.controlCommands.clear();
+      record.latestControl = undefined;
+      record.contextUsage = undefined;
       record.activeCandidateId = candidateId;
       record.noOutputDiagnostics = undefined;
       record.diagnosticLifecycleEvents = workerDiagnosticsEnabled() ? [] : undefined;
@@ -487,7 +561,7 @@ export class WorkerManager {
           builtInTools: getTierTools(tier),
           registeredTools: [...new Set([...getTierTools(tier), ...record.policy.addTools, SIGNAL_TOOL_NAME, REPORT_TOOL_NAME])],
           initialActiveTools: record.activeTools,
-          customTools: [makeSignalTool(record.id, this), makeReportTool(record.id, candidateId, this)],
+          customTools: [makeSignalTool(record.id, candidateId, this), makeReportTool(record.id, candidateId, this)],
           thinkingLevel,
           logicalIsolation: true,
         }, attemptBudgetMs, record.controller.signal);
@@ -511,6 +585,7 @@ export class WorkerManager {
           unsubscribe();
         }
       } catch (error) {
+        this.expireQueuedControls(record, "candidate_failed");
         if (record.activeCandidateId === candidateId) record.activeCandidateId = undefined;
         if (!creationAccounted) this.chargeAttemptTime(record, creationStartedAt);
         lastError = error;
@@ -607,6 +682,7 @@ export class WorkerManager {
       currentTool: record.liveTool ?? "无",
       outputSummary,
     };
+    this.expireQueuedControls(record, "timeout_recovery");
     record.session = undefined;
     record.timeoutDiagnostic = diagnostic;
     record.liveTool = undefined;
@@ -686,6 +762,7 @@ export class WorkerManager {
     record.terminalReason = "error";
     record.error = reason;
     record.endedAt = Date.now();
+    this.expireQueuedControls(record, "tool_budget_exhausted");
     this.requestState.cancelWorker(record.id, reason);
     record.controller.abort();
     void closeSession(record.session);
@@ -700,6 +777,7 @@ export class WorkerManager {
     record.terminalReason = "timeout";
     record.error = reason ?? `worker 执行超时（${formatDuration(record.attemptBudgetMs)}）`;
     record.endedAt = Date.now();
+    this.expireQueuedControls(record, "timeout_stopped");
     this.signal(record, "worker_timed_out", { error: record.error, diagnostic: record.timeoutDiagnostic });
     if (notifyParent) this.emit({ type: "failed", workerId: record.id, title: record.title, payload: { error: record.error, state: record.state, diagnostic: record.timeoutDiagnostic } });
     const writeInterrupted = this.emitWriteInterrupted(record, record.error);
@@ -757,7 +835,9 @@ export class WorkerManager {
           usage: message.usage,
         }).catch((error) => this.signal(record, "usage_ledger_failed", { error: errorMessage(error) }));
       }
-      if (isTerminal(record.state)) return;
+      if (candidateId !== record.activeCandidateId || isTerminal(record.state)) return;
+      if (event?.type === "queue_update") this.updateControlQueue(record, candidateId, event.steering);
+      if (event?.type === "message_end" || event?.type === "compaction_end") this.sampleContextUsage(record, session, candidateId);
       if (event?.type === "message_update") {
         const delta = event.assistantMessageEvent;
         if (delta?.type === "text_delta" && typeof delta.delta === "string") record.liveText = truncate(sanitizeSensitive(`${record.liveText ?? ""}${delta.delta}`), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
@@ -924,6 +1004,35 @@ export class WorkerManager {
     return guard;
   }
 
+  private sampleContextUsage(record: WorkerRecord, session: any, candidateId: string): void {
+    if (candidateId !== record.activeCandidateId || typeof session?.getContextUsage !== "function") return;
+    let usage: unknown;
+    try { usage = session.getContextUsage(); } catch { record.contextUsage = undefined; return; }
+    if (!usage || typeof usage !== "object") {
+      record.contextUsage = undefined;
+      return;
+    }
+    const value = usage as Record<string, unknown>;
+    if (!Number.isFinite(value.contextWindow) || Number(value.contextWindow) < 1) {
+      record.contextUsage = undefined;
+      return;
+    }
+    const tokens = value.tokens === null ? null : Number.isFinite(value.tokens) ? Number(value.tokens) : null;
+    const percent = value.percent === null ? null : Number.isFinite(value.percent) ? Number(value.percent) : null;
+    record.contextUsage = { tokens, contextWindow: Number(value.contextWindow), percent, sampledAt: Date.now() };
+  }
+
+  private pendingRequestSnapshots(record: WorkerRecord): PendingRequestSnapshot[] {
+    return this.requestState.list()
+      .filter((request) => request.workerId === record.id)
+      .map((request) => ({
+        requestId: request.requestId,
+        kind: request.kind,
+        ...(requestSummary(request.payload) ? { summary: requestSummary(request.payload) } : {}),
+        responseTypes: responseTypesFor(request.kind),
+      }));
+  }
+
   private signal(record: WorkerRecord, kind: string, payload: unknown): void {
     const safePayload = sanitizeUnknown(payload);
     this.signalLog.append({ signalId: crypto.randomUUID(), workerId: record.id, at: Date.now(), kind, payload: safePayload });
@@ -934,7 +1043,9 @@ export class WorkerManager {
     if (!record) return undefined;
     const safe = (value?: string) => value === undefined ? undefined : truncate(sanitizeSensitive(value), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
     const diagnostic = record.timeoutDiagnostic ? { ...record.timeoutDiagnostic, lastActivity: safe(record.timeoutDiagnostic.lastActivity) ?? "", currentTool: safe(record.timeoutDiagnostic.currentTool) ?? "", outputSummary: safe(record.timeoutDiagnostic.outputSummary) ?? "" } : undefined;
-    return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], handoff: record.handoff, writeScope: record.writeScope, report: record.report, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), ...(record.cancelInitiator ? { cancelInitiator: record.cancelInitiator } : {}), terminalReason: record.terminalReason, ...(record.noOutputDiagnostics ? { noOutputDiagnostics: record.noOutputDiagnostics } : {}) };
+    const contextUsage = record.contextUsage ? { ...record.contextUsage } : undefined;
+    const latestControl = record.latestControl ? { ...record.latestControl } : undefined;
+    return { id: record.id, title: safe(record.title) ?? "", task: safe(record.task) ?? "", requestedTier: record.requestedTier, activeTier: record.activeTier, fallbackTrail: [...record.fallbackTrail], state: record.state, activeTools: [...record.activeTools], handoff: record.handoff, writeScope: record.writeScope, report: record.report, toolCallCount: record.toolCallCount, toolCallBudget: record.toolCallBudget, toolBudgetExtensionCount: record.toolBudgetExtensionCount, startedAt: record.startedAt, endedAt: record.endedAt, latestFinding: safe(record.latestFinding), liveText: safe(record.liveText), liveThinking: safe(record.liveThinking), liveTool: safe(record.liveTool), lastActivity: safe(record.lastActivity), ...(contextUsage ? { contextUsage } : {}), pendingRequests: this.pendingRequestSnapshots(record), ...(latestControl ? { latestControl } : {}), timeoutDiagnostic: diagnostic, result: safe(record.result), error: safe(record.error), cancelReason: safe(record.cancelReason), ...(record.cancelInitiator ? { cancelInitiator: record.cancelInitiator } : {}), terminalReason: record.terminalReason, ...(record.noOutputDiagnostics ? { noOutputDiagnostics: record.noOutputDiagnostics } : {}) };
   }
   private emit(event: ParentEvent, delivery: ParentEventDelivery = "follow_up"): void {
     const safeEvent: ParentEvent = {
@@ -999,6 +1110,70 @@ export class WorkerManager {
 
 }
 
+/** 只把主代理回应和审查所需的信息暴露给 dteam_wait 的 tool content/details。 */
+export function projectDteamWaitResult(result: DteamWaitResult): DteamWaitView {
+  return {
+    reason: result.reason,
+    targetWorkers: result.targetWorkers.map((worker) => ({ id: waitText(worker.id), title: waitText(worker.title) })),
+    waitedMs: result.waitedMs,
+    timeoutMs: result.timeoutMs,
+    events: result.events.map(projectWaitEvent),
+    ready: result.ready.map((worker) => ({
+      id: waitText(worker.id),
+      title: waitText(worker.title),
+      state: worker.state,
+      ...(worker.writeScope?.length ? { writeScope: worker.writeScope.map(waitText) } : {}),
+      ...(worker.report ? { report: copyWaitReport(worker.report) } : {}),
+      ...(worker.error ? { error: waitText(worker.error) } : {}),
+      ...(worker.timeoutDiagnostic ? { timeoutDiagnostic: { lastActivity: waitText(worker.timeoutDiagnostic.lastActivity) } } : {}),
+    })),
+    requests: result.requests.map((request) => ({
+      workerId: waitText(request.workerId),
+      requestId: waitText(request.requestId),
+      kind: waitText(request.kind),
+      ...(requestSummary(request.payload) ? { summary: requestSummary(request.payload) } : {}),
+      responseTypes: responseTypesFor(request.kind),
+    })),
+    pendingWorkerIds: result.pendingWorkerIds.map(waitText),
+  };
+}
+
+function projectWaitEvent(event: ParentEvent): DteamWaitView["events"][number] {
+  const payload = sanitizeUnknown(event.payload);
+  const value = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+  const findings = Array.isArray(value.findings)
+    ? value.findings
+      .filter((item): item is ActionableFinding => !!item && typeof item === "object" && typeof (item as any).summary === "string" && typeof (item as any).evidence === "string" && typeof (item as any).impact === "string")
+      .map(sanitizeFinding)
+    : undefined;
+  const writeScope = Array.isArray(value.writeScope)
+    ? value.writeScope.filter((item): item is string => typeof item === "string").map(waitText)
+    : undefined;
+  return {
+    type: event.type,
+    workerId: waitText(event.workerId),
+    title: waitText(event.title),
+    ...(findings?.length ? { findings } : {}),
+    ...(writeScope?.length ? { writeScope } : {}),
+    ...(typeof value.reason === "string" ? { reason: waitText(value.reason) } : {}),
+    ...(typeof value.error === "string" ? { error: waitText(value.error) } : {}),
+  };
+}
+
+function copyWaitReport(report: WorkerReport): WorkerReport {
+  return {
+    ...report,
+    activities: [...report.activities],
+    facts: report.facts.map((fact) => ({ ...fact })),
+    verification: { ...report.verification, evidence: [...report.verification.evidence], ...(report.verification.remaining ? { remaining: [...report.verification.remaining] } : {}) },
+    ...(report.uncertainties ? { uncertainties: [...report.uncertainties] } : {}),
+  };
+}
+
+function waitText(value: string): string {
+  return truncate(sanitizeSensitive(value), DTEAM_CONFIG.dispatch.maxRecoverySummaryChars);
+}
+
 class WorkerTimeoutError extends Error {
   constructor(message: string) { super(message); this.name = "WorkerTimeoutError"; }
 }
@@ -1053,15 +1228,35 @@ async function closeSession(session: any): Promise<void> {
   try { session.dispose?.(); } catch { /* dispose 失败不能阻止终态或回退 */ }
 }
 
+function responseTypesFor(requestKind: string): ParentResponse["type"][] {
+  if (requestKind === "timeout_recovery") return [];
+  const primary = requestKind === "request_context"
+    ? "provide_context"
+    : requestKind === "request_tools"
+      ? "grant_tools"
+      : requestKind === "request_tool_budget"
+        ? "grant_tool_budget"
+        : requestKind === "request_decision" || requestKind === "blocked"
+          ? "decision"
+          : undefined;
+  return primary ? [primary, "deny", "cancel"] : [];
+}
+
 function responseAllowed(requestKind: string, responseType: ParentResponse["type"]): boolean {
-  if (requestKind === "timeout_recovery") return false;
-  if (responseType === "deny") return true;
-  if (responseType === "cancel") return true;
-  if (requestKind === "request_context") return responseType === "provide_context";
-  if (requestKind === "request_tools") return responseType === "grant_tools";
-  if (requestKind === "request_tool_budget") return responseType === "grant_tool_budget";
-  if (requestKind === "request_decision" || requestKind === "blocked") return responseType === "decision";
-  return false;
+  return responseTypesFor(requestKind).includes(responseType);
+}
+
+function requestSummary(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const value = sanitizeUnknown(payload) as Record<string, unknown>;
+  if (typeof value.question === "string") return value.question;
+  if (typeof value.reason === "string") return value.reason;
+  if (Array.isArray(value.tools)) return value.tools.filter((tool): tool is string => typeof tool === "string").join(", ") || undefined;
+  return undefined;
+}
+
+function controlSnapshot(command: ControlCommand): ControlCommandSnapshot {
+  return { commandId: command.commandId, action: command.action, deliveryState: command.deliveryState, createdAt: command.createdAt };
 }
 
 function isTerminal(state: WorkerSnapshot["state"]): boolean {

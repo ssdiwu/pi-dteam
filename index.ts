@@ -3,7 +3,7 @@ import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext, type Exte
 import { matchesKey, Text } from "@earendil-works/pi-tui";
 import { AdaptiveConcurrency, DEFAULT_CONCURRENCY_CONFIG } from "./src/dispatch/concurrency.js";
 import { DTEAM_CONFIG } from "./src/config.js";
-import { WorkerManager } from "./src/runtime/worker-manager.js";
+import { WorkerManager, projectDteamWaitResult } from "./src/runtime/worker-manager.js";
 import { sanitizeUnknown } from "./src/runtime/sanitize.js";
 import { formatDteamConfigWarning, loadDteamConfig, saveDteamConfig, type DteamConfigStatus } from "./src/session/model-config.js";
 import type { Tier } from "./src/types/dispatch.js";
@@ -273,8 +273,8 @@ export default function registerDteam(pi: ExtensionAPI) {
         publishProgress();
         const progressTimer = setInterval(publishProgress, 1_000);
         try {
-          const result = await waiting;
-          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: { result } };
+          const view = projectDteamWaitResult(await waiting);
+          return { content: [{ type: "text" as const, text: humanizeToolResult("wait", { details: { result: view } }, true) }], details: { result: view } };
         } finally { clearInterval(progressTimer); }
       } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
     },

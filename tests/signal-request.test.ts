@@ -52,16 +52,16 @@ describe("SignalLog and RequestState", () => {
 
 describe("dteam_signal finding parser", () => {
   it("要求 finding 提供非空 evidence 和 impact", async () => {
-    const host = { receiveSignal: mock(async (_workerId: string, signal: any) => ({ ok: true, signal })) };
-    const tool = makeSignalTool("w", host);
+    const host = { receiveSignal: mock(async (_workerId: string, signal: any, _candidateId?: string) => ({ ok: true, signal })) };
+    const tool = makeSignalTool("w", "candidate", host);
     await expect(tool.execute("call", { kind: "finding", summary: "发现", evidence: "证据" })).rejects.toThrow("finding.impact");
     await expect(tool.execute("call", { kind: "finding", summary: "发现", evidence: "证据", impact: "改变路由" })).resolves.toMatchObject({ details: { signal: { ok: true } } });
-    expect(host.receiveSignal).toHaveBeenCalledWith("w", { kind: "finding", summary: "发现", evidence: "证据", impact: "改变路由" });
+    expect(host.receiveSignal).toHaveBeenCalledWith("w", { kind: "finding", summary: "发现", evidence: "证据", impact: "改变路由" }, "candidate");
   });
 
   it("拒绝 finding 的额外字段和超长字段，并与公开 schema 一致", async () => {
-    const host = { receiveSignal: mock(async (_workerId: string, signal: any) => ({ ok: true, signal })) };
-    const tool = makeSignalTool("w", host);
+    const host = { receiveSignal: mock(async (_workerId: string, signal: any, _candidateId?: string) => ({ ok: true, signal })) };
+    const tool = makeSignalTool("w", "candidate", host);
     expect(tool.parameters.additionalProperties).toBe(false);
     expect(tool.parameters.properties.summary).toMatchObject({ minLength: 1, maxLength: 1000 });
     await expect(tool.execute("call", { kind: "finding", summary: "发现", evidence: "证据", impact: "改变路由", extra: "拒绝" })).rejects.toThrow("不允许字段");
@@ -267,5 +267,20 @@ describe("worker signal protocol", () => {
     managerInstance.cancel(accepted.workerId, "test");
     expect(() => managerInstance.respond(accepted.workerId, "r1", { type: "decision", decision: "late" })).toThrow();
     await waiting;
+  });
+
+  it("snapshot 投影脱敏后的 pending request 与精确允许回应类型", async () => {
+    const instance = manager();
+    const accepted = instance.dispatch([{ title: "投影请求", task: "task", tier: "T1" }])[0]!;
+    const waiting = instance.receiveSignal(accepted.workerId, { kind: "request_decision", requestId: "decision-1", question: "token=sk-12345678901234567890 是否继续" });
+    await waitFor(() => expect(instance.get(accepted.workerId)?.state).toBe("waiting"));
+    const snapshot = instance.get(accepted.workerId)!;
+    expect(snapshot.pendingRequests).toEqual([expect.objectContaining({ requestId: "decision-1", kind: "request_decision", responseTypes: ["decision", "deny", "cancel"] })]);
+    expect(JSON.stringify(snapshot.pendingRequests)).not.toContain("sk-12345678901234567890");
+    expect(instance.signalLog.snapshot(accepted.workerId)?.pendingRequests).toEqual(snapshot.pendingRequests);
+    instance.respond(accepted.workerId, "decision-1", { type: "decision", decision: "继续" });
+    await expect(waiting).resolves.toEqual({ type: "decision", decision: "继续" });
+    expect(instance.get(accepted.workerId)?.pendingRequests).toEqual([]);
+    instance.shutdown();
   });
 });

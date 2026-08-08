@@ -237,6 +237,122 @@ describe("WorkerManager", () => {
     expect(manager.get(accepted!.workerId)).toMatchObject({ terminalReason: "missing_report", error: expect.stringContaining("dteam_report") });
   });
 
+  it("旧候选迟到的 progress、finding 和 request 不得污染正在运行的 same-tier fallback", async () => {
+    let rejectPrimary!: (error: Error) => void;
+    let finishFallback!: () => void;
+    let staleSignalTool: any;
+    let currentSignalTool: any;
+    const primary = {
+      prompt: mock(() => new Promise<void>((_resolve, reject) => { rejectPrimary = reject; })),
+      abort: mock().mockResolvedValue(undefined),
+      setActiveToolsByName: mock(),
+      messages: [],
+    };
+    const fallback = {
+      prompt: mock(() => new Promise<void>((resolve) => { finishFallback = resolve; })),
+      abort: mock().mockResolvedValue(undefined),
+      setActiveToolsByName: mock(),
+      messages: [{ role: "assistant", content: [{ type: "text", text: "fallback result without report" }] }],
+    };
+    mockCreateWorkerSession
+      .mockImplementationOnce(async (input: any) => {
+        staleSignalTool = input.customTools[0];
+        return primary;
+      })
+      .mockImplementationOnce(async (input: any) => {
+        currentSignalTool = input.customTools[0];
+        return fallback;
+      });
+    const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/primary", fallbackModels: ["ctx/fallback"] } } }));
+    const [accepted] = manager.dispatch([{ title: "迟到信号隔离", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(primary.prompt).toHaveBeenCalled());
+    rejectPrimary(new Error("primary failed"));
+    await waitFor(() => expect(fallback.prompt).toHaveBeenCalled());
+
+    const settleWithin = (promise: Promise<unknown>) => Promise.race([
+      promise.then((value) => ({ status: "resolved" as const, value }), (error) => ({ status: "rejected" as const, error })),
+      new Promise<{ status: "pending" }>((resolve) => setTimeout(() => resolve({ status: "pending" }), 20)),
+    ]);
+    const staleSignals = [
+      { kind: "progress", message: "late primary progress" },
+      { kind: "finding", summary: "late primary finding", evidence: "primary.ts:1", impact: "不得改变 fallback" },
+      { kind: "request_context", requestId: "late-primary-context", question: "stale question" },
+      { kind: "request_tools", requestId: "late-primary-tools", tools: ["read"], reason: "stale tools" },
+      { kind: "request_tool_budget", requestId: "late-primary-budget", reason: "stale budget" },
+      { kind: "request_decision", requestId: "late-primary-decision", question: "stale decision" },
+      { kind: "blocked", requestId: "late-primary-blocked", reason: "stale block" },
+    ];
+    const staleOutcomes: Array<{ status: string; error?: unknown }> = [];
+    let staleRequestAccepted = false;
+    for (const [index, signal] of staleSignals.entries()) {
+      const call = staleSignalTool.execute(`late-primary-${index}`, signal);
+      const outcome = await settleWithin(call);
+      staleOutcomes.push(outcome as { status: string; error?: unknown });
+      if (outcome.status === "pending") {
+        const requestId = (signal as any).requestId;
+        staleRequestAccepted ||= manager.requestState.list().some((request) => request.requestId === requestId);
+        if (requestId && staleRequestAccepted) {
+          manager.respond(accepted!.workerId, requestId, { type: "deny", reason: "test cleanup" });
+          await call;
+        }
+      }
+    }
+    const staleLatestFinding = manager.get(accepted!.workerId)?.latestFinding;
+    const staleProtocolSignals = manager.signalLog.eventsFor(accepted!.workerId)
+      .filter((event) => ["progress", "finding", "request_context", "request_tools", "request_tool_budget", "request_decision", "blocked"].includes(event.kind));
+
+    const currentResult = await currentSignalTool.execute("current-fallback", {
+      kind: "finding",
+      summary: "current fallback finding",
+      evidence: "fallback.ts:1",
+      impact: "当前候选可以改变路由",
+    });
+    const currentLatestFinding = manager.get(accepted!.workerId)?.latestFinding;
+
+    finishFallback();
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+    manager.shutdown();
+    expect(staleOutcomes).toHaveLength(staleSignals.length);
+    for (const outcome of staleOutcomes) {
+      expect(outcome.status).toBe("rejected");
+      expect(String(outcome.error)).toContain("候选已失效");
+    }
+    expect(staleLatestFinding).toBeUndefined();
+    expect(staleProtocolSignals).toEqual([]);
+    expect(staleRequestAccepted).toBe(false);
+    expect(currentResult).toMatchObject({ details: { signal: { ok: true } } });
+    expect(currentLatestFinding).toBe("current fallback finding");
+  });
+
+  it("旧 candidate 的迟到 context event 不得覆盖 fallback 的 context usage", async () => {
+    let rejectPrimary!: (error: Error) => void;
+    let finishFallback!: () => void;
+    let primaryListener!: (event: any) => void;
+    let fallbackListener!: (event: any) => void;
+    const primary: any = {
+      prompt: mock(() => new Promise<void>((_resolve, reject) => { rejectPrimary = reject; })),
+      abort: mock().mockResolvedValue(undefined), messages: [], getContextUsage: mock(() => ({ tokens: 200, contextWindow: 1_000, percent: 20 })),
+      subscribe: mock((callback: (event: any) => void) => { primaryListener = callback; return () => {}; }),
+    };
+    const fallback: any = {
+      prompt: mock(() => new Promise<void>((resolve) => { finishFallback = resolve; })),
+      abort: mock().mockResolvedValue(undefined), messages: [], getContextUsage: mock(() => ({ tokens: 50, contextWindow: 1_000, percent: 5 })),
+      subscribe: mock((callback: (event: any) => void) => { fallbackListener = callback; return () => {}; }),
+    };
+    mockCreateWorkerSession.mockResolvedValueOnce(primary).mockResolvedValueOnce(fallback);
+    const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/primary", fallbackModels: ["ctx/fallback"] } } }));
+    const [accepted] = manager.dispatch([{ title: "context attempt 隔离", task: "任务", tier: "T3" }]);
+    await waitFor(() => expect(primary.prompt).toHaveBeenCalled());
+    rejectPrimary(new Error("primary failed"));
+    await waitFor(() => expect(fallback.prompt).toHaveBeenCalled());
+    fallbackListener({ type: "message_end", message: { role: "assistant" } });
+    expect(manager.get(accepted!.workerId)?.contextUsage).toMatchObject({ tokens: 50, percent: 5 });
+    primaryListener({ type: "message_end", message: { role: "assistant" } });
+    expect(manager.get(accepted!.workerId)?.contextUsage).toMatchObject({ tokens: 50, percent: 5 });
+    finishFallback();
+    await waitFor(() => expect(manager.get(accepted!.workerId)?.state).toBe("failed"));
+  });
+
   it("模型候选后缀覆盖 worker thinking，回退保持候选顺序", async () => {
     mockCreateWorkerSession.mockResolvedValue(session("完成"));
     const manager = new WorkerManager(options({ tierModelRoutes: { T3: { primary: "ctx/model:high", fallbackModels: ["ctx/fallback:low"] } } }));

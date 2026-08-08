@@ -169,6 +169,56 @@ describe("dteam next-major extension entry", () => {
     expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ details: { waiting: expect.objectContaining({ targetWorkers: [{ id: workerId, title: "等待检查" }], timeoutMs: 10 }) } }));
   });
 
+  it("wait execute 只返回脱敏投影，不泄露 task 或 request payload", async () => {
+    let signalTool: any;
+    const hanging = { prompt: mock(() => new Promise<void>(() => {})), abort: mock().mockResolvedValue(undefined), messages: [] };
+    mockCreateWorkerSession.mockImplementationOnce(async (input: any) => {
+      signalTool = input.customTools[0];
+      return hanging;
+    });
+    const { pi, tools } = register();
+    const ctx = context();
+    const dispatched = await tools.dteam_dispatch.execute("dispatch", {
+      workers: [{ title: "等待投影", task: "内部任务：不要出现在 wait 返回中", tier: "T3" }],
+    }, undefined, undefined, ctx);
+    const workerId = dispatched.details.accepted[0].workerId;
+    await waitFor(() => expect(hanging.prompt).toHaveBeenCalled());
+
+    const waiting = tools.dteam_wait.execute("wait", { workerIds: [workerId], timeoutMs: 1_000 }, undefined, undefined, ctx);
+    const requested = signalTool.execute("request", {
+      kind: "request_decision",
+      requestId: "projection-request",
+      question: "请确认继续",
+      candidates: ["仅原始 payload 可见的候选"],
+      recommendation: "仅原始 payload 可见的建议",
+    });
+    const result = await waiting;
+
+    expect(result.content[0].text).toContain("需要回应");
+    expect(result.content[0].text).toContain("请确认继续");
+    expect(result.content[0].text).not.toContain("内部任务：不要出现在 wait 返回中");
+    expect(result.content[0].text).not.toContain("仅原始 payload 可见的候选");
+    expect(result.content[0].text).not.toContain("{");
+    expect(result.details.result.ready[0]).not.toHaveProperty("task");
+    expect(result.details.result.events[0]).not.toHaveProperty("payload");
+    expect(result.details.result.requests[0]).toMatchObject({
+      workerId,
+      requestId: "projection-request",
+      kind: "request_decision",
+      summary: "请确认继续",
+      responseTypes: ["decision", "deny", "cancel"],
+    });
+    expect(result.details.result.requests[0]).not.toHaveProperty("payload");
+    await tools.dteam_respond.execute("respond", {
+      workerId,
+      requestId: "projection-request",
+      response: { type: "decision", decision: "继续" },
+    }, undefined, undefined, ctx);
+    await expect(requested).resolves.toMatchObject({ details: { signal: { type: "decision", decision: "继续" } } });
+
+    pi.on.mock.calls.find(([event]: any[]) => event === "session_shutdown")?.[1]({}, ctx);
+  });
+
   it("wait 消费完成事件后仍清理状态栏", async () => {
     let finish!: () => void;
     const session = {
@@ -405,8 +455,8 @@ describe("dteam next-major extension entry", () => {
     await waitFor(() => { expect(aTerminal).toBe(true); expect(bTerminal).toBe(true); });
 
     const waited = await tools.dteam_wait.execute("wait", { workerIds: [workerA.workerId, workerB.workerId], timeoutMs: 1_000 }, undefined, undefined, ctx);
-    const bCompleted = waited.details.result.events.find((event: any) => event.workerId === workerB.workerId && event.type === "completed");
-    expect(bCompleted?.payload?.report).toMatchObject({
+    const bCompleted = waited.details.result.ready.find((worker: any) => worker.id === workerB.workerId && worker.state === "completed");
+    expect(bCompleted?.report).toMatchObject({
       outcome: "partial",
       summary: expect.stringContaining("B 已采用安全路径"),
       facts: [expect.objectContaining({ claim: "B 按主代理纠偏" })],

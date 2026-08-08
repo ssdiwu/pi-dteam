@@ -13,11 +13,11 @@ const SIGNAL_FIELDS_BY_KIND: Record<string, ReadonlySet<string>> = {
 };
 
 export interface SignalToolHost {
-  receiveSignal(workerId: string, signal: WorkerSignal): Promise<unknown>;
+  receiveSignal(workerId: string, signal: WorkerSignal, candidateId: string): Promise<unknown>;
 }
 
-/** 每个 worker 独享的 signal 工具；它不暴露给主代理。 */
-export function makeSignalTool(workerId: string, host: SignalToolHost): any {
+/** 每个 worker candidate 独享的 signal 工具；它不暴露给主代理。 */
+export function makeSignalTool(workerId: string, candidateId: string, host: SignalToolHost): any {
   return {
     name: "dteam_signal",
     label: "dteam signal",
@@ -44,7 +44,7 @@ export function makeSignalTool(workerId: string, host: SignalToolHost): any {
       required: ["kind"],
     },
     async execute(_toolCallId: string, params: unknown) {
-      const result = await host.receiveSignal(workerId, parseSignal(params));
+      const result = await host.receiveSignal(workerId, parseSignal(params), candidateId);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],
         details: { signal: result },

@@ -159,4 +159,15 @@ describe("/dteam dialog rendering", () => {
     expect(workersForView(items, "active").map((item) => item.id)).toEqual(["worker-1", "worker-2"]);
     expect(workersForView(items, "history").map((item) => item.id)).toEqual(["worker-3"]);
   });
+  it("详情显示只读 context、待回应摘要和 control 投递状态", () => {
+    const text = renderWorkerDetail({
+      ...base,
+      contextUsage: { tokens: 81_234, contextWindow: 262_144, percent: 31, sampledAt: 1 },
+      pendingRequests: [{ requestId: "ctx-1", kind: "request_context", summary: "需要当前约束", responseTypes: ["provide_context", "deny", "cancel"] }],
+      latestControl: { commandId: "control-1", action: "steer", deliveryState: "queued", createdAt: 1 },
+    } as WorkerSnapshot).join("\n");
+    expect(text).toContain("上下文：31% · 81234/262144");
+    expect(text).toContain("待回应：request_context · request ctx-1 · provide_context");
+    expect(text).toContain("控制：steer · queued · command control-1");
+  });
 });

@@ -30,6 +30,17 @@ describe("human-readable tool result projection", () => {
     expect(result).not.toContain("{");
   });
 
+  it("control 展开区分排队投递与 worker 已执行", () => {
+    const result = humanizeToolResult("control", {
+      details: {
+        result: { workerId: "w", action: "steer", state: "running", commandId: "control-1", deliveryState: "queued", supersededCommandIds: ["control-0"] },
+        action: { action: "steer", instruction: "改查新路径" },
+      },
+    }, true);
+    expect(result).toContain("控制命令：control-1 · 投递：queued（尚未证明 worker 已执行）");
+    expect(result).toContain("已取代 1 条排队指令");
+  });
+
   it("wait 默认摘要，展开显示人类可读 worker、request 与 pending", () => {
     const result = {
       content: [{ type: "text", text: '{"reason":"worker_event"}' }],
@@ -39,17 +50,17 @@ describe("human-readable tool result projection", () => {
         waitedMs: 1_250,
         timeoutMs: 60_000,
         events: [
-          { type: "finding", workerId: "w1", title: "检查", payload: { findings: [{ summary: "影响 B", evidence: "src/a.ts:4", impact: "B 改走安全路径" }, { summary: "第二发现", evidence: "src/b.ts:8", impact: "需要 T2 复核" }] } },
-          { type: "write_interrupted", workerId: "w1", title: "检查", payload: { reason: "worker failed", writeScope: ["src/runtime/"] } },
+          { type: "finding", workerId: "w1", title: "检查", findings: [{ summary: "影响 B", evidence: "src/a.ts:4", impact: "B 改走安全路径" }, { summary: "第二发现", evidence: "src/b.ts:8", impact: "需要 T2 复核" }] },
+          { type: "write_interrupted", workerId: "w1", title: "检查", reason: "worker failed", writeScope: ["src/runtime/"] },
         ],
-        ready: [{ id: "w1", title: "检查", state: "completed", requestedTier: "T3", activeTier: "T3", fallbackTrail: [], activeTools: [], writeScope: ["src/runtime/"], report: workerReport({
+        ready: [{ id: "w1", title: "检查", state: "completed", writeScope: ["src/runtime/"], report: workerReport({
           summary: "发现入口",
           activities: ["inspected", "tested"],
           facts: [{ claim: "入口存在", evidence: "src/index.ts:1" }],
           verification: { depth: "automated", status: "partial", evidence: ["npm test 通过"], remaining: ["未做运行时复测"] },
           uncertainties: ["真实 provider \u001b[31m未验证"],
         }) }],
-        requests: [{ workerId: "w2", requestId: "r2", kind: "request_context", payload: { question: "ignored" } }],
+        requests: [{ workerId: "w2", requestId: "r2", kind: "request_context", summary: "已提供", responseTypes: ["provide_context", "deny", "cancel"] }],
         pendingWorkerIds: ["w3"],
       } },
     };
@@ -71,8 +82,24 @@ describe("human-readable tool result projection", () => {
     expect(expanded).toContain("事实：入口存在 ← src/index.ts:1");
     expect(expanded).toContain("不确定：真实 provider �[31m未验证");
     expect(expanded).not.toContain("\u001b");
-    expect(expanded).toContain("需要回应 · w2 · request_context · request r2 · 请提供：ignored");
+    expect(expanded).toContain("需要回应 · w2 · request_context · request r2 · 请提供：已提供");
     expect(expanded).toContain("本轮无事件：w3");
     expect(expanded).not.toContain("{");
+  });
+  it("wait 展开提供不暴露 JSON 的精确回应提示", () => {
+    const result = humanizeToolResult("wait", {
+      details: { result: {
+        reason: "worker_event", targetWorkers: [{ id: "w1", title: "请求" }], waitedMs: 0, timeoutMs: 1_000, events: [], ready: [], pendingWorkerIds: [],
+        requests: [
+          { workerId: "w1", requestId: "context", kind: "request_context", summary: "给上下文", responseTypes: ["provide_context", "deny", "cancel"] },
+          { workerId: "w1", requestId: "tools", kind: "request_tools", summary: "edit", responseTypes: ["grant_tools", "deny", "cancel"] },
+          { workerId: "w1", requestId: "decision", kind: "request_decision", summary: "选择路径", responseTypes: ["decision", "deny", "cancel"] },
+        ],
+      } },
+    }, true);
+    expect(result).toContain("回应提示：dteam_respond · workerId=w1 · requestId=context · response.type=provide_context · context=…");
+    expect(result).toContain("回应提示：dteam_respond · workerId=w1 · requestId=tools · response.type=grant_tools · tools=…");
+    expect(result).toContain("回应提示：dteam_respond · workerId=w1 · requestId=decision · response.type=decision · decision=…");
+    expect(result).not.toContain("{");
   });
 });

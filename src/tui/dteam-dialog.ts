@@ -100,6 +100,18 @@ export function renderWorkerDetail(item: WorkerSnapshot, theme?: ThemeLike, widt
     translate("dialog.elapsed", { value: elapsed(item, translate) }),
     translate("dialog.tools", { value: item.activeTools.map(safeText).join(", ") || translate("dialog.none") }),
     translate("dialog.fallback", { value: item.fallbackTrail.length > 1 ? item.fallbackTrail.map(safeText).join(" → ") : translate("dialog.none") }),
+    ...(item.contextUsage ? [translate("dialog.context", { value: contextUsageText(item) })] : []),
+    ...(item.pendingRequests ?? []).map((request) => translate("dialog.pendingRequest", {
+      kind: safeText(request.kind),
+      requestId: safeText(request.requestId),
+      responseType: safeText(request.responseTypes[0] ?? "dteam_recover"),
+      summary: request.summary ? ` · ${safeText(request.summary)}` : "",
+    })),
+    ...(item.latestControl ? [translate("dialog.control", {
+      action: safeText(item.latestControl.action),
+      deliveryState: safeText(item.latestControl.deliveryState),
+      commandId: safeText(item.latestControl.commandId),
+    })] : []),
     translate("dialog.task", { value: safeText(item.task) || translate("dialog.noTask") }),
     ...(item.writeScope?.length ? [translate("dialog.writeScope", { value: item.writeScope.map(safeText).join(", ") })] : []),
     ...(item.liveText ? [translate("dialog.liveText", { value: safeText(item.liveText) })] : []),
@@ -145,6 +157,13 @@ function safeText(value: string): string {
 function elapsed(item: WorkerSnapshot, translate: Translate = t): string {
   if (!item.startedAt) return translate("state.queued");
   return formatDuration(Math.max(0, (item.endedAt ?? Date.now()) - item.startedAt));
+}
+
+function contextUsageText(item: WorkerSnapshot): string {
+  const usage = item.contextUsage!;
+  const percent = usage.percent === null ? "?" : `${Math.round(usage.percent)}%`;
+  const tokens = usage.tokens === null ? "?" : String(Math.round(usage.tokens));
+  return `${percent} · ${tokens}/${Math.round(usage.contextWindow)}`;
 }
 
 function timeoutLabel(item: WorkerSnapshot, translate: Translate): string {

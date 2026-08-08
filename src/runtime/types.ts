@@ -23,10 +23,22 @@ export type ControlAction =
   | { action: "cancel"; reason?: string };
 
 export type DteamControlParams = { workerId: string } & ControlAction;
+/** control 已离开 Pi 队列只表示已注入下一 agent turn，不表示 worker 已理解或执行。 */
+export type ControlDeliveryState = "queued" | "injected" | "superseded" | "expired";
+export interface ControlCommandSnapshot {
+  commandId: string;
+  action: "steer" | "graceful_stop";
+  deliveryState: ControlDeliveryState;
+  createdAt: number;
+}
 export interface DteamControlResult {
   workerId: string;
   action: ControlAction["action"];
   state: WorkerState;
+  /** 仅 steer / graceful_stop：已提交队列或可观察到离开队列的内部投递状态。 */
+  commandId?: string;
+  deliveryState?: ControlDeliveryState;
+  supersededCommandIds?: string[];
   cancelInitiator?: "main";
   writeInterrupted?: { reason?: string; writeScope: string[] };
 }
@@ -123,6 +135,22 @@ export interface WorkerNoOutputDiagnostics {
   elapsedMs: number;
 }
 
+export interface WorkerContextUsage {
+  /** Pi 估算的当前 candidate context tokens；压缩后可为 null。 */
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+  sampledAt: number;
+}
+export interface PendingRequestSnapshot {
+  requestId: string;
+  kind: string;
+  /** 脱敏且有界的 question / reason / tools 摘要，不保留原始 payload。 */
+  summary?: string;
+  /** dteam_respond 可接受的具体 response.type；timeout_recovery 为空并走 dteam_recover。 */
+  responseTypes: ParentResponse["type"][];
+}
+
 export interface WorkerSnapshot {
   id: string;
   title: string;
@@ -145,6 +173,12 @@ export interface WorkerSnapshot {
   liveThinking?: string;
   liveTool?: string;
   lastActivity?: string;
+  /** 当前 active candidate 的只读上下文采样；缺 API 时省略。 */
+  contextUsage?: WorkerContextUsage;
+  /** 当前 worker 的脱敏 pending request 投影。 */
+  pendingRequests?: PendingRequestSnapshot[];
+  /** 最近一条当前 candidate control 的真实队列状态；不代表已执行。 */
+  latestControl?: ControlCommandSnapshot;
   timeoutDiagnostic?: TimeoutDiagnostic;
   result?: string;
   error?: string;
@@ -182,6 +216,37 @@ export interface DteamWaitResult {
   ready: WorkerSnapshot[];
   requests: WaitRequest[];
   /** 本轮未进入 ready 的目标 ID；尤其在 worker_event 时不表示仍在运行或仍需继续等待。 */
+  pendingWorkerIds: string[];
+}
+
+/** dteam_wait 对主代理与会话记录暴露的有界投影；不携带 WorkerSnapshot.task 或原始 event/request payload。 */
+export interface DteamWaitEventView {
+  type: ParentEvent["type"];
+  workerId: string;
+  title: string;
+  findings?: ActionableFinding[];
+  writeScope?: string[];
+  reason?: string;
+  error?: string;
+}
+export interface DteamWaitWorkerView {
+  id: string;
+  title: string;
+  state: WorkerState;
+  writeScope?: string[];
+  report?: WorkerReport;
+  error?: string;
+  timeoutDiagnostic?: Pick<TimeoutDiagnostic, "lastActivity">;
+}
+export interface DteamWaitRequestView extends PendingRequestSnapshot { workerId: string }
+export interface DteamWaitView {
+  reason: DteamWaitResult["reason"];
+  targetWorkers: WaitTarget[];
+  waitedMs: number;
+  timeoutMs: number;
+  events: DteamWaitEventView[];
+  ready: DteamWaitWorkerView[];
+  requests: DteamWaitRequestView[];
   pendingWorkerIds: string[];
 }
 
