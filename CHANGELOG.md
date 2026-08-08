@@ -7,20 +7,24 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-09
 ### Added
 - 新增第五个模型工具 `dteam_control`：主代理无需 `requestId` 即可对 `running` worker 执行 `steer`、`graceful_stop` 或 `cancel`；主动控制不授予工具、不扩大 `writeScope`，可写 worker 被强制取消时同步返回中断守卫。
 - worker 可提交带 `summary` / `evidence` / `impact` 的可行动 `finding`；事件按 worker 有界合并去重，并由 `dteam_wait` 或 idle / settled follow-up 单次消费，普通 `progress` 仍只更新可观察状态。
+- Worker Snapshot 与 `/dteam` 详情新增只读 context usage、脱敏 pending request 摘要和精确 response type；展开 `dteam_wait` 会给出可读的 `dteam_respond` / `dteam_recover` 回应提示。
 
 ### Changed
 - 主代理运行中主动协调成为默认能力：主模型消费可行动发现后自行决定跨 worker 转发、纠偏、优雅收敛或强制取消；Worker Manager 继续只负责传递、生命周期和安全边界，不恢复 Orchestrator Loop、轮询、worker P2P 或自动派发。
 - `dteam_signal(kind="finding")` 现在要求三个非空且不超过 1000 字符的字段，并按 signal kind 拒绝额外或跨类型字段；升级后需在 Pi 中执行 `/reload` 使第五个公开工具与新 schema 生效。
+- 主动 control 现在有内部 command ID 与 `queued / injected / superseded / expired` 投递状态；连续 steer 或 graceful stop 在逻辑隔离的同一 worker session 内采用 latest-wins，且所有展示明确不把离开队列外推为 worker 已执行。
 
 ### Fixed
 - 主代理空闲时的短窗重复 finding 采用有界延迟合并，避免同一 worker 的重复发现连续触发 follow-up；主代理取消、用户取消与 session shutdown 现在保留不同的 `cancelInitiator`，显式放弃 worker 时继续清理旧待回放事件。
 - 修正 `dteam_wait` 将 `pendingWorkerIds` 显示为“仍等待”的误导：结果投影改为“本轮返回 / 本轮无事件”，并明确 pending 只表示本轮未进入 `ready`，不代表 worker 仍在运行或必须继续等待；事件队列与单次消费行为不变。
+- 同档 fallback、timeout recovery 等待窗口或 timeout fresh recovery 后，前一 candidate 的迟到 `dteam_signal` 现在会在写入 Signal Log、Snapshot、Request State 或 parent event 前 fail-closed；signal 与 report 统一绑定当前 `candidateId`，避免旧 session 污染新 attempt。
+- 修正 Signal Log Snapshot 在阻塞请求已经注册到 Request State 后才投影，避免 `/dteam` 短暂显示缺失的 pending request；context usage 遇到 compaction unknown、缺 API 或 getter 异常时不再沿用旧值。
+- 修正 `dteam_wait` 的执行层曾把完整 JSON 写入会话 content/details：现在只返回人类可读、有界投影，不再暴露 worker task、完整 Snapshot 或原始 request/event payload。
 
-### Verification
-- `npm test`（22 files / 190 tests）、`git diff --check` 与 Pi 离线扩展加载通过；真实 Pi 双 worker 冒烟验证 A finding 早于终态、B 在 `running` 时接收 control，并以包含安全路径与纠偏事实的 `partial` 报告收敛。
 
 ## [0.9.3] - 2026-07-31
 ### Changed
